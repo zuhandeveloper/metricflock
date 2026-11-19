@@ -1,5 +1,1 @@
-{
-  "name": "@metricflock/worker",
-  "version": "0.1.0",
-  "private": true
-}
+{"dependencies":{"@metricflock/db":"workspace:*","@metricflock/jobs":"workspace:*","@metricflock/shared":"workspace:*","bullmq":"^6.7.7"},"devDependencies":{"@types/node":"^26.6.6","tsx":"^4.23.15","typescript":"^7.0.2"},"name":"@metricflock/worker","private":true,"scripts":{"dev":"DOTENV_CONFIG_PATH=../web/.env tsx --watch src/index.ts","start":"DOTENV_CONFIG_PATH=../web/.env tsx src/index.ts","typecheck":"tsc --noEmit"},"version":"0.1.0"}
