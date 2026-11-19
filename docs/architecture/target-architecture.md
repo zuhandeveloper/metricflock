@@ -94,7 +94,7 @@ metricflock/                          # repo root — pnpm workspace + Turborepo
 | `src/lib/env.ts`, `cache.ts`, `crypto.ts`, `validation.ts`, `rate-limit.ts` | `packages/shared/src/` | No internal deps; pure + Redis + Zod |
 | `src/lib/audit.ts`, `src/lib/health.ts` | `packages/db/src/` | They import Prisma, so they live with db (subpath exports `./audit`, `./health`), not shared |
 | `src/lib/analytics-handler.ts`, `src/lib/analytics-response.ts` | `apps/web/src/lib/` | Route-handler glue; stays with the app, not a package |
-| `src/workers/index.ts` | `apps/worker/src/index.ts` | Entry only; real fetch decision per ADR-0005 |
+| `src/workers/index.ts` | `apps/worker/src/index.ts` | Entry only at migration time; real fetch added per ADR-0005(a) on 2026-11-19 (sync engine in `packages/google/src/sync.ts`, scheduler in `apps/worker/src/scheduler.ts`) |
 | `src/app/**`, `src/components/**` | `apps/web/src/**` | Unchanged, except imports become package imports |
 | `next.config.ts`, `tailwind`, `public/`, `wrangler.jsonc` | `apps/web/` | App-scoped config moves with the app |
 | `docker-compose.yml`, root `package.json` scripts | repo root | Root scripts delegate: `turbo run build` etc. |
@@ -103,9 +103,10 @@ metricflock/                          # repo root — pnpm workspace + Turborepo
 
 ```
 apps/web    → db, auth, google, jobs, shared
-apps/worker → db, jobs, shared              (no auth: the worker uses Prisma directly,
-                                             never a user session; no google: the worker
-                                             is move-only and fetches nothing itself)
+apps/worker → db, jobs, shared, google      (no auth: the worker uses Prisma directly,
+                                             never a user session; google since
+                                             ADR-0005(a): the worker performs the
+                                             real fetch via @metricflock/google/sync)
 packages/auth   → db, shared
 packages/google → db, shared
 packages/jobs   → shared
@@ -150,7 +151,7 @@ Rules:
 | `DATABASE_URL` | yes | yes | `db` (validated in `db`, read in `shared/env`) |
 | `REDIS_URL` | yes (cache) | yes (queues) | `shared` |
 | `SESSION_SECRET` / `BETTER_AUTH_SECRET` | yes | no | `auth` |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | yes | no | `google` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | yes | yes (token refresh; redirect URI unused) | `google` |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | yes | yes | `google` |
 | `GOOGLE_*_ENABLED` flags | yes | yes | `google` |
 | `NEXT_PUBLIC_APP_URL` | yes | no | `web` |

@@ -1,7 +1,7 @@
 # ADR-0005: The Worker — Move First, Decide the Real Fetch Before Step 3.6
 
 Date: 2026-11-18
-Status: Proposed (Phase 2) — **decision required before migration step 3.6**
+Status: **Accepted — option (a) implemented 2026-11-19** (see "Outcome" below)
 
 ## Context
 
@@ -53,3 +53,34 @@ which today lives in one place (the sync route).
   known tech debt, not discovered later.
 - Either way, the worker stays a long-running Node process (see ADR-0006):
   BullMQ needs persistent Redis connections.
+
+## Outcome (2026-11-19)
+
+Option **(a)** was implemented after the migration completed (spec Phase 7):
+
+- `packages/google/src/sync.ts` — the sync engine: resolves the website/team
+  connection, calls the provider clients, warms the same Redis cache keys the
+  web dashboards read, and records integration health. Expected states (no
+  connection / no mapping / Ad Manager disabled / revoked grant) return a
+  status instead of throwing, so they never burn BullMQ attempts; real Google
+  API errors throw and retry with backoff. Per-connection rate limiting
+  throws `SyncRateLimitError`, which the worker converts to BullMQ's
+  `RateLimitError` (job delayed, not failed).
+- `apps/worker/src/index.ts` — one processor per queue delegating to the
+  engine, with `AnalyticsSyncJob` bookkeeping (RUNNING → SUCCEEDED / RETRYING
+  / FAILED, attempts, lastError, nextRunAt) and per-queue BullMQ limiters.
+- `apps/worker/src/scheduler.ts` — centralized scheduler: a 60s tick guarded
+  by a Redis lock enqueues due syncs per `SYNC_INTERVALS` (pure due-check in
+  `packages/jobs` `planDueSyncs`, bucketed dedup jobIds), OAuth refresh for
+  tokens expiring within 10 minutes, and property discovery for connections
+  with no discovered properties.
+- `/api/sync` is now purely the manual enqueue endpoint.
+- A latent bug was fixed along the way: queue names were converted to
+  `SyncJobType` with a naive uppercase transform (`GA4_HISTORICAL_SYNC`,
+  `INTEGRATION_HEALTH_CHECK`, …) that produced values outside the Prisma
+  enum; an explicit `SYNC_TYPE_BY_QUEUE` map (and `SYNC_TYPE_BY_REPORT` for
+  last-sync lookups) replaced it in the worker, the sync route, and the
+  analytics handler.
+- Tests: 18 new unit tests with mocked Google clients (sync engine +
+  scheduler plan) — 48/48 total. Live verification against a real Google
+  account is still outstanding (needs Google Cloud credentials).

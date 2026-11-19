@@ -14,8 +14,12 @@ Monorepo layout: `apps/web` (Next.js app) + `apps/worker` (BullMQ worker) +
    `pnpm smoke` (needs a built app + Postgres + Redis; see
    `scripts/smoke-test.sh`).
 4. Run the worker separately for background sync: `pnpm worker` (needs
-   `DATABASE_URL` + `REDIS_URL` + `GOOGLE_TOKEN_ENCRYPTION_KEY`; no session
-   secret). For a container host, build from the repo root:
+   `DATABASE_URL` + `REDIS_URL` + `GOOGLE_TOKEN_ENCRYPTION_KEY` +
+   `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` for token refresh; no session
+   secret). The worker performs the real Google fetch (ADR-0005(a)): it warms
+   the Redis cache the dashboards read, records integration health, refreshes
+   expiring tokens, discovers properties, and runs the centralized scheduler
+   (60s tick, Redis-locked, dedup jobIds). For a container host, build from the repo root:
    `docker build -f apps/worker/Dockerfile -t metricflock-worker .`
    The worker is a long-running Node process — do NOT put it on Cloudflare
    Workers (BullMQ needs a persistent Redis connection).

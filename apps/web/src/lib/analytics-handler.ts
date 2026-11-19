@@ -7,6 +7,7 @@ import { buildCacheKey, cacheGet, cacheSet } from "@metricflock/shared";
 import { getAuthorizedClientForWebsite, getPrimaryIntegration } from "@metricflock/google/client";
 import { getGa4Client } from "@metricflock/google/ga4";
 import { lastSuccessfulSync } from "@metricflock/db/health";
+import { SYNC_TYPE_BY_REPORT } from "@metricflock/jobs";
 import type { Permission } from "@metricflock/auth";
 import type { OAuth2Client } from "@metricflock/google/auth-types";
 
@@ -54,8 +55,9 @@ export async function handleAnalyticsRequest(
   catch (e) { const m = e instanceof Error ? e.message : ""; if (m === "CONNECTION_REQUIRED") return notConnectedEnvelope(websiteId); return NextResponse.json({ error: m || "connection_error" }, { status: 502 }); }
   const cacheKey = buildCacheKey({ organizationId: auth.user.organizationId, websiteId, propertyId: integration.externalId, source: opts.source, report: opts.report, range: `${sd}_${ed}` });
   const cached = await cacheGet<unknown>(cacheKey);
+  const syncType = SYNC_TYPE_BY_REPORT[opts.report];
   if (cached && !cached.stale) {
-    return analyticsEnvelope({ data: cached.value, websiteId, includedWebsites: [websiteId], unavailableWebsites: [], lastSyncedAt: await lastSuccessfulSync(websiteId, opts.report), dataSource: opts.source, freshness: "cached", range: { startDate: sd, endDate: ed } });
+    return analyticsEnvelope({ data: cached.value, websiteId, includedWebsites: [websiteId], unavailableWebsites: [], lastSyncedAt: syncType ? await lastSuccessfulSync(websiteId, syncType) : null, dataSource: opts.source, freshness: "cached", range: { startDate: sd, endDate: ed } });
   }
   try {
     const data = await opts.fetchFn({ auth: client.auth, propertyId: integration.externalId, websiteId, startDate: sd, endDate: ed });
@@ -63,7 +65,7 @@ export async function handleAnalyticsRequest(
     if (format === "csv" && opts.csv) {
       return new NextResponse(opts.csv(data), { headers: { "Content-Type": "text/csv", "Content-Disposition": `attachment; filename="${opts.report}-${websiteId}.csv"` } });
     }
-    return analyticsEnvelope({ data, websiteId, includedWebsites: [websiteId], unavailableWebsites: [], lastSyncedAt: await lastSuccessfulSync(websiteId, opts.report), dataSource: opts.source, freshness: cached ? "stale-while-revalidate" : "live", range: { startDate: sd, endDate: ed } });
+    return analyticsEnvelope({ data, websiteId, includedWebsites: [websiteId], unavailableWebsites: [], lastSyncedAt: syncType ? await lastSuccessfulSync(websiteId, syncType) : null, dataSource: opts.source, freshness: cached ? "stale-while-revalidate" : "live", range: { startDate: sd, endDate: ed } });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "google_api_error";
     const quota = /quota|rateLimitExceeded|429/i.test(msg);
