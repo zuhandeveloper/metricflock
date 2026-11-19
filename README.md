@@ -6,8 +6,23 @@ reporting, background sync via BullMQ/Redis, ownership transfers, and full audit
 
 Auth is [better-auth](https://www.better-auth.com/) with the Prisma adapter
 (email + password; scrypt hashes in better-auth's `Account` model). Sessions are
-better-auth sessions; `src/lib/auth-server.ts` exposes `getSessionUser()` /
+better-auth sessions; `packages/auth/src/server.ts` exposes `getSessionUser()` /
 `requireAuth()` with the same signatures the API routes used before.
+
+## Repo layout (monorepo, Turborepo + pnpm workspaces)
+```
+apps/web/       Next.js 16 app: routes, pages, components (src/app, src/components)
+apps/worker/    BullMQ worker (long-running Node; Dockerfile included)
+packages/db/    Prisma schema, migrations, client, seed
+packages/auth/  better-auth, sessions, tenancy, permissions
+packages/google/ GA4, Search Console, AdSense, Ad Manager, OAuth
+packages/jobs/  BullMQ queues + sync intervals
+packages/shared/ env, cache, crypto, validation, rate limiting
+```
+Root scripts delegate: `pnpm dev` / `pnpm build` / `pnpm test` / `pnpm typecheck`
+(via Turborepo), `pnpm db:*` (via `@metricflock/db`), `pnpm worker`,
+`pnpm smoke` (end-to-end smoke test against real Postgres + Redis).
+The `.env` file lives in `apps/web/` — see `docs/env-config.md`.
 
 ## Requirements
 - **Node.js >= 26** (`engines` in package.json; local dev on Node 24 works with an engines warning)
@@ -16,7 +31,7 @@ better-auth sessions; `src/lib/auth-server.ts` exposes `getSessionUser()` /
 
 ## Quick start
 ```bash
-cp .env.example .env   # fill in DATABASE_URL, BETTER_AUTH_SECRET (or SESSION_SECRET), GOOGLE_TOKEN_ENCRYPTION_KEY, Google OAuth creds
+cp apps/web/.env.example apps/web/.env   # fill in DATABASE_URL, BETTER_AUTH_SECRET (or SESSION_SECRET), GOOGLE_TOKEN_ENCRYPTION_KEY, Google OAuth creds
 docker compose up -d
 pnpm install
 pnpm db:migrate        # `prisma migrate dev` — or `pnpm db:status` to check first
@@ -26,15 +41,17 @@ pnpm worker            # separate process, needs Redis
 ```
 
 Useful scripts: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`,
-`pnpm db:status`, `pnpm db:reset` (dev only), `pnpm format`.
-Cloudflare: `pnpm build:cf` / `pnpm preview:cf` / `pnpm deploy:cf` (OpenNext;
-`wrangler.jsonc` is minimal Phase 1 scaffolding — see docs/deployment.md).
+`pnpm db:status`, `pnpm db:reset` (dev only), `pnpm format`, `pnpm smoke`
+(end-to-end check against real Postgres + Redis; needs a built app).
+Cloudflare: `pnpm --filter @metricflock/web build:cf` / `preview:cf` /
+`deploy:cf` (OpenNext; `apps/web/wrangler.jsonc` is minimal Phase 1
+scaffolding — see docs/deployment.md).
 
 ## What is real vs. not yet verified
 - Real Google clients (`googleapis`, `@google-analytics/data`) are used everywhere; endpoints return
   `status: "not_connected"` / `"missing_data"` explicitly when no connection/property exists.
 - **No live Google account has been connected in this environment**, so no GA4/Search Console/AdSense
-  data has been verified against a real account. See `tests/integration/README.md` for the manual
+  data has been verified against a real account. See `apps/web/tests/integration/README.md` for the manual
   real-account test procedure.
 - Unit tests use mocked Google clients and are labelled as such.
 

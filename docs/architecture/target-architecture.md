@@ -30,7 +30,7 @@ metricflock/                          # repo root — pnpm workspace + Turborepo
   package.json                        # root scripts only (no app code): build/test/lint/typecheck
   pnpm-workspace.yaml                 # packages: apps/*, packages/*
   turbo.json                          # task pipeline (build/test/lint/typecheck, dependsOn)
-  .github/workflows/ci.yml            # install → typecheck → lint → test → build (Node 26)
+  .github/workflows/ci.yml            # install → typecheck → lint → test → build → smoke test (Node 26)
   docker-compose.yml                  # postgres:16 + redis:7 (unchanged, local dev)
   docs/                               # existing guides + architecture/ + decisions/
 
@@ -42,7 +42,7 @@ metricflock/                          # repo root — pnpm workspace + Turborepo
       public/                         # brand assets (unchanged)
       wrangler.jsonc                  # OpenNext scaffolding (unchanged in Phase 3)
     worker/                           # BullMQ worker (today's src/workers/index.ts)
-      package.json                    # bullmq, tsx, @metricflock/db, @metricflock/jobs, @metricflock/google
+      package.json                    # bullmq, tsx, @metricflock/db, @metricflock/jobs, @metricflock/shared
       src/index.ts                    # worker entry (moved, then extended per ADR-0005)
       Dockerfile                      # long-running Node service (added in Phase 3)
 
@@ -87,11 +87,13 @@ metricflock/                          # repo root — pnpm workspace + Turborepo
 | `prisma/schema.prisma`, `prisma/migrations/*`, `prisma.config.ts` | `packages/db/prisma/` | Unchanged content; `prisma generate` runs in this package |
 | `src/lib/prisma.ts` | `packages/db/src/client.ts` | The adapter + singleton. One owner. |
 | `prisma/seed.ts`, `scripts/db-manager.ts` | `packages/db/src/seed.ts`, `packages/db/scripts/` | Same behaviour; `pnpm --filter @metricflock/db db:seed` |
-| `src/lib/auth-server.ts`, `src/lib/auth-client.ts`, `src/lib/auth.ts` | `packages/auth/src/` | The `@/lib/auth` shim disappears; callers import `@metricflock/auth` |
-| `src/lib/tenant.ts`, `src/lib/permissions.ts` | `packages/auth/src/` | Need `User` type + Prisma — they live with auth, not db |
-| `src/lib/google/*` (9 files) | `packages/google/src/` | Unchanged internals; imports of `../prisma` become `@metricflock/db` |
+| `src/lib/auth-server.ts`, `src/lib/auth-client.ts`, `src/lib/auth.ts` | `packages/auth/src/` | The `@/lib/auth` shim disappears; callers import `@metricflock/auth`. New `handler.ts` holds the better-auth Next.js handler so no file outside the package imports better-auth |
+| `src/lib/tenant.ts`, `src/lib/permissions.ts`, `src/lib/api-helpers.ts` | `packages/auth/src/` | Need `User` type + Prisma — they live with auth, not db |
+| `src/lib/google/*` (9 files) | `packages/google/src/` | Unchanged internals; imports of `../prisma` become `@metricflock/db`. New `getGoogleAccountProfile()` helper so the OAuth callback no longer calls `googleapis` directly |
 | `src/lib/queue.ts`, `src/lib/scheduler.ts` | `packages/jobs/src/` | Queue names + intervals; worker and web both depend on it |
-| `src/lib/env.ts`, `cache.ts`, `crypto.ts`, `validation.ts`, `rate-limit.ts`, `api-helpers.ts`, `analytics-handler.ts`, `analytics-response.ts`, `audit.ts`, `health.ts` | `packages/shared/src/` | No internal deps; pure + Redis + Zod |
+| `src/lib/env.ts`, `cache.ts`, `crypto.ts`, `validation.ts`, `rate-limit.ts` | `packages/shared/src/` | No internal deps; pure + Redis + Zod |
+| `src/lib/audit.ts`, `src/lib/health.ts` | `packages/db/src/` | They import Prisma, so they live with db (subpath exports `./audit`, `./health`), not shared |
+| `src/lib/analytics-handler.ts`, `src/lib/analytics-response.ts` | `apps/web/src/lib/` | Route-handler glue; stays with the app, not a package |
 | `src/workers/index.ts` | `apps/worker/src/index.ts` | Entry only; real fetch decision per ADR-0005 |
 | `src/app/**`, `src/components/**` | `apps/web/src/**` | Unchanged, except imports become package imports |
 | `next.config.ts`, `tailwind`, `public/`, `wrangler.jsonc` | `apps/web/` | App-scoped config moves with the app |
@@ -101,12 +103,12 @@ metricflock/                          # repo root — pnpm workspace + Turborepo
 
 ```
 apps/web    → db, auth, google, jobs, shared
-apps/worker → db, jobs, google, shared        (no auth: the worker uses Prisma directly,
-                                               never a user session)
+apps/worker → db, jobs, shared              (no auth: the worker uses Prisma directly,
+                                             never a user session; no google: the worker
+                                             is move-only and fetches nothing itself)
 packages/auth   → db, shared
 packages/google → db, shared
-packages/jobs   → db, shared, google          (only if the worker gains the real fetch;
-                                               otherwise jobs → db, shared)
+packages/jobs   → shared
 packages/shared → (nothing internal)
 packages/db     → (nothing internal)
 ```
@@ -159,6 +161,14 @@ Each process validates only what it needs at startup and fails loudly otherwise
 Secrets are never shared with a process that does not need them — the worker in
 particular gets no session secret.
 
+**Where the `.env` file lives:** `apps/web/.env` (copied from
+`apps/web/.env.example`). Next.js loads env from the app directory only, so
+the file moved there with the app in step 3.7 — `NEXT_PUBLIC_APP_URL` is
+inlined at build time from it, so a root `.env` would silently not apply.
+The db and worker scripts read the same file via
+`DOTENV_CONFIG_PATH=../../apps/web/.env` (db) / `../web/.env` (worker).
+There is exactly one `.env`; do not keep a second copy at the repo root.
+
 ## 7. Build, test, and deploy topology (target)
 
 - **Root:** `pnpm install` (workspace), `turbo run typecheck lint test build`.
@@ -174,3 +184,31 @@ particular gets no session secret.
 - **Deploy (wired, not cut over):** `apps/web` → Vercel or Cloudflare OpenNext
   (ADR-0006); `apps/worker` → a long-running Node host (Render/Fly.io/VPS) with
   the same Postgres + Redis. Cloudflare Workers cannot host the BullMQ worker.
+
+## 8. Migration notes (as built, Phase 3 steps 3.1–3.8)
+
+- **Staged root:** the plan said the root `package.json` would become the
+  workspace root at 3.1, but Turborepo does not run root-package tasks, so
+  the root stayed the app (with delegating `db:*` scripts) until 3.7, when
+  `apps/web` took the app and the root became workspace-only. The final
+  state matches this document; only the sequencing differed.
+- **Turborepo env stripping:** Turborepo strips undeclared env vars from
+  task environments, so `db#build` (`prisma generate`, which resolves
+  `DATABASE_URL`) failed under `turbo run build` while working standalone.
+  Fixed with `globalPassThroughEnv: ["DATABASE_URL"]` in `turbo.json`
+  (pass-through, not hashed: the generated client is identical for any URL).
+- **Lint scope:** ESLint 10 lints only `.js/.mjs/.cjs` by default, and
+  typescript-eslint does not support TypeScript 7.0 yet, so the `.ts/.tsx`
+  files are not linted and the boundary rules in `eslint.config.mjs` are
+  dormant for them until a TS parser lands (see the config's NOTE). The
+  ignore patterns use `**/` so they match every package/app's nested
+  `node_modules` — a top-level-only pattern let ESLint traverse the
+  workspaces' `node_modules` and blow the 2 GB heap in step 3.7.
+- **Tests:** the unit suite lives in `apps/web/tests/` (run by the web
+  app's `vitest run`) because it exercises code from every package; packages
+  may gain their own suites later.
+- **Prisma engine download:** a fresh clone's first `pnpm install` /
+  `prisma generate` downloads the Prisma engine binaries from
+  `binaries.prisma.sh`. If that download is reset by a proxy, retry the
+  install, or pre-seed the schema engine as documented in
+  `docs/troubleshooting.md`. The generated client itself is never committed.

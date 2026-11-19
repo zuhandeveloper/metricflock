@@ -1,8 +1,11 @@
 # Monorepo Migration Plan — MetricFlock (Phase 2)
 
-Status: plan only. **No code has been moved.** Phase 3 (execution) needs a separate
-go-ahead, and production stays on the current single-package layout until the
-migration branch is merged and verified.
+Status (2026-11-19): Phase 3 EXECUTION IS DONE LOCALLY — steps 3.1–3.8 are
+finished and green (typecheck, lint, 30/30 tests, build, clean-checkout
+build). The pushes are queued in order (3.4 → 3.5 → 3.6 → 3.7 → 3.8) behind
+a push approval that timed out; the branch head is still the 3.3 commit.
+Production stays on the current single-package layout until the migration
+branch is merged and verified — merging needs a separate approval.
 Basis: `current-state-audit.md` (Phase 1, baseline commit `417cafe2`).
 Target: `target-architecture.md`. Decisions: `docs/decisions/0001–0006`.
 
