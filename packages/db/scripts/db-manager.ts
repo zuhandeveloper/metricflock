@@ -14,7 +14,7 @@ function run(args: string[]) {
 
 function checkDatabaseUrl() {
   if (!process.env.DATABASE_URL) {
-    console.error("DATABASE_URL is not set. Copy .env.example to .env and fill it in.");
+    console.error("DATABASE_URL is not set. Copy apps/web/.env.example to apps/web/.env and fill it in.");
     process.exit(1);
   }
 }
