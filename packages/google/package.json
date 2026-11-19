@@ -1,5 +1,1 @@
-{
-  "name": "@metricflock/google",
-  "version": "0.1.0",
-  "private": true
-}
+{"dependencies":{"@google-analytics/data":"^7.3.0","@metricflock/db":"workspace:*","@metricflock/shared":"workspace:*","google-gax":"^6.17.0","googleapis":"^190.0.0"},"devDependencies":{"@types/node":"^26.6.6","typescript":"^7.0.2"},"exports":{"./ad-manager":"./src/ad-manager.ts","./adsense":"./src/adsense.ts","./auth-types":"./src/auth-types.ts","./client":"./src/client.ts","./discovery":"./src/discovery.ts","./ga4":"./src/ga4.ts","./oauth":"./src/oauth.ts","./search-console":"./src/search-console.ts","./tokens":"./src/tokens.ts"},"name":"@metricflock/google","private":true,"scripts":{"typecheck":"tsc --noEmit"},"version":"0.1.0"}
