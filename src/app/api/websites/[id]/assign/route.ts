@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
 import { prisma } from "@metricflock/db";
 import { assertWebsiteAccess } from "@/lib/tenant";
-import { writeAudit } from "@/lib/audit";
-import { invalidateWebsiteCache } from "@/lib/cache";
+import { writeAudit } from "@metricflock/db/audit";
+import { invalidateWebsiteCache } from "@metricflock/shared";
 import { z } from "zod";
 const schema = z.object({ userId: z.string().min(1), action: z.enum(["assign", "remove"]).default("assign") });
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {

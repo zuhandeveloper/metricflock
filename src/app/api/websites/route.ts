@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
 import { prisma } from "@metricflock/db";
 import { listAccessibleWebsiteIds } from "@/lib/tenant";
-import { websiteCreateSchema } from "@/lib/validation";
-import { writeAudit } from "@/lib/audit";
+import { websiteCreateSchema } from "@metricflock/shared";
+import { writeAudit } from "@metricflock/db/audit";
 export async function GET(req: NextRequest) {
   const auth = await requireApiAuth("website.view");
   if ("error" in auth) return auth.error;

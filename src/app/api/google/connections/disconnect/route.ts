@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
 import { prisma } from "@metricflock/db";
 import { revokeConnection } from "@/lib/google/tokens";
-import { writeAudit } from "@/lib/audit";
-import { invalidateOrgCache } from "@/lib/cache";
+import { writeAudit } from "@metricflock/db/audit";
+import { invalidateOrgCache } from "@metricflock/shared";
 import { z } from "zod";
 const schema = z.object({ connectionId: z.string().min(1) });
 export async function POST(req: NextRequest) {

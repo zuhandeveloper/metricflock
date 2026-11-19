@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import { prisma } from "@metricflock/db";
-import { decryptToken, encryptToken } from "../crypto";
+import { decryptToken, encryptToken } from "@metricflock/shared";
 import { getOAuthClient } from "./oauth";
 // Refresh an access token; handles rotation (new refresh token replaces old) and
 // missing refresh token (existing authorizations may not return one) + revoked grants.

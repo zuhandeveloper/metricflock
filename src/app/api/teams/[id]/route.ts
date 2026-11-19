@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
 import { prisma } from "@metricflock/db";
 import { assertTeamAccess } from "@/lib/tenant";
-import { teamCreateSchema } from "@/lib/validation";
+import { teamCreateSchema } from "@metricflock/shared";
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("team.manage");
   if ("error" in auth) return auth.error;

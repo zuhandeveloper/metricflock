@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import crypto from "node:crypto";
 beforeAll(() => { process.env.GOOGLE_TOKEN_ENCRYPTION_KEY = crypto.randomBytes(32).toString("base64"); });
-import { encryptToken, decryptToken, hashToken } from "@/lib/crypto";
+import { encryptToken, decryptToken, hashToken } from "@metricflock/shared";
 describe("AES-256-GCM token encryption", () => {
   it("round-trips a refresh token", () => {
     const enc = encryptToken("1//refresh-token-secret");

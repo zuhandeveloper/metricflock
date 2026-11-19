@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@metricflock/db";
 import { verifyState, getOAuthClient } from "@/lib/google/oauth";
-import { encryptToken } from "@/lib/crypto";
-import { writeAudit } from "@/lib/audit";
-import { invalidateOrgCache } from "@/lib/cache";
+import { encryptToken } from "@metricflock/shared";
+import { writeAudit } from "@metricflock/db/audit";
+import { invalidateOrgCache } from "@metricflock/shared";
 import { google } from "googleapis";
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
 import { prisma } from "@metricflock/db";
-import { teamCreateSchema } from "@/lib/validation";
-import { writeAudit } from "@/lib/audit";
+import { teamCreateSchema } from "@metricflock/shared";
+import { writeAudit } from "@metricflock/db/audit";
 export async function GET() {
   const auth = await requireApiAuth("team.view");
   if ("error" in auth) return auth.error;

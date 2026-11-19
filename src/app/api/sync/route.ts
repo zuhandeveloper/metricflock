@@ -4,7 +4,7 @@ import { hasPermission } from "@/lib/permissions";
 import { assertWebsiteAccess } from "@/lib/tenant";
 import { enqueue } from "@/lib/queue";
 import { prisma } from "@metricflock/db";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit } from "@metricflock/db/audit";
 import { z } from "zod";
 const schema = z.object({ websiteId: z.string().min(1), type: z.enum(["ga4-historical-sync", "search-console-sync", "adsense-sync", "ad-manager-sync", "integration-health-check"]) });
 export async function POST(req: NextRequest) {

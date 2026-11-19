@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
 import { prisma } from "@metricflock/db";
-import { transferSchema } from "@/lib/validation";
-import { writeAudit } from "@/lib/audit";
-import { invalidateWebsiteCache } from "@/lib/cache";
+import { transferSchema } from "@metricflock/shared";
+import { writeAudit } from "@metricflock/db/audit";
+import { invalidateWebsiteCache } from "@metricflock/shared";
 // Ownership transfer (spec §11): transaction marks TRANSFER_PENDING, records the
 // transfer, reassigns the team, removes old assignments, preserves history/audit.
 // OAuth tokens are NEVER transferred between owners — the new team must connect

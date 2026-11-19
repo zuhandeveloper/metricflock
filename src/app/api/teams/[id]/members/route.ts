@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
 import { prisma } from "@metricflock/db";
 import { assertTeamAccess } from "@/lib/tenant";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit } from "@metricflock/db/audit";
 import { z } from "zod";
 const schema = z.object({ userId: z.string().min(1), isAdmin: z.boolean().optional(), action: z.enum(["add", "remove"]).default("add") });
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {

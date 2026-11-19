@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import { getRedis } from "./cache";
+import { getRedis } from "@metricflock/shared";
 export const QUEUE_NAMES = ["google-oauth-refresh", "google-property-discovery", "ga4-realtime-sync", "ga4-historical-sync", "search-console-sync", "adsense-sync", "ad-manager-sync", "analytics-cache-refresh", "integration-health-check"] as const;
 export type QueueName = (typeof QUEUE_NAMES)[number];
 const queues = new Map<string, Queue>();

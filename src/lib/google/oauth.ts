@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { google } from "googleapis";
-import { hmacState } from "../crypto";
+import { hmacState } from "@metricflock/shared";
 export const GA4_SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"];
 export const GSC_SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"];
 export const ADSENSE_SCOPES = ["https://www.googleapis.com/auth/adsense.readonly"];

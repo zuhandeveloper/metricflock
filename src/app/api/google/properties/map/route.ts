@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
 import { prisma } from "@metricflock/db";
 import { assertWebsiteAccess } from "@/lib/tenant";
-import { mapPropertySchema } from "@/lib/validation";
-import { writeAudit } from "@/lib/audit";
-import { invalidateWebsiteCache } from "@/lib/cache";
+import { mapPropertySchema } from "@metricflock/shared";
+import { writeAudit } from "@metricflock/db/audit";
+import { invalidateWebsiteCache } from "@metricflock/shared";
 export async function POST(req: NextRequest) {
   const auth = await requireApiAuth("google.connection.manage");
   if ("error" in auth) return auth.error;

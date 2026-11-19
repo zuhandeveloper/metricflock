@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildCacheKey } from "@/lib/cache";
+import { buildCacheKey } from "@metricflock/shared";
 import { hasPermission } from "@/lib/permissions";
 // Pure, DB-free tenant-isolation checks. Full cross-org/cross-team isolation is
 // covered by the DB-backed integration tests (tests/integration/README.md),

@@ -181,6 +181,9 @@ importers:
       '@metricflock/db':
         specifier: workspace:*
         version: link:packages/db
+      '@metricflock/shared':
+        specifier: workspace:*
+        version: link:packages/shared
       '@tanstack/react-query':
         specifier: ^5.108.0
         version: 5.108.0(@types/react@19.3.0)(react@19.3.1)
@@ -335,7 +338,21 @@ importers:
 
   packages/jobs: {}
 
-  packages/shared: {}
+  packages/shared:
+    dependencies:
+      ioredis:
+        specifier: ^6.0.0
+        version: 6.0.0(supports-color@10.2.2)
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
 
 packages:
 

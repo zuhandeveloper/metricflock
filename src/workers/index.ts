@@ -3,7 +3,7 @@
 // exponential backoff; no polling loop is created per website — jobs are enqueued
 // centrally by the scheduler / manual sync endpoint with dedup jobIds.
 import { Worker } from "bullmq";
-import { getRedis } from "../lib/cache";
+import { getRedis } from "@metricflock/shared";
 import { prisma } from "@metricflock/db";
 import { QUEUE_NAMES } from "../lib/queue";
 const redis = getRedis();

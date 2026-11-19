@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth-server";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimit } from "@metricflock/shared";
 import { z } from "zod";
 
 const schema = z.object({ email: z.string().email(), password: z.string().min(1) });
