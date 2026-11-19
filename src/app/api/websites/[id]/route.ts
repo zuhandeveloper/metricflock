@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@metricflock/db";
 import { assertWebsiteAccess } from "@/lib/tenant";
 import { websiteCreateSchema } from "@/lib/validation";
 import { writeAudit } from "@/lib/audit";

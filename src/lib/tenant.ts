@@ -1,5 +1,5 @@
-import { prisma } from "./prisma";
-import type { User } from "@prisma/client";
+import { prisma } from "@metricflock/db";
+import type { User } from "@metricflock/db";
 // Server-side tenant isolation. Never trust org/team/website IDs from the browser
 // without a DB ownership + permission check. Frontend visibility is not security.
 export async function assertTeamAccess(user: User, teamId: string) {

@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { prisma } from "../prisma";
+import { prisma } from "@metricflock/db";
 import { decryptToken, encryptToken } from "../crypto";
 import { getOAuthClient } from "./oauth";
 // Refresh an access token; handles rotation (new refresh token replaces old) and

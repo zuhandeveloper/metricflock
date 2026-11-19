@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { prisma } from "../prisma";
+import { prisma } from "@metricflock/db";
 import { getValidAccessToken } from "./tokens";
 import { getOAuthClient } from "./oauth";
 export type ConnectionResolution =

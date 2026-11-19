@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@metricflock/db";
 import { assertTeamAccess } from "@/lib/tenant";
 import { teamCreateSchema } from "@/lib/validation";
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {

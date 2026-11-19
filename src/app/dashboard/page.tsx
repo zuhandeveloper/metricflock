@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@metricflock/db";
 import { listAccessibleWebsiteIds } from "@/lib/tenant";
 import { MetricCard, Card, Badge, EmptyState } from "@/components/ui";
 import DateRangePicker from "@/components/DateRangePicker";

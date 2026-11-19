@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@metricflock/db";
 export async function GET() {
   const auth = await requireApiAuth("google.connection.view");
   if ("error" in auth) return auth.error;

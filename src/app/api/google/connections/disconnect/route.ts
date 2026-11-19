@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@metricflock/db";
 import { revokeConnection } from "@/lib/google/tokens";
 import { writeAudit } from "@/lib/audit";
 import { invalidateOrgCache } from "@/lib/cache";

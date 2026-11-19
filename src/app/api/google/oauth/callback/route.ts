@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@metricflock/db";
 import { verifyState, getOAuthClient } from "@/lib/google/oauth";
 import { encryptToken } from "@/lib/crypto";
 import { writeAudit } from "@/lib/audit";

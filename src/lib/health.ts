@@ -1,4 +1,4 @@
-import { prisma } from "./prisma";
+import { prisma } from "@metricflock/db";
 export async function recordHealth(opts: { websiteId?: string | null; connectionId?: string | null; provider: "GA4" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER"; status: string; lastError?: string | null; success?: boolean }) {
   return prisma.integrationHealth.create({
     data: { websiteId: opts.websiteId ?? null, connectionId: opts.connectionId ?? null, provider: opts.provider, status: opts.status, lastSuccessAt: opts.success ? new Date() : null, lastError: opts.lastError ?? null },

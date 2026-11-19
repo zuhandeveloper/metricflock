@@ -37,7 +37,7 @@ export async function handleAnalyticsRequest(
     // Org-wide aggregate: list accessible websites and report which are unavailable.
     const ids = await listAccessibleWebsiteIds(auth.user);
     const where = ids === null ? { organizationId: auth.user.organizationId } : { organizationId: auth.user.organizationId, id: { in: ids } };
-    const { prisma } = await import("./prisma");
+    const { prisma } = await import("@metricflock/db");
     const websites = await prisma.website.findMany({ where, select: { id: true } });
     return analyticsEnvelope({
       data: { note: "Aggregate across websites is computed per-website; call with ?websiteId= for live Google data. No metrics are invented for unconnected sites.", websiteCount: websites.length },

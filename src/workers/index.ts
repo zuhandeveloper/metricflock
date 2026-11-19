@@ -4,7 +4,7 @@
 // centrally by the scheduler / manual sync endpoint with dedup jobIds.
 import { Worker } from "bullmq";
 import { getRedis } from "../lib/cache";
-import { prisma } from "../lib/prisma";
+import { prisma } from "@metricflock/db";
 import { QUEUE_NAMES } from "../lib/queue";
 const redis = getRedis();
 if (!redis) { console.error("REDIS_URL not set — workers cannot start."); process.exit(1); }

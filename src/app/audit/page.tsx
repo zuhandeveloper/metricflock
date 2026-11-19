@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@metricflock/db";
 import { Card, EmptyState } from "@/components/ui";
 export const dynamic = "force-dynamic";
 export default async function AuditPage() {

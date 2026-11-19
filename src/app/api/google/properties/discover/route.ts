@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/api-helpers";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@metricflock/db";
 import { getValidAccessToken } from "@/lib/google/tokens";
 import { listGa4Properties, listSearchConsoleSites, listAdSenseAccounts } from "@/lib/google/discovery";
 import { getOAuthClient } from "@/lib/google/oauth";

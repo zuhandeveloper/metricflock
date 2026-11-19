@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getSessionUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@metricflock/db";
 import { listAccessibleWebsiteIds } from "@/lib/tenant";
 import { Card, Badge, EmptyState } from "@/components/ui";
 export const dynamic = "force-dynamic";
