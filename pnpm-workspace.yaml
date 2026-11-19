@@ -1,0 +1,12 @@
+allowBuilds:
+  '@prisma/engines': true
+  esbuild: true
+  msgpackr-extract: true
+  prisma: true
+  protobufjs: true
+  workerd: true
+
+# All declared deps are latest stable, several published <24h ago (wrangler,
+# miniflare); pnpm 12 defaults minimumReleaseAge to 1440 minutes, which
+# would block a fresh install of the declared versions. 0 disables the age gate.
+minimumReleaseAge: 0
