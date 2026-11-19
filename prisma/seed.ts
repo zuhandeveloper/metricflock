@@ -1,10 +1,8 @@
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../src/lib/prisma";
 // better-auth's own scrypt password hash. The seed does NOT hash passwords
 // itself with bcrypt: better-auth stores the credential hash in its Account
 // model (providerId "credential"), and verifies it on sign-in.
 import { hashPassword } from "better-auth/crypto";
-
-const prisma = new PrismaClient();
 
 async function main() {
   const org = await prisma.organization.upsert({
