@@ -1,29 +1,22 @@
-"use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Card, Input, Button } from "@/components/ui";
-export default function LoginPage() {
-  const [email, setEmail] = useState("demo@example.com");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const router = useRouter();
-  async function submit(e: React.FormEvent) {
-    e.preventDefault(); setError("");
-    const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
-    if (res.ok) router.push("/dashboard"); else setError("Invalid credentials.");
-  }
+import { redirect } from "next/navigation";
+import { getSessionUser } from "@metricflock/auth";
+import LoginForm from "./LoginForm";
+export const dynamic = "force-dynamic";
+// Standalone auth page — no app shell. Already-signed-in users go straight
+// to the dashboard.
+export default async function LoginPage() {
+  const user = await getSessionUser();
+  if (user) redirect("/dashboard");
   return (
-    <div className="mx-auto max-w-sm pt-16">
-      <Card className="p-6">
-        <h1 className="text-xl font-bold">Sign in</h1>
-        <p className="mt-1 text-sm text-zinc-500">Use your organization account. Seed admin: demo@example.com (change the password after first login).</p>
-        <form onSubmit={submit} className="mt-4 space-y-3">
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" required />
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" required />
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <Button type="submit" className="w-full justify-center">Sign in</Button>
-        </form>
-      </Card>
+    <div className="flex min-h-screen items-center justify-center px-4 py-12">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 flex flex-col items-center gap-2 text-center">
+          <img src="/logo.png" alt="MetricFlock" width={48} height={48} className="rounded-xl" />
+          <h1 className="text-xl font-bold">Sign in to MetricFlock</h1>
+          <p className="text-sm text-zinc-500">Your whole website portfolio, in one dashboard.</p>
+        </div>
+        <LoginForm />
+      </div>
     </div>
   );
 }
