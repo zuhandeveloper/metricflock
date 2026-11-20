@@ -5,6 +5,19 @@ import { prisma } from "./client";
 import { hashPassword } from "better-auth/crypto";
 
 async function main() {
+  // The demo admin is a known-credential SUPER_ADMIN. It must never be
+  // created in production with the well-known default password: in
+  // production the password must come from SEED_DEMO_ADMIN_PASSWORD, and
+  // the seed refuses to run without it. The password is never printed.
+  const isProduction = process.env.NODE_ENV === "production";
+  const demoPassword = process.env.SEED_DEMO_ADMIN_PASSWORD;
+  if (isProduction && !demoPassword) {
+    console.error(
+      "Refusing to seed in production: set SEED_DEMO_ADMIN_PASSWORD to create the demo admin with a private password.",
+    );
+    process.exit(1);
+  }
+  const password = demoPassword ?? "ChangeMe123!";
   const org = await prisma.organization.upsert({
     where: { slug: "main-org" },
     update: {},
@@ -31,7 +44,7 @@ async function main() {
         accountId: user.id,
         providerId: "credential",
         userId: user.id,
-        password: await hashPassword("ChangeMe123!"),
+        password: await hashPassword(password),
       },
     });
   }
@@ -72,7 +85,9 @@ async function main() {
       create: { ...s, organizationId: org.id, teamId: i < 2 ? teamA.id : teamB.id, status: "PENDING_SETUP" },
     });
   }
-  console.log("Seed complete. Super admin: demo@example.com / ChangeMe123! — CHANGE THIS PASSWORD.");
+  console.log(
+    "Seed complete. Super admin: demo@example.com (password from SEED_DEMO_ADMIN_PASSWORD, or the dev-only default outside production).",
+  );
 }
 main()
   .catch((e) => {

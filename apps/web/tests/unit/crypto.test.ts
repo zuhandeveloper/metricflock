@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 beforeAll(() => {
   process.env.GOOGLE_TOKEN_ENCRYPTION_KEY = crypto.randomBytes(32).toString("base64");
 });
-import { encryptToken, decryptToken, hashToken } from "@metricflock/shared";
+import { encryptToken, decryptToken, hashToken, hmacState } from "@metricflock/shared";
 describe("AES-256-GCM token encryption", () => {
   it("round-trips a refresh token", () => {
     const enc = encryptToken("1//refresh-token-secret");
@@ -21,5 +21,37 @@ describe("AES-256-GCM token encryption", () => {
   it("hashes session tokens deterministically without revealing them", () => {
     expect(hashToken("tok")).toBe(hashToken("tok"));
     expect(hashToken("tok")).not.toContain("tok");
+  });
+});
+describe("hmacState (OAuth state signing) fails closed", () => {
+  it("throws when SESSION_SECRET is missing", () => {
+    const saved = process.env.SESSION_SECRET;
+    delete process.env.SESSION_SECRET;
+    try {
+      expect(() => hmacState("payload")).toThrow(/SESSION_SECRET/);
+    } finally {
+      if (saved !== undefined) process.env.SESSION_SECRET = saved;
+    }
+  });
+  it("throws when SESSION_SECRET is too short", () => {
+    const saved = process.env.SESSION_SECRET;
+    process.env.SESSION_SECRET = "short";
+    try {
+      expect(() => hmacState("payload")).toThrow(/SESSION_SECRET/);
+    } finally {
+      if (saved !== undefined) process.env.SESSION_SECRET = saved;
+      else delete process.env.SESSION_SECRET;
+    }
+  });
+  it("signs deterministically with a valid secret", () => {
+    const saved = process.env.SESSION_SECRET;
+    process.env.SESSION_SECRET = "x".repeat(40);
+    try {
+      expect(hmacState("payload")).toBe(hmacState("payload"));
+      expect(hmacState("payload")).not.toBe(hmacState("other"));
+    } finally {
+      if (saved !== undefined) process.env.SESSION_SECRET = saved;
+      else delete process.env.SESSION_SECRET;
+    }
   });
 });

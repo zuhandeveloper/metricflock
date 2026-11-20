@@ -12,10 +12,12 @@
   },
   "dependencies": {
     "@metricflock/db": "workspace:*",
-    "better-auth": "catalog:"
+    "better-auth": "catalog:",
+    "nodemailer": "^10.6.1"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/nodemailer": "^8.0.2",
     "next": "catalog:",
     "typescript": "catalog:"
   }

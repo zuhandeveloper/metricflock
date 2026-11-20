@@ -9,8 +9,16 @@ export type ConnectionResolution =
 export async function resolveConnectionForWebsite(websiteId: string): Promise<ConnectionResolution> {
   const website = await prisma.website.findUnique({ where: { id: websiteId } });
   if (!website) throw new Error("NOT_FOUND_OR_FORBIDDEN");
+  // organizationId is part of every lookup: a connection row must never
+  // resolve for a website in a different organization, even if its
+  // ownerId happens to point at this website/team.
   const siteConn = await prisma.googleConnection.findFirst({
-    where: { ownerType: "WEBSITE", ownerId: websiteId, status: { in: ["ACTIVE", "EXPIRED", "NEEDS_REAUTH"] } },
+    where: {
+      organizationId: website.organizationId,
+      ownerType: "WEBSITE",
+      ownerId: websiteId,
+      status: { in: ["ACTIVE", "EXPIRED", "NEEDS_REAUTH"] },
+    },
     orderBy: { updatedAt: "desc" },
   });
   if (siteConn)
@@ -22,7 +30,12 @@ export async function resolveConnectionForWebsite(websiteId: string): Promise<Co
     };
   if (website.teamId) {
     const teamConn = await prisma.googleConnection.findFirst({
-      where: { ownerType: "TEAM", ownerId: website.teamId, status: { in: ["ACTIVE", "EXPIRED", "NEEDS_REAUTH"] } },
+      where: {
+        organizationId: website.organizationId,
+        ownerType: "TEAM",
+        ownerId: website.teamId,
+        status: { in: ["ACTIVE", "EXPIRED", "NEEDS_REAUTH"] },
+      },
       orderBy: { updatedAt: "desc" },
     });
     if (teamConn)

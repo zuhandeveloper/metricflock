@@ -27,7 +27,13 @@ export function decryptToken(ciphertext: string): string {
   return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
 }
 export function hmacState(payload: string): string {
-  const secret = process.env.SESSION_SECRET ?? "missing-session-secret";
+  // Fail closed: OAuth state signed with a known/guessable secret is
+  // forgeable, so a missing or short SESSION_SECRET is a hard error —
+  // never fall back to a default value.
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("SESSION_SECRET is not configured (must be at least 32 chars)");
+  }
   return crypto.createHmac("sha256", secret).update(payload).digest("hex");
 }
 export function hashToken(token: string): string {

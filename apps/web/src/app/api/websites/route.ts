@@ -35,22 +35,40 @@ export async function POST(req: NextRequest) {
   const body = websiteCreateSchema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
   const d = body.data;
-  const website = await prisma.website.create({
-    data: {
-      organizationId: auth.user.organizationId,
-      name: d.name,
-      domain: d.domain,
-      url: d.url,
-      description: d.description,
-      teamId: d.teamId,
-      status: d.status ?? "PENDING_SETUP",
-      purchaseDate: d.purchaseDate ? new Date(d.purchaseDate) : null,
-      saleDate: d.saleDate ? new Date(d.saleDate) : null,
-      purchasePrice: d.purchasePrice,
-      salePrice: d.salePrice,
-      notes: d.notes,
-    },
-  });
+  // The team must belong to the caller's organization. Without this check a
+  // client could attach a website to another organization's team (and its
+  // Google connection would then resolve across tenants).
+  if (d.teamId) {
+    const team = await prisma.team.findFirst({
+      where: { id: d.teamId, organizationId: auth.user.organizationId },
+      select: { id: true },
+    });
+    if (!team) return NextResponse.json({ error: "team_not_found" }, { status: 404 });
+  }
+  let website;
+  try {
+    website = await prisma.website.create({
+      data: {
+        organizationId: auth.user.organizationId,
+        name: d.name,
+        domain: d.domain,
+        url: d.url,
+        description: d.description,
+        teamId: d.teamId,
+        status: d.status ?? "PENDING_SETUP",
+        purchaseDate: d.purchaseDate ? new Date(d.purchaseDate) : null,
+        saleDate: d.saleDate ? new Date(d.saleDate) : null,
+        purchasePrice: d.purchasePrice,
+        salePrice: d.salePrice,
+        notes: d.notes,
+      },
+    });
+  } catch (e) {
+    if ((e as { code?: string }).code === "P2002") {
+      return NextResponse.json({ error: "domain_taken" }, { status: 409 });
+    }
+    throw e;
+  }
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,

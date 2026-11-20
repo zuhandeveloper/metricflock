@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@metricflock/db";
+import { assertConnectionOwnerAccess } from "@metricflock/auth";
 import { verifyState, getOAuthClient, getGoogleAccountProfile } from "@metricflock/google/oauth";
 import { encryptToken } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
@@ -29,6 +30,12 @@ export async function GET(req: NextRequest) {
     const me = await getGoogleAccountProfile(client);
     const user = await prisma.user.findUnique({ where: { id: data.userId } });
     if (!user) return NextResponse.redirect(`${appUrl}/integrations?oauth=user_not_found`);
+    // Re-validate at callback time that the user still manages the owner
+    // (team/website) in their own organization — membership may have been
+    // revoked between connect and callback, and the state alone must
+    // never be enough to bind a connection to a foreign owner.
+    const owner = await assertConnectionOwnerAccess(user, data.ownerType, data.ownerId).catch(() => null);
+    if (!owner) return NextResponse.redirect(`${appUrl}/integrations?oauth=forbidden`);
     const email = me.email;
     await prisma.googleConnection.upsert({
       where: {
