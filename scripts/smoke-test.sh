@@ -45,6 +45,25 @@ trap 'rm -rf "$TMP"; kill "$SERVER_PID" 2>/dev/null || true' EXIT
 fail() { echo "smoke FAIL: $*" >&2; exit 1; }
 ok() { echo "smoke ok: $*"; }
 
+# better-auth rate-limits /sign-in and /sign-up to 3 requests per 10s per IP
+# by default. This script fires several auth calls from localhost in quick
+# succession, so retry on 429 (waiting out the window) instead of failing —
+# the limiter doing its job must not be mistaken for a broken sign-in.
+# Usage: auth_post OUTFILE JAR|- URL JSON   (prints the HTTP status code)
+auth_post() {
+  local out="$1" jar="$2" url="$3" data="$4" code attempt
+  for attempt in 1 2 3 4 5 6 7 8; do
+    if [ "$jar" = "-" ]; then
+      code="$(curl -s -o "$out" -w "%{http_code}" -X POST "$url" -H "Content-Type: application/json" -d "$data")"
+    else
+      code="$(curl -s -o "$out" -w "%{http_code}" -c "$jar" -X POST "$url" -H "Content-Type: application/json" -d "$data")"
+    fi
+    [ "$code" != "429" ] && { echo "$code"; return 0; }
+    sleep 4
+  done
+  echo "$code"
+}
+
 
 echo "smoke: migrate (deploy) + seed"
 # `migrate deploy` (not `migrate dev`): applies the checked-in migrations
@@ -69,7 +88,7 @@ done
 ok "server ready"
 
 echo "smoke: admin sign-in"
-code="$(curl -s -o "$TMP/signin.json" -w "%{http_code}" -c "$ADMIN_JAR" -X POST "$BASE_URL/api/auth/sign-in/email" -H "Content-Type: application/json" -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")"
+code="$(auth_post "$TMP/signin.json" "$ADMIN_JAR" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")"
 [ "$code" = "200" ] || { cat "$TMP/signin.json"; fail "admin sign-in returned $code"; }
 grep -q "better-auth.session_token" "$ADMIN_JAR" || fail "no session cookie after admin sign-in"
 ok "admin signed in"
@@ -95,7 +114,7 @@ grep -q '"status":"ok"' "$TMP/sync.json" || { cat "$TMP/sync.json"; fail "sync d
 ok "sync job queued (or recorded)"
 
 echo "smoke: member sign-in + transfer must be 403"
-code="$(curl -s -o /dev/null -w "%{http_code}" -c "$MEMBER_JAR" -X POST "$BASE_URL/api/auth/sign-in/email" -H "Content-Type: application/json" -d "{\"email\":\"$MEMBER_EMAIL\",\"password\":\"$MEMBER_PASSWORD\"}")"
+code="$(auth_post "$TMP/member-signin.json" "$MEMBER_JAR" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$MEMBER_EMAIL\",\"password\":\"$MEMBER_PASSWORD\"}")"
 [ "$code" = "200" ] || fail "member sign-in returned $code"
 code="$(curl -s -o "$TMP/t403.json" -w "%{http_code}" -b "$MEMBER_JAR" -X POST "$BASE_URL/api/websites/$WEBSITE_ID/transfer" -H "Content-Type: application/json" -d "{\"toTeamId\":\"$TEAM_B_ID\",\"reason\":\"smoke test\"}")"
 [ "$code" = "403" ] || { cat "$TMP/t403.json"; fail "member transfer returned $code, expected 403"; }
@@ -108,15 +127,17 @@ ok "admin transfer succeeded"
 
 echo "smoke: security — sign-up mass assignment is rejected"
 # role/organizationId must never be client-settable (audit AUTH-1).
-code="$(curl -s -o "$TMP/ma.json" -w "%{http_code}" -X POST "$BASE_URL/api/auth/sign-up/email" -H "Content-Type: application/json" -d "{\"name\":\"Attacker\",\"email\":\"mass-assign-$$@example.com\",\"password\":\"MassAssign123!\",\"role\":\"SUPER_ADMIN\",\"organizationId\":\"foreign-org-id\"}")"
-[ "$code" != "200" ] || { cat "$TMP/ma.json"; fail "sign-up with role/organizationId was accepted"; }
+code="$(auth_post "$TMP/ma.json" - "$BASE_URL/api/auth/sign-up/email" "{\"name\":\"Attacker\",\"email\":\"mass-assign-$$@example.com\",\"password\":\"MassAssign123!\",\"role\":\"SUPER_ADMIN\",\"organizationId\":\"foreign-org-id\"}")"
+[ "$code" = "400" ] || { cat "$TMP/ma.json"; fail "sign-up with role/organizationId returned $code, expected 400"; }
 ok "sign-up mass assignment rejected ($code)"
 
 echo "smoke: security — unverified sign-up cannot sign in"
-code="$(curl -s -o "$TMP/su.json" -w "%{http_code}" -X POST "$BASE_URL/api/auth/sign-up/email" -H "Content-Type: application/json" -d "{\"name\":\"New User\",\"email\":\"unverified-$$@example.com\",\"password\":\"Unverified123!\"}")"
+code="$(auth_post "$TMP/su.json" - "$BASE_URL/api/auth/sign-up/email" "{\"name\":\"New User\",\"email\":\"unverified-$$@example.com\",\"password\":\"Unverified123!\"}")"
 [ "$code" = "200" ] || { cat "$TMP/su.json"; fail "plain sign-up returned $code"; }
-code="$(curl -s -o "$TMP/si.json" -w "%{http_code}" -X POST "$BASE_URL/api/auth/sign-in/email" -H "Content-Type: application/json" -d "{\"email\":\"unverified-$$@example.com\",\"password\":\"Unverified123!\"}")"
-[ "$code" != "200" ] || { cat "$TMP/si.json"; fail "unverified user was able to sign in"; }
+code="$(auth_post "$TMP/si.json" - "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"unverified-$$@example.com\",\"password\":\"Unverified123!\"}")"
+# Must be the email-verification block (403), not a rate limit (auth_post
+# already retried past any 429) and never a successful sign-in.
+[ "$code" = "403" ] || { cat "$TMP/si.json"; fail "unverified sign-in returned $code, expected 403"; }
 ok "unverified sign-in blocked ($code)"
 
 echo "smoke: security — update-user role escalation is rejected"
@@ -128,7 +149,7 @@ code="$(curl -s -o "$TMP/t403b.json" -w "%{http_code}" -b "$MEMBER_JAR" -X POST 
 ok "role escalation rejected, member still 403"
 
 echo "smoke: security — cross-org teamId and foreign OAuth owner are rejected"
-code="$(curl -s -o /dev/null -w "%{http_code}" -c "$ATTACKER_JAR" -X POST "$BASE_URL/api/auth/sign-in/email" -H "Content-Type: application/json" -d "{\"email\":\"$ATTACKER_EMAIL\",\"password\":\"$ATTACKER_PASSWORD\"}")"
+code="$(auth_post "$TMP/attacker-signin.json" "$ATTACKER_JAR" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$ATTACKER_EMAIL\",\"password\":\"$ATTACKER_PASSWORD\"}")"
 [ "$code" = "200" ] || fail "attacker-admin sign-in returned $code"
 # audit API-1: attacker-org admin must not attach a website to main-org's team.
 code="$(curl -s -o "$TMP/xorg.json" -w "%{http_code}" -b "$ATTACKER_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"Evil\",\"domain\":\"evil-$$.example.com\",\"url\":\"https://evil.example.com\",\"teamId\":\"$TEAM_B_ID\"}")"
