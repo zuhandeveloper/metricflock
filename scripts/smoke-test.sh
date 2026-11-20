@@ -38,8 +38,6 @@ trap 'rm -rf "$TMP"; kill "$SERVER_PID" 2>/dev/null || true' EXIT
 fail() { echo "smoke FAIL: $*" >&2; exit 1; }
 ok() { echo "smoke ok: $*"; }
 
-# JSON field extraction without jq (CI has node, not necessarily jq).
-json_first_id() { node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const l=d[process.argv[1]];if(!Array.isArray(l)||!l.length){console.error("empty list: "+process.argv[1]);process.exit(1)}console.log(l[0].id)' "$1"; }
 
 echo "smoke: migrate (deploy) + seed"
 # `migrate deploy` (not `migrate dev`): applies the checked-in migrations
@@ -68,10 +66,13 @@ code="$(curl -s -o "$TMP/signin.json" -w "%{http_code}" -c "$ADMIN_JAR" -X POST 
 grep -q "better-auth.session_token" "$ADMIN_JAR" || fail "no session cookie after admin sign-in"
 ok "admin signed in"
 
-WEBSITE_ID="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites" | json_first_id websites)"
-[ -n "$WEBSITE_ID" ] || fail "no websites returned"
 TEAM_B_ID="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/teams" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const t=d.teams.find((x)=>x.slug==="team-b");if(!t){console.error("team-b not found");process.exit(1)}console.log(t.id)')"
 [ -n "$TEAM_B_ID" ] || fail "team-b not found"
+# Pick a website that is NOT already in the destination team (the API returns
+# newest first, and the seed puts the newest websites in team-b — transferring
+# one of those would correctly fail with already_in_team).
+WEBSITE_ID="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const w=d.websites.find((x)=>x.teamId!==process.argv[1]);if(!w){console.error("no website outside destination team");process.exit(1)}console.log(w.id)' "$TEAM_B_ID")"
+[ -n "$WEBSITE_ID" ] || fail "no website outside destination team"
 ok "website $WEBSITE_ID, destination team $TEAM_B_ID"
 
 echo "smoke: analytics returns not_connected for unconnected website"
