@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LayoutDashboard, Globe, Users, Plug, ArrowLeftRight, ScrollText, LogIn, BarChart3 } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
+import { LayoutDashboard, Globe, Users, Plug, ArrowLeftRight, ScrollText, LogOut, BarChart3 } from "lucide-react";
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/websites", label: "Websites", icon: Globe },
@@ -11,10 +12,22 @@ const links = [
   { href: "/transfers", label: "Transfers", icon: ArrowLeftRight },
   { href: "/audit", label: "Audit Log", icon: ScrollText },
 ];
-export default function Sidebar() {
+export type SidebarUser = { name: string | null; email: string; role: string };
+export default function Sidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
+  }
   return (
-    <nav className="flex flex-col gap-1 p-3">
+    <nav className="flex h-full flex-col gap-1 p-3">
       <Link href="/dashboard" className="mb-4 flex items-center gap-2 px-2">
         <img src="/logo.svg" alt="MetricFlock" width={32} height={32} className="rounded-lg" />
         <span className="text-lg font-bold">MetricFlock</span>
@@ -33,13 +46,23 @@ export default function Sidebar() {
           </Link>
         );
       })}
-      <Link
-        href="/login"
-        className="mt-4 flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-      >
-        <LogIn size={16} />
-        Sign in
-      </Link>
+      <div className="mt-auto border-t border-zinc-200 pt-3 dark:border-zinc-800">
+        <div className="px-3 pb-2">
+          <p className="truncate text-sm font-medium">{user.name ?? user.email}</p>
+          <p className="truncate text-xs text-zinc-500">
+            {user.email} · {user.role}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          disabled={signingOut}
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
+        >
+          <LogOut size={16} />
+          {signingOut ? "Signing out…" : "Sign out"}
+        </button>
+      </div>
     </nav>
   );
 }
