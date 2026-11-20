@@ -134,9 +134,10 @@ ALTER TABLE "GoogleConnection" ADD CONSTRAINT "GoogleConnection_websiteId_organi
 UPDATE "WebsiteIntegration" wi
 SET "googlePropertyId" = gp."id", "googleConnectionId" = gp."connectionId"
 FROM "GoogleProperty" gp
-JOIN "GoogleConnection" gc ON gc."id" = gp."connectionId"
-JOIN "Website" w ON w."id" = wi."websiteId"
-WHERE wi."provider" = 'GA4'
+JOIN "GoogleConnection" gc ON gc."id" = gp."connectionId",
+"Website" w
+WHERE w."id" = wi."websiteId"
+  AND wi."provider" = 'GA4'
   AND wi."googleConnectionId" IS NULL
   AND gp."propertyId" = wi."externalId"
   AND gc."organizationId" = w."organizationId"
@@ -149,9 +150,10 @@ WHERE wi."provider" = 'GA4'
 UPDATE "WebsiteIntegration" wi
 SET "searchConsolePropertyId" = sp."id", "googleConnectionId" = sp."connectionId"
 FROM "SearchConsoleProperty" sp
-JOIN "GoogleConnection" gc ON gc."id" = sp."connectionId"
-JOIN "Website" w ON w."id" = wi."websiteId"
-WHERE wi."provider" = 'SEARCH_CONSOLE'
+JOIN "GoogleConnection" gc ON gc."id" = sp."connectionId",
+"Website" w
+WHERE w."id" = wi."websiteId"
+  AND wi."provider" = 'SEARCH_CONSOLE'
   AND wi."googleConnectionId" IS NULL
   AND sp."siteUrl" = wi."externalId"
   AND gc."organizationId" = w."organizationId"
@@ -164,9 +166,10 @@ WHERE wi."provider" = 'SEARCH_CONSOLE'
 UPDATE "WebsiteIntegration" wi
 SET "adsenseAccountId" = aa."id", "googleConnectionId" = aa."connectionId"
 FROM "AdSenseAccount" aa
-JOIN "GoogleConnection" gc ON gc."id" = aa."connectionId"
-JOIN "Website" w ON w."id" = wi."websiteId"
-WHERE wi."provider" = 'ADSENSE'
+JOIN "GoogleConnection" gc ON gc."id" = aa."connectionId",
+"Website" w
+WHERE w."id" = wi."websiteId"
+  AND wi."provider" = 'ADSENSE'
   AND wi."googleConnectionId" IS NULL
   AND aa."accountId" = wi."externalId"
   AND gc."organizationId" = w."organizationId"
@@ -179,9 +182,10 @@ WHERE wi."provider" = 'ADSENSE'
 UPDATE "WebsiteIntegration" wi
 SET "adManagerNetworkId" = an."id", "googleConnectionId" = an."connectionId"
 FROM "AdManagerNetwork" an
-JOIN "GoogleConnection" gc ON gc."id" = an."connectionId"
-JOIN "Website" w ON w."id" = wi."websiteId"
-WHERE wi."provider" = 'AD_MANAGER'
+JOIN "GoogleConnection" gc ON gc."id" = an."connectionId",
+"Website" w
+WHERE w."id" = wi."websiteId"
+  AND wi."provider" = 'AD_MANAGER'
   AND wi."googleConnectionId" IS NULL
   AND an."networkCode" = wi."externalId"
   AND gc."organizationId" = w."organizationId"

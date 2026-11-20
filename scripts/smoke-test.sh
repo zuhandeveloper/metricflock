@@ -43,7 +43,8 @@ ADMIN_JAR="$TMP/admin.cookies"
 MEMBER_JAR="$TMP/member.cookies"
 ATTACKER_JAR="$TMP/attacker.cookies"
 TEAMADMIN_JAR="$TMP/teamadmin.cookies"
-trap 'rm -rf "$TMP"; kill "$SERVER_PID" 2>/dev/null || true' EXIT
+SERVER_PID=""
+trap 'rm -rf "$TMP"; [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true' EXIT
 
 fail() { echo "smoke FAIL: $*" >&2; exit 1; }
 ok() { echo "smoke ok: $*"; }
