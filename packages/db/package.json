@@ -2,6 +2,7 @@
   "name": "@metricflock/db",
   "version": "0.1.0",
   "private": true,
+  "description": "MetricFlock database — Prisma schema, client, migrations and seed.",
   "exports": {
     ".": "./src/client.ts",
     "./audit": "./src/audit.ts",
@@ -20,17 +21,17 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
-    "better-auth": "1.7.26",
+    "better-auth": "catalog:",
     "dotenv": "^18.0.10",
     "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@types/node": "^26.6.6",
+    "@types/node": "catalog:",
     "@types/pg": "^8.23.1",
-    "cross-env": "^10.1.0",
+    "cross-env": "catalog:",
     "prisma": "^7.10.1",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "tsx": "catalog:",
+    "typescript": "catalog:"
   },
   "prisma": {
     "seed": "tsx src/seed.ts"

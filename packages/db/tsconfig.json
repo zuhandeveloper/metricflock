@@ -1,18 +1,5 @@
 {
-  "compilerOptions": {
-    "allowJs": true,
-    "esModuleInterop": true,
-    "isolatedModules": true,
-    "lib": ["esnext"],
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "noEmit": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "target": "ES2022",
-    "types": ["node"]
-  },
+  "extends": "../../tsconfig.base.json",
   "exclude": ["node_modules"],
   "include": ["src/**/*.ts", "scripts/**/*.ts", "prisma.config.ts"]
 }

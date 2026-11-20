@@ -2,15 +2,27 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# Shared dependency versions live here exactly once (pnpm catalog). Every
+# workspace that uses one of these packages references it as "catalog:",
+# so versions can never drift apart across the monorepo.
+catalog:
+  "@types/node": ^26.6.6
+  better-auth: ^1.7.26
+  bullmq: ^6.7.7
+  cross-env: ^10.1.0
+  next: ^16.4.6
+  tsx: ^4.23.15
+  typescript: ^7.0.2
+  zod: ^4.6.7
+
 allowBuilds:
   "@prisma/engines": true
   esbuild: true
   msgpackr-extract: true
   prisma: true
   protobufjs: true
-  workerd: true
 
-# All declared deps are latest stable, several published <24h ago (wrangler,
-# miniflare); pnpm 12 defaults minimumReleaseAge to 1440 minutes, which
-# would block a fresh install of the declared versions. 0 disables the age gate.
+# All declared deps are latest stable; pnpm 12 defaults minimumReleaseAge
+# to 1440 minutes, which would block a fresh install of a just-published
+# version. 0 disables the age gate.
 minimumReleaseAge: 0

@@ -2,6 +2,7 @@
   "name": "@metricflock/worker",
   "version": "0.1.0",
   "private": true,
+  "description": "MetricFlock background worker — BullMQ job consumer and sync scheduler.",
   "scripts": {
     "dev": "cross-env DOTENV_CONFIG_PATH=../web/.env tsx --watch src/index.ts",
     "start": "cross-env DOTENV_CONFIG_PATH=../web/.env tsx src/index.ts",
@@ -12,12 +13,12 @@
     "@metricflock/google": "workspace:*",
     "@metricflock/jobs": "workspace:*",
     "@metricflock/shared": "workspace:*",
-    "bullmq": "^6.7.7"
+    "bullmq": "catalog:"
   },
   "devDependencies": {
-    "@types/node": "^26.6.6",
-    "cross-env": "^10.1.0",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "@types/node": "catalog:",
+    "cross-env": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
   }
 }

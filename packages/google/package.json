@@ -2,6 +2,7 @@
   "name": "@metricflock/google",
   "version": "0.1.0",
   "private": true,
+  "description": "MetricFlock Google integrations — OAuth, GA4, Search Console, AdSense and Ad Manager clients, plus the sync engine.",
   "exports": {
     "./ad-manager": "./src/ad-manager.ts",
     "./adsense": "./src/adsense.ts",
@@ -25,7 +26,7 @@
     "googleapis": "^190.0.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.6",
-    "typescript": "^7.0.2"
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
   }
 }
