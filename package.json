@@ -1,22 +1,20 @@
 {
   "name": "metricflock",
   "version": "0.1.0",
-  "type": "module",
   "private": true,
   "description": "Multi-website Google Analytics & Publisher Management System",
-  "packageManager": "pnpm@12.21.0",
-  "engines": {
-    "node": ">=26"
-  },
   "scripts": {
-    "dev": "pnpm --filter @metricflock/web dev",
     "build": "turbo run build",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "clean": "turbo run clean && rimraf node_modules",
     "db:generate": "pnpm --filter @metricflock/db db:generate",
     "db:migrate": "pnpm --filter @metricflock/db db:migrate",
     "db:reset": "pnpm --filter @metricflock/db db:reset",
     "db:seed": "pnpm --filter @metricflock/db db:seed",
     "db:status": "pnpm --filter @metricflock/db db:status",
     "db:studio": "pnpm --filter @metricflock/db db:studio",
+    "deps:check": "pnpm outdated",
+    "dev": "pnpm --filter @metricflock/web dev",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
@@ -25,13 +23,10 @@
     "smoke": "bash scripts/smoke-test.sh",
     "start": "pnpm --filter @metricflock/web start",
     "test": "turbo run test",
-    "test:watch": "pnpm --filter @metricflock/web test:watch",
-    "typecheck": "turbo run typecheck",
-    "clean": "turbo run clean && rimraf node_modules",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "test:coverage": "turbo run test:coverage",
-    "deps:check": "pnpm outdated",
+    "test:watch": "pnpm --filter @metricflock/web test:watch",
     "turbo:graph": "turbo run build --graph",
+    "typecheck": "turbo run typecheck",
     "worker": "pnpm --filter @metricflock/worker start"
   },
   "devDependencies": {
@@ -43,6 +38,12 @@
     "husky": "^9.1.7",
     "prettier": "^3.10.1",
     "prettier-plugin-tailwindcss": "^0.8.1",
+    "rimraf": "^6.1.4",
     "turbo": "2.11.13"
-  }
+  },
+  "engines": {
+    "node": ">=26"
+  },
+  "packageManager": "pnpm@12.21.0",
+  "type": "module"
 }

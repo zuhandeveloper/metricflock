@@ -4,7 +4,11 @@ import { assertWebsiteAccess, listAccessibleWebsiteIds } from "@metricflock/auth
 import { analyticsQuerySchema } from "@metricflock/shared";
 import { analyticsEnvelope, notConnectedEnvelope, missingDataEnvelope, resolveRange } from "./analytics-response";
 import { buildCacheKey, cacheGet, cacheSet } from "@metricflock/shared";
-import { getAuthorizedClientForWebsite, getPrimaryIntegration } from "@metricflock/google/client";
+import {
+  getAuthorizedClientForWebsite,
+  getPrimaryIntegration,
+  resolveConnectionForWebsite,
+} from "@metricflock/google/client";
 import { getGa4Client } from "@metricflock/google/ga4";
 import { lastSuccessfulSync } from "@metricflock/db/health";
 import { SYNC_TYPE_BY_REPORT } from "@metricflock/jobs";
@@ -64,6 +68,10 @@ export async function handleAnalyticsRequest(
   }
   const website = await assertWebsiteAccess(auth.user, websiteId).catch(() => null);
   if (!website) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
+  // Connection state first: an unconnected website must report not_connected
+  // (the actionable state), not missing_data for the absent property mapping.
+  const resolved = await resolveConnectionForWebsite(websiteId);
+  if (resolved.status !== "connected") return notConnectedEnvelope(websiteId);
   const integration = await getPrimaryIntegration(websiteId, opts.provider);
   if (!integration) return missingDataEnvelope(websiteId, `No ${opts.provider} property mapped to this website.`);
   let client: Awaited<ReturnType<typeof getAuthorizedClientForWebsite>>;

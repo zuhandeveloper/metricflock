@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "description": "MetricFlock web app — Next.js dashboards and API routes",
-  "engines": {
-    "node": ">=26"
-  },
   "scripts": {
     "build": "pnpm --filter @metricflock/db build && next build",
     "build:cf": "pnpm --filter @metricflock/db build && opennextjs-cloudflare build",
@@ -16,6 +13,7 @@
     "preview:cf": "pnpm build:cf && opennextjs-cloudflare preview",
     "start": "next start",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
@@ -41,9 +39,13 @@
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@vitest/coverage-v8": "^5.1.1",
     "tailwindcss": "^4.3.5",
     "typescript": "^7.0.2",
     "vitest": "^5.1.1",
     "wrangler": "^4.165.0"
+  },
+  "engines": {
+    "node": ">=26"
   }
 }

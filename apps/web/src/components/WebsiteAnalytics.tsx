@@ -140,12 +140,10 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
             <div className="mt-2 h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={(pages.data.data.rows ?? [])
-                    .slice(0, 8)
-                    .map((r: Record<string, string | number>) => ({
-                      page: String(r.dimension0).slice(0, 24),
-                      views: r.screenPageViews ?? 0,
-                    }))}
+                  data={(pages.data.data.rows ?? []).slice(0, 8).map((r: Record<string, string | number>) => ({
+                    page: String(r.dimension0).slice(0, 24),
+                    views: r.screenPageViews ?? 0,
+                  }))}
                 >
                   <XAxis dataKey="page" hide />
                   <YAxis />
