@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiAuth } from "@metricflock/auth";
+import { requireApiAuth, assertConnectionVisible } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { getValidAccessToken } from "@metricflock/google/tokens";
 import { listGa4Properties, listSearchConsoleSites, listAdSenseAccounts } from "@metricflock/google/discovery";
@@ -15,6 +15,13 @@ export async function POST(req: NextRequest) {
     where: { id: body.data.connectionId, organizationId: auth.user.organizationId },
   });
   if (!conn) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  // Discovery spends the connection's Google quota and reveals its
+  // properties — same visibility rule as disconnect (audit AUTH-8/API-3).
+  const visible = await assertConnectionVisible(auth.user, conn).then(
+    () => true,
+    () => false,
+  );
+  if (!visible) return NextResponse.json({ error: "not_found" }, { status: 404 });
   try {
     const accessToken = await getValidAccessToken(conn.id);
     const client = getOAuthClient();

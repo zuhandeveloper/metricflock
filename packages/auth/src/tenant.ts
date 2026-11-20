@@ -50,6 +50,42 @@ export async function assertConnectionOwnerAccess(user: User, ownerType: "TEAM" 
   if (ownerType === "TEAM") return assertTeamAccess(user, ownerId);
   return assertWebsiteManageAccess(user, ownerId);
 }
+// Connection visibility (audit AUTH-8/API-3): SUPER_ADMIN sees every
+// connection in the organization. Everyone else sees only connections
+// owned by teams they administer, or by websites in those teams. Returns
+// a Prisma `where` fragment; combine with organizationId at the call site.
+export async function connectionVisibilityWhere(user: User) {
+  if (user.role === "SUPER_ADMIN") return {};
+  const adminMemberships = await prisma.teamMember.findMany({
+    where: { userId: user.id, isAdmin: true },
+    select: { teamId: true },
+  });
+  const teamIds = adminMemberships.map((m) => m.teamId);
+  return {
+    OR: [{ teamId: { in: teamIds } }, { website: { teamId: { in: teamIds } } }],
+  };
+}
+// Single-connection visibility check (disconnect/discover): same rule as
+// connectionVisibilityWhere, applied to one loaded connection. Throws
+// NOT_FOUND_OR_FORBIDDEN so foreign connections are indistinguishable
+// from missing ones.
+export async function assertConnectionVisible(user: User, conn: { teamId: string | null; websiteId: string | null }) {
+  if (user.role === "SUPER_ADMIN") return;
+  const adminMemberships = await prisma.teamMember.findMany({
+    where: { userId: user.id, isAdmin: true },
+    select: { teamId: true },
+  });
+  const teamIds = new Set(adminMemberships.map((m) => m.teamId));
+  if (conn.teamId && teamIds.has(conn.teamId)) return;
+  if (conn.websiteId) {
+    const website = await prisma.website.findFirst({
+      where: { id: conn.websiteId, organizationId: user.organizationId },
+      select: { teamId: true },
+    });
+    if (website?.teamId && teamIds.has(website.teamId)) return;
+  }
+  throw new Error("NOT_FOUND_OR_FORBIDDEN");
+}
 export async function listAccessibleWebsiteIds(user: User): Promise<string[] | null> {
   if (user.role === "SUPER_ADMIN") return null; // null = all in org
   // Mirrors assertWebsiteAccess exactly: websites of teams where the user

@@ -28,6 +28,8 @@ ADMIN_EMAIL="demo@example.com"
 ADMIN_PASSWORD="ChangeMe123!"
 MEMBER_EMAIL="member@example.com"
 MEMBER_PASSWORD="SmokeMember123!"
+TEAMADMIN_EMAIL="teamadmin@example.com"
+TEAMADMIN_PASSWORD="TeamAdmin123!"
 ATTACKER_EMAIL="attacker-admin@example.com"
 ATTACKER_PASSWORD="AttackerAdmin123!"
 
@@ -40,6 +42,7 @@ TMP="$(mktemp -d)"
 ADMIN_JAR="$TMP/admin.cookies"
 MEMBER_JAR="$TMP/member.cookies"
 ATTACKER_JAR="$TMP/attacker.cookies"
+TEAMADMIN_JAR="$TMP/teamadmin.cookies"
 trap 'rm -rf "$TMP"; kill "$SERVER_PID" 2>/dev/null || true' EXIT
 
 fail() { echo "smoke FAIL: $*" >&2; exit 1; }
@@ -72,6 +75,12 @@ DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec prisma
 pnpm db:seed >/dev/null || fail "db:seed"
 DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-member.ts >/dev/null || fail "smoke-member setup"
 DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-attacker.ts >/dev/null || fail "smoke-attacker setup"
+STAGE2_IDS="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-stage2.ts)" || fail "smoke-stage2 setup"
+ADMIN_USER_ID="$(echo "$STAGE2_IDS" | grep '^ADMIN_USER_ID=' | cut -d= -f2)"
+TEAMADMIN_USER_ID="$(echo "$STAGE2_IDS" | grep '^TEAMADMIN_USER_ID=' | cut -d= -f2)"
+CONN_A_ID="$(echo "$STAGE2_IDS" | grep '^CONN_A_ID=' | cut -d= -f2)"
+CONN_B_ID="$(echo "$STAGE2_IDS" | grep '^CONN_B_ID=' | cut -d= -f2)"
+[ -n "$ADMIN_USER_ID" ] && [ -n "$TEAMADMIN_USER_ID" ] && [ -n "$CONN_A_ID" ] && [ -n "$CONN_B_ID" ] || fail "stage2 fixture ids missing"
 
 echo "smoke: starting web server on :$PORT"
 PORT="$PORT" pnpm --filter @metricflock/web start >"$TMP/server.log" 2>&1 &
@@ -166,5 +175,51 @@ echo "smoke: legitimate same-org website create still works"
 code="$(curl -s -o "$TMP/legit.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"Legit Site\",\"domain\":\"legit-$$.example.com\",\"url\":\"https://legit.example.com\",\"teamId\":\"$TEAM_B_ID\"}")"
 [ "$code" = "201" ] || { cat "$TMP/legit.json"; fail "same-org website create returned $code"; }
 ok "same-org website create works"
+
+echo "smoke: stage2 — mapping rejects undiscovered properties, persists FKs"
+code="$(curl -s -o "$TMP/map400.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/google/properties/map" -H "Content-Type: application/json" -d "{\"websiteId\":\"$WEBSITE_ID\",\"provider\":\"GA4\",\"externalId\":\"properties/999999999\"}")"
+[ "$code" = "400" ] || { cat "$TMP/map400.json"; fail "undiscovered mapping returned $code, expected 400"; }
+grep -q '"property_not_discovered"' "$TMP/map400.json" || { cat "$TMP/map400.json"; fail "expected property_not_discovered"; }
+code="$(curl -s -o "$TMP/map1.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/google/properties/map" -H "Content-Type: application/json" -d "{\"websiteId\":\"$WEBSITE_ID\",\"provider\":\"GA4\",\"externalId\":\"properties/123456789\",\"isPrimary\":true}")"
+[ "$code" = "200" ] || { cat "$TMP/map1.json"; fail "discovered mapping returned $code"; }
+node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const i=d.integration;if(i.googleConnectionId!==process.argv[2]){console.error("googleConnectionId mismatch",i);process.exit(1)}if(!i.googlePropertyId){console.error("googlePropertyId not persisted",i);process.exit(1)}' "$TMP/map1.json" "$CONN_A_ID" || fail "mapping FKs not persisted"
+ok "mapping verifies discovery and persists connection/property FKs"
+
+echo "smoke: stage2 — single primary per (website, provider)"
+code="$(curl -s -o "$TMP/map2.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/google/properties/map" -H "Content-Type: application/json" -d "{\"websiteId\":\"$WEBSITE_ID\",\"provider\":\"GA4\",\"externalId\":\"properties/987654321\",\"isPrimary\":true}")"
+[ "$code" = "200" ] || { cat "$TMP/map2.json"; fail "second primary mapping returned $code"; }
+curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites/$WEBSITE_ID" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const p=d.website.integrations.filter((i)=>i.provider==="GA4"&&i.isPrimary);if(p.length!==1||p[0].externalId!=="properties/987654321"){console.error("expected exactly one primary (987654321), got",JSON.stringify(p));process.exit(1)}' || fail "single-primary rule violated"
+ok "exactly one primary integration"
+
+echo "smoke: stage2 — server-managed website status rejected"
+code="$(curl -s -o "$TMP/sold.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"Sold Site\",\"domain\":\"sold-$$.example.com\",\"url\":\"https://sold.example.com\",\"status\":\"SOLD\"}")"
+[ "$code" = "400" ] || { cat "$TMP/sold.json"; fail "status SOLD returned $code, expected 400"; }
+ok "status SOLD rejected"
+
+echo "smoke: stage2 — last team admin cannot be removed or demoted"
+GUARD_TEAM_ID="$(curl -s -b "$ADMIN_JAR" -X POST "$BASE_URL/api/teams" -H "Content-Type: application/json" -d "{\"name\":\"Smoke Guard Team\",\"slug\":\"smoke-guard-$$\"}" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(d.team.id)')"
+[ -n "$GUARD_TEAM_ID" ] || fail "guard team create failed"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/teams/$GUARD_TEAM_ID/members" -H "Content-Type: application/json" -d "{\"userId\":\"$TEAMADMIN_USER_ID\",\"isAdmin\":true,\"action\":\"add\"}")"
+[ "$code" = "200" ] || fail "add guard admin returned $code"
+code="$(curl -s -o "$TMP/lastadmin.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/teams/$GUARD_TEAM_ID/members" -H "Content-Type: application/json" -d "{\"userId\":\"$TEAMADMIN_USER_ID\",\"action\":\"remove\"}")"
+[ "$code" = "409" ] || { cat "$TMP/lastadmin.json"; fail "remove last admin returned $code, expected 409"; }
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/teams/$GUARD_TEAM_ID/members" -H "Content-Type: application/json" -d "{\"userId\":\"$ADMIN_USER_ID\",\"isAdmin\":true,\"action\":\"add\"}")"
+[ "$code" = "200" ] || fail "add second guard admin returned $code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/teams/$GUARD_TEAM_ID/members" -H "Content-Type: application/json" -d "{\"userId\":\"$TEAMADMIN_USER_ID\",\"action\":\"remove\"}")"
+[ "$code" = "200" ] || fail "remove non-last admin returned $code"
+ok "last-admin guard works"
+
+echo "smoke: stage2 — connection visibility is team-scoped"
+code="$(auth_post "$TMP/teamadmin-signin.json" "$TEAMADMIN_JAR" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$TEAMADMIN_EMAIL\",\"password\":\"$TEAMADMIN_PASSWORD\"}")"
+[ "$code" = "200" ] || fail "teamadmin sign-in returned $code"
+curl -s -b "$TEAMADMIN_JAR" "$BASE_URL/api/google/connections" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const emails=d.connections.map((c)=>c.googleAccountEmail);if(!emails.includes("ga-a@example.com")){console.error("teamadmin should see ga-a",emails);process.exit(1)}if(emails.includes("ga-b@example.com")){console.error("teamadmin must not see ga-b",emails);process.exit(1)}' || fail "connection visibility wrong for teamadmin"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BASE_URL/api/google/connections/disconnect" -H "Content-Type: application/json" -d "{\"connectionId\":\"$CONN_B_ID\"}")"
+[ "$code" = "404" ] || fail "disconnect foreign-team connection returned $code, expected 404"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BASE_URL/api/google/properties/discover" -H "Content-Type: application/json" -d "{\"connectionId\":\"$CONN_B_ID\"}")"
+[ "$code" = "404" ] || fail "discover foreign-team connection returned $code, expected 404"
+curl -s -b "$ADMIN_JAR" "$BASE_URL/api/google/connections" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const emails=d.connections.map((c)=>c.googleAccountEmail);if(!emails.includes("ga-a@example.com")||!emails.includes("ga-b@example.com")){console.error("super admin should see both",emails);process.exit(1)}' || fail "super admin connection visibility wrong"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BASE_URL/api/google/connections/disconnect" -H "Content-Type: application/json" -d "{\"connectionId\":\"$CONN_A_ID\"}")"
+[ "$code" = "200" ] || fail "disconnect own-team connection returned $code"
+ok "connection visibility scoped; own-team disconnect works"
 
 echo "smoke: ALL CHECKS PASSED"

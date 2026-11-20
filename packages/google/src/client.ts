@@ -10,13 +10,13 @@ export async function resolveConnectionForWebsite(websiteId: string): Promise<Co
   const website = await prisma.website.findUnique({ where: { id: websiteId } });
   if (!website) throw new Error("NOT_FOUND_OR_FORBIDDEN");
   // organizationId is part of every lookup: a connection row must never
-  // resolve for a website in a different organization, even if its
-  // ownerId happens to point at this website/team.
+  // resolve for a website in a different organization. Uses the typed
+  // owner FK columns (Stage 2, DB-1); the composite FKs guarantee the
+  // owner belongs to the same organization.
   const siteConn = await prisma.googleConnection.findFirst({
     where: {
       organizationId: website.organizationId,
-      ownerType: "WEBSITE",
-      ownerId: websiteId,
+      websiteId,
       status: { in: ["ACTIVE", "EXPIRED", "NEEDS_REAUTH"] },
     },
     orderBy: { updatedAt: "desc" },
@@ -32,8 +32,7 @@ export async function resolveConnectionForWebsite(websiteId: string): Promise<Co
     const teamConn = await prisma.googleConnection.findFirst({
       where: {
         organizationId: website.organizationId,
-        ownerType: "TEAM",
-        ownerId: website.teamId,
+        teamId: website.teamId,
         status: { in: ["ACTIVE", "EXPIRED", "NEEDS_REAUTH"] },
       },
       orderBy: { updatedAt: "desc" },

@@ -37,6 +37,10 @@ export async function GET(req: NextRequest) {
     const owner = await assertConnectionOwnerAccess(user, data.ownerType, data.ownerId).catch(() => null);
     if (!owner) return NextResponse.redirect(`${appUrl}/integrations?oauth=forbidden`);
     const email = me.email;
+    // Typed owner columns (Stage 2, DB-1) are written alongside the legacy
+    // ownerType/ownerId so both stay in sync during the transition.
+    const typedOwner =
+      data.ownerType === "TEAM" ? { teamId: data.ownerId, websiteId: null } : { teamId: null, websiteId: data.ownerId };
     await prisma.googleConnection.upsert({
       where: {
         organizationId_ownerType_ownerId_googleAccountEmail: {
@@ -47,6 +51,7 @@ export async function GET(req: NextRequest) {
         },
       },
       update: {
+        ...typedOwner,
         encryptedRefreshToken: encryptToken(tokens.refresh_token),
         encryptedAccessToken: tokens.access_token ? encryptToken(tokens.access_token) : null,
         tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
@@ -60,6 +65,7 @@ export async function GET(req: NextRequest) {
         organizationId: user.organizationId,
         ownerType: data.ownerType,
         ownerId: data.ownerId,
+        ...typedOwner,
         googleAccountEmail: email,
         googleAccountId: me.id,
         encryptedRefreshToken: encryptToken(tokens.refresh_token),

@@ -1,18 +1,21 @@
 import { NextResponse } from "next/server";
-import { requireApiAuth } from "@metricflock/auth";
+import { requireApiAuth, connectionVisibilityWhere } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 export async function GET() {
   const auth = await requireApiAuth("google.connection.view");
   if ("error" in auth) return auth.error;
   const { user } = auth;
-  const where =
-    user.role === "SUPER_ADMIN" ? { organizationId: user.organizationId } : { organizationId: user.organizationId };
+  // SUPER_ADMIN sees all connections in the org; everyone else only
+  // connections of teams they administer (audit AUTH-8/API-3).
+  const visibility = await connectionVisibilityWhere(user);
   const conns = await prisma.googleConnection.findMany({
-    where,
+    where: { organizationId: user.organizationId, ...visibility },
     select: {
       id: true,
       ownerType: true,
       ownerId: true,
+      teamId: true,
+      websiteId: true,
       googleAccountEmail: true,
       scopes: true,
       status: true,

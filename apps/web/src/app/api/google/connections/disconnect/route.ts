@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiAuth } from "@metricflock/auth";
+import { requireApiAuth, assertConnectionVisible } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { revokeConnection } from "@metricflock/google/tokens";
 import { writeAudit } from "@metricflock/db/audit";
@@ -15,6 +15,13 @@ export async function POST(req: NextRequest) {
     where: { id: body.data.connectionId, organizationId: auth.user.organizationId },
   });
   if (!conn) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  // Only connections of teams the caller administers can be disconnected
+  // (SUPER_ADMIN excepted) — audit AUTH-8/API-3.
+  const visible = await assertConnectionVisible(auth.user, conn).then(
+    () => true,
+    () => false,
+  );
+  if (!visible) return NextResponse.json({ error: "not_found" }, { status: 404 });
   await revokeConnection(conn.id);
   await writeAudit({
     organizationId: auth.user.organizationId,
