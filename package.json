@@ -9,6 +9,7 @@
     "node": ">=26"
   },
   "scripts": {
+    "dev": "pnpm --filter @metricflock/web dev",
     "build": "turbo run build",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "clean": "turbo run clean && rimraf node_modules",
@@ -19,7 +20,6 @@
     "db:status": "pnpm --filter @metricflock/db db:status",
     "db:studio": "pnpm --filter @metricflock/db db:studio",
     "deps:check": "pnpm outdated",
-    "dev": "pnpm --filter @metricflock/web dev",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
