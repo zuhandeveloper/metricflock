@@ -82,22 +82,22 @@ metricflock/                          # repo root — pnpm workspace + Turborepo
 
 ## 3. Package map (what moves where)
 
-| Today | Target | Notes |
-|---|---|---|
-| `prisma/schema.prisma`, `prisma/migrations/*`, `prisma.config.ts` | `packages/db/prisma/` | Unchanged content; `prisma generate` runs in this package |
-| `src/lib/prisma.ts` | `packages/db/src/client.ts` | The adapter + singleton. One owner. |
-| `prisma/seed.ts`, `scripts/db-manager.ts` | `packages/db/src/seed.ts`, `packages/db/scripts/` | Same behaviour; `pnpm --filter @metricflock/db db:seed` |
-| `src/lib/auth-server.ts`, `src/lib/auth-client.ts`, `src/lib/auth.ts` | `packages/auth/src/` | The `@/lib/auth` shim disappears; callers import `@metricflock/auth`. New `handler.ts` holds the better-auth Next.js handler so no file outside the package imports better-auth |
-| `src/lib/tenant.ts`, `src/lib/permissions.ts`, `src/lib/api-helpers.ts` | `packages/auth/src/` | Need `User` type + Prisma — they live with auth, not db |
-| `src/lib/google/*` (9 files) | `packages/google/src/` | Unchanged internals; imports of `../prisma` become `@metricflock/db`. New `getGoogleAccountProfile()` helper so the OAuth callback no longer calls `googleapis` directly |
-| `src/lib/queue.ts`, `src/lib/scheduler.ts` | `packages/jobs/src/` | Queue names + intervals; worker and web both depend on it |
-| `src/lib/env.ts`, `cache.ts`, `crypto.ts`, `validation.ts`, `rate-limit.ts` | `packages/shared/src/` | No internal deps; pure + Redis + Zod |
-| `src/lib/audit.ts`, `src/lib/health.ts` | `packages/db/src/` | They import Prisma, so they live with db (subpath exports `./audit`, `./health`), not shared |
-| `src/lib/analytics-handler.ts`, `src/lib/analytics-response.ts` | `apps/web/src/lib/` | Route-handler glue; stays with the app, not a package |
-| `src/workers/index.ts` | `apps/worker/src/index.ts` | Entry only at migration time; real fetch added per ADR-0005(a) on 2026-11-19 (sync engine in `packages/google/src/sync.ts`, scheduler in `apps/worker/src/scheduler.ts`) |
-| `src/app/**`, `src/components/**` | `apps/web/src/**` | Unchanged, except imports become package imports |
-| `next.config.ts`, `tailwind`, `public/`, `wrangler.jsonc` | `apps/web/` | App-scoped config moves with the app |
-| `docker-compose.yml`, root `package.json` scripts | repo root | Root scripts delegate: `turbo run build` etc. |
+| Today                                                                       | Target                                            | Notes                                                                                                                                                                           |
+| --------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prisma/schema.prisma`, `prisma/migrations/*`, `prisma.config.ts`           | `packages/db/prisma/`                             | Unchanged content; `prisma generate` runs in this package                                                                                                                       |
+| `src/lib/prisma.ts`                                                         | `packages/db/src/client.ts`                       | The adapter + singleton. One owner.                                                                                                                                             |
+| `prisma/seed.ts`, `scripts/db-manager.ts`                                   | `packages/db/src/seed.ts`, `packages/db/scripts/` | Same behaviour; `pnpm --filter @metricflock/db db:seed`                                                                                                                         |
+| `src/lib/auth-server.ts`, `src/lib/auth-client.ts`, `src/lib/auth.ts`       | `packages/auth/src/`                              | The `@/lib/auth` shim disappears; callers import `@metricflock/auth`. New `handler.ts` holds the better-auth Next.js handler so no file outside the package imports better-auth |
+| `src/lib/tenant.ts`, `src/lib/permissions.ts`, `src/lib/api-helpers.ts`     | `packages/auth/src/`                              | Need `User` type + Prisma — they live with auth, not db                                                                                                                         |
+| `src/lib/google/*` (9 files)                                                | `packages/google/src/`                            | Unchanged internals; imports of `../prisma` become `@metricflock/db`. New `getGoogleAccountProfile()` helper so the OAuth callback no longer calls `googleapis` directly        |
+| `src/lib/queue.ts`, `src/lib/scheduler.ts`                                  | `packages/jobs/src/`                              | Queue names + intervals; worker and web both depend on it                                                                                                                       |
+| `src/lib/env.ts`, `cache.ts`, `crypto.ts`, `validation.ts`, `rate-limit.ts` | `packages/shared/src/`                            | No internal deps; pure + Redis + Zod                                                                                                                                            |
+| `src/lib/audit.ts`, `src/lib/health.ts`                                     | `packages/db/src/`                                | They import Prisma, so they live with db (subpath exports `./audit`, `./health`), not shared                                                                                    |
+| `src/lib/analytics-handler.ts`, `src/lib/analytics-response.ts`             | `apps/web/src/lib/`                               | Route-handler glue; stays with the app, not a package                                                                                                                           |
+| `src/workers/index.ts`                                                      | `apps/worker/src/index.ts`                        | Entry only at migration time; real fetch added per ADR-0005(a) on 2026-11-19 (sync engine in `packages/google/src/sync.ts`, scheduler in `apps/worker/src/scheduler.ts`)        |
+| `src/app/**`, `src/components/**`                                           | `apps/web/src/**`                                 | Unchanged, except imports become package imports                                                                                                                                |
+| `next.config.ts`, `tailwind`, `public/`, `wrangler.jsonc`                   | `apps/web/`                                       | App-scoped config moves with the app                                                                                                                                            |
+| `docker-compose.yml`, root `package.json` scripts                           | repo root                                         | Root scripts delegate: `turbo run build` etc.                                                                                                                                   |
 
 ## 4. Dependency rules (enforced, not just documented)
 
@@ -146,16 +146,16 @@ Rules:
 
 ## 6. Env ownership (per process)
 
-| Variable | web | worker | Owner package |
-|---|---|---|---|
-| `DATABASE_URL` | yes | yes | `db` (validated in `db`, read in `shared/env`) |
-| `REDIS_URL` | yes (cache) | yes (queues) | `shared` |
-| `SESSION_SECRET` / `BETTER_AUTH_SECRET` | yes | no | `auth` |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | yes | yes (token refresh; redirect URI unused) | `google` |
-| `GOOGLE_TOKEN_ENCRYPTION_KEY` | yes | yes | `google` |
-| `GOOGLE_*_ENABLED` flags | yes | yes | `google` |
-| `NEXT_PUBLIC_APP_URL` | yes | no | `web` |
-| `SYNC_*` intervals | no | yes | `jobs` |
+| Variable                                                            | web         | worker                                   | Owner package                                  |
+| ------------------------------------------------------------------- | ----------- | ---------------------------------------- | ---------------------------------------------- |
+| `DATABASE_URL`                                                      | yes         | yes                                      | `db` (validated in `db`, read in `shared/env`) |
+| `REDIS_URL`                                                         | yes (cache) | yes (queues)                             | `shared`                                       |
+| `SESSION_SECRET` / `BETTER_AUTH_SECRET`                             | yes         | no                                       | `auth`                                         |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | yes         | yes (token refresh; redirect URI unused) | `google`                                       |
+| `GOOGLE_TOKEN_ENCRYPTION_KEY`                                       | yes         | yes                                      | `google`                                       |
+| `GOOGLE_*_ENABLED` flags                                            | yes         | yes                                      | `google`                                       |
+| `NEXT_PUBLIC_APP_URL`                                               | yes         | no                                       | `web`                                          |
+| `SYNC_*` intervals                                                  | no          | yes                                      | `jobs`                                         |
 
 Each process validates only what it needs at startup and fails loudly otherwise
 (today's `getEnv()` behaviour, moved into `packages/shared` with per-app schemas).
@@ -181,7 +181,7 @@ There is exactly one `.env`; do not keep a second copy at the repo root.
 - **apps/worker:** `tsx src/index.ts`, long-running Node 26 process, requires
   `DATABASE_URL` + `REDIS_URL`; exits non-zero if Redis is missing (today's behaviour).
 - **CI (new):** GitHub Actions on every PR to `main`: Node 26, `pnpm install
-  --frozen-lockfile`, typecheck, lint, tests, build, plus the smoke test (plan §4).
+--frozen-lockfile`, typecheck, lint, tests, build, plus the smoke test (plan §4).
 - **Deploy (wired, not cut over):** `apps/web` → Vercel or Cloudflare OpenNext
   (ADR-0006); `apps/worker` → a long-running Node host (Render/Fly.io/VPS) with
   the same Postgres + Redis. Cloudflare Workers cannot host the BullMQ worker.

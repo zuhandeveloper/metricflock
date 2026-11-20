@@ -14,14 +14,27 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!website) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
   const body = schema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  const target = await prisma.user.findFirst({ where: { id: body.data.userId, organizationId: auth.user.organizationId } });
+  const target = await prisma.user.findFirst({
+    where: { id: body.data.userId, organizationId: auth.user.organizationId },
+  });
   if (!target) return NextResponse.json({ error: "user_not_found" }, { status: 404 });
   if (body.data.action === "assign") {
-    await prisma.websiteAssignment.upsert({ where: { websiteId_userId: { websiteId: id, userId: target.id } }, update: {}, create: { websiteId: id, userId: target.id } });
+    await prisma.websiteAssignment.upsert({
+      where: { websiteId_userId: { websiteId: id, userId: target.id } },
+      update: {},
+      create: { websiteId: id, userId: target.id },
+    });
   } else {
     await prisma.websiteAssignment.deleteMany({ where: { websiteId: id, userId: target.id } });
   }
-  await writeAudit({ organizationId: auth.user.organizationId, actorId: auth.user.id, action: `website.${body.data.action}`, entityType: "Website", entityId: id, details: { userId: target.id } });
+  await writeAudit({
+    organizationId: auth.user.organizationId,
+    actorId: auth.user.id,
+    action: `website.${body.data.action}`,
+    entityType: "Website",
+    entityId: id,
+    details: { userId: target.id },
+  });
   await invalidateWebsiteCache(auth.user.organizationId, id);
   return NextResponse.json({ status: "ok" });
 }

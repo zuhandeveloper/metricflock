@@ -10,6 +10,7 @@ better-auth sessions; `packages/auth/src/server.ts` exposes `getSessionUser()` /
 `requireAuth()` with the same signatures the API routes used before.
 
 ## Repo layout (monorepo, Turborepo + pnpm workspaces)
+
 ```
 apps/web/       Next.js 16 app: routes, pages, components (src/app, src/components)
 apps/worker/    BullMQ worker (long-running Node; Dockerfile included)
@@ -19,17 +20,20 @@ packages/google/ GA4, Search Console, AdSense, Ad Manager, OAuth
 packages/jobs/  BullMQ queues + sync intervals
 packages/shared/ env, cache, crypto, validation, rate limiting
 ```
+
 Root scripts delegate: `pnpm dev` / `pnpm build` / `pnpm test` / `pnpm typecheck`
 (via Turborepo), `pnpm db:*` (via `@metricflock/db`), `pnpm worker`,
 `pnpm smoke` (end-to-end smoke test against real Postgres + Redis).
 The `.env` file lives in `apps/web/` — see `docs/env-config.md`.
 
 ## Requirements
+
 - **Node.js >= 26** (`engines` in package.json; local dev on Node 24 works with an engines warning)
 - **pnpm 12.21.0** (declared `packageManager`; `corepack prepare pnpm@12.21.0 --activate`, or `npm i -g pnpm@12.21.0`)
 - PostgreSQL 16 + Redis 7 (via `docker compose up -d`)
 
 ## Quick start
+
 ```bash
 cp apps/web/.env.example apps/web/.env   # fill in DATABASE_URL, BETTER_AUTH_SECRET (or SESSION_SECRET), GOOGLE_TOKEN_ENCRYPTION_KEY, Google OAuth creds
 docker compose up -d
@@ -48,6 +52,7 @@ Cloudflare: `pnpm --filter @metricflock/web build:cf` / `preview:cf` /
 scaffolding — see docs/deployment.md).
 
 ## What is real vs. not yet verified
+
 - Real Google clients (`googleapis`, `@google-analytics/data`) are used everywhere; endpoints return
   `status: "not_connected"` / `"missing_data"` explicitly when no connection/property exists.
 - **No live Google account has been connected in this environment**, so no GA4/Search Console/AdSense
@@ -56,10 +61,12 @@ scaffolding — see docs/deployment.md).
 - Unit tests use mocked Google clients and are labelled as such.
 
 ## Docs
+
 See `docs/` (Google Cloud setup, OAuth, API enablement, redirect URI, property mapping, teams,
 websites, transfers, troubleshooting, env config, deployment) and `IMPLEMENTATION_PLAN.md`.
 
 ## Build notes (sandbox)
+
 - pnpm 12 blocks postinstall scripts by default: `pnpm approve-builds --all`
   records the allowlist in `pnpm-workspace.yaml` (`allowBuilds`). pnpm 12 also
   defaults `minimumReleaseAge` to 1440 minutes, which rejects deps published

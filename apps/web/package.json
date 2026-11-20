@@ -1,1 +1,49 @@
-{"dependencies":{"@metricflock/auth":"workspace:*","@metricflock/db":"workspace:*","@metricflock/google":"workspace:*","@metricflock/jobs":"workspace:*","@metricflock/shared":"workspace:*","@tanstack/react-query":"^5.108.0","lucide-react":"^1.75.0","marked":"^18.2.1","next":"^16.4.6","react":"^19.3.1","react-dom":"^19.3.1","react-is":"^19.3.1","recharts":"^3.11.0","zod":"^4.6.7"},"description":"MetricFlock web app — Next.js dashboards and API routes","devDependencies":{"@opennextjs/cloudflare":"^1.20.17","@tailwindcss/postcss":"^4.3.5","@types/node":"^26.6.6","@types/react":"^19.3.0","@types/react-dom":"^19.3.0","tailwindcss":"^4.3.5","typescript":"^7.0.2","vitest":"^5.1.1","wrangler":"^4.165.0"},"engines":{"node":">=26"},"name":"@metricflock/web","private":true,"scripts":{"build":"pnpm --filter @metricflock/db build && next build","build:cf":"pnpm --filter @metricflock/db build && opennextjs-cloudflare build","cf-typegen":"wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts","deploy:cf":"pnpm build:cf && opennextjs-cloudflare deploy","dev":"next dev","lint":"eslint .","preview:cf":"pnpm build:cf && opennextjs-cloudflare preview","start":"next start","test":"vitest run","test:watch":"vitest","typecheck":"tsc --noEmit"},"version":"0.1.0"}
+{
+  "name": "@metricflock/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MetricFlock web app — Next.js dashboards and API routes",
+  "scripts": {
+    "build": "pnpm --filter @metricflock/db build && next build",
+    "build:cf": "pnpm --filter @metricflock/db build && opennextjs-cloudflare build",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts",
+    "deploy:cf": "pnpm build:cf && opennextjs-cloudflare deploy",
+    "dev": "next dev",
+    "lint": "eslint .",
+    "preview:cf": "pnpm build:cf && opennextjs-cloudflare preview",
+    "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@metricflock/auth": "workspace:*",
+    "@metricflock/db": "workspace:*",
+    "@metricflock/google": "workspace:*",
+    "@metricflock/jobs": "workspace:*",
+    "@metricflock/shared": "workspace:*",
+    "@tanstack/react-query": "^5.108.0",
+    "lucide-react": "^1.75.0",
+    "marked": "^18.2.1",
+    "next": "^16.4.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-is": "^19.3.1",
+    "recharts": "^3.11.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.17",
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1",
+    "wrangler": "^4.165.0"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

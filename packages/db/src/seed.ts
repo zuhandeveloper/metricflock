@@ -35,12 +35,35 @@ async function main() {
       },
     });
   }
-  const teamA = await prisma.team.upsert({ where: { organizationId_slug: { organizationId: org.id, slug: "team-a" } }, update: {}, create: { organizationId: org.id, name: "Team A", slug: "team-a" } });
-  const teamB = await prisma.team.upsert({ where: { organizationId_slug: { organizationId: org.id, slug: "team-b" } }, update: {}, create: { organizationId: org.id, name: "Team B", slug: "team-b" } });
+  const teamA = await prisma.team.upsert({
+    where: { organizationId_slug: { organizationId: org.id, slug: "team-a" } },
+    update: {},
+    create: { organizationId: org.id, name: "Team A", slug: "team-a" },
+  });
+  const teamB = await prisma.team.upsert({
+    where: { organizationId_slug: { organizationId: org.id, slug: "team-b" } },
+    update: {},
+    create: { organizationId: org.id, name: "Team B", slug: "team-b" },
+  });
   const sites = [
-    { name: "Cottage Food HQ (example)", domain: "cottagefood.example.com", url: "https://cottagefood.example.com", description: "Seed example site — cottage food laws by state." },
-    { name: "EV Charger Guide (example)", domain: "evcharger.example.com", url: "https://evcharger.example.com", description: "Seed example site — EV home charger installation costs." },
-    { name: "Home Kitchen Law (example)", domain: "homekitchenlaw.example.com", url: "https://homekitchenlaw.example.com", description: "Seed example site — home kitchen business law." },
+    {
+      name: "Cottage Food HQ (example)",
+      domain: "cottagefood.example.com",
+      url: "https://cottagefood.example.com",
+      description: "Seed example site — cottage food laws by state.",
+    },
+    {
+      name: "EV Charger Guide (example)",
+      domain: "evcharger.example.com",
+      url: "https://evcharger.example.com",
+      description: "Seed example site — EV home charger installation costs.",
+    },
+    {
+      name: "Home Kitchen Law (example)",
+      domain: "homekitchenlaw.example.com",
+      url: "https://homekitchenlaw.example.com",
+      description: "Seed example site — home kitchen business law.",
+    },
   ];
   for (const [i, s] of sites.entries()) {
     await prisma.website.upsert({
@@ -51,4 +74,9 @@ async function main() {
   }
   console.log("Seed complete. Super admin: demo@example.com / ChangeMe123! — CHANGE THIS PASSWORD.");
 }
-main().catch((e) => { console.error(e); process.exit(1); }).finally(() => prisma.$disconnect());
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(() => prisma.$disconnect());

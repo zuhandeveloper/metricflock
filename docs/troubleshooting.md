@@ -1,4 +1,5 @@
 # Troubleshooting
+
 - `google_oauth_not_configured`: set GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI.
 - `redirect_uri_mismatch`: redirect URI in Cloud Console must match exactly.
 - `no_refresh_token`: re-authorize; Google only issues a refresh token on first consent (we use prompt=consent).
@@ -9,8 +10,10 @@
 - No Redis: caching/queues degrade to no-ops; manual sync still works via `/api/sync`.
 
 ## Prisma engine downloads behind a proxy
+
 In this sandbox the egress proxy resets Prisma CLI's internal engine downloads
 (`ECONNRESET` from `binaries.prisma.sh`). Workaround used here (Prisma 7, pnpm):
+
 1. Find the engines version + URL from the CLI debug output
    (`DEBUG="prisma:*" npx prisma validate` prints the
    `https://binaries.prisma.sh/all_commits/<hash>/debian-openssl-3.0.x/schema-engine.gz`
@@ -22,4 +25,4 @@ In this sandbox the egress proxy resets Prisma CLI's internal engine downloads
    (chmod +x). The query engine lives in
    `~/.cache/prisma/master/<hash>/debian-openssl-3.0.x/` the same way.
 3. Run Prisma with `PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 CHECKPOINT_DISABLE=1`.
-On a normal network none of this is needed.
+   On a normal network none of this is needed.

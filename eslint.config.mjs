@@ -51,117 +51,181 @@ const boundaries = [
   {
     files: ["packages/db/**"],
     rules: {
-      "no-restricted-imports": ["error", {
-        paths: [
-          { name: "better-auth", message: "Only packages/auth may import better-auth (db's seed may use better-auth/crypto for password hashing)." },
-          { name: "googleapis", message: "Only packages/google may import googleapis." },
-          { name: "google-gax", message: "Only packages/google may import google-gax." },
-          { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
-          { name: "bullmq", message: "Only packages/jobs and apps/worker may import bullmq." },
-          { name: "ioredis", message: "Only packages/shared may import ioredis." },
-        ],
-        ...crossPackageRelative,
-      }],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "better-auth",
+              message:
+                "Only packages/auth may import better-auth (db's seed may use better-auth/crypto for password hashing).",
+            },
+            { name: "googleapis", message: "Only packages/google may import googleapis." },
+            { name: "google-gax", message: "Only packages/google may import google-gax." },
+            { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
+            { name: "bullmq", message: "Only packages/jobs and apps/worker may import bullmq." },
+            { name: "ioredis", message: "Only packages/shared may import ioredis." },
+          ],
+          ...crossPackageRelative,
+        },
+      ],
     },
   },
   {
     files: ["packages/auth/**"],
     rules: {
-      "no-restricted-imports": ["error", {
-        paths: [
-          { name: "@prisma/client", message: "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead." },
-          { name: "googleapis", message: "Only packages/google may import googleapis." },
-          { name: "google-gax", message: "Only packages/google may import google-gax." },
-          { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
-          { name: "bullmq", message: "Only packages/jobs and apps/worker may import bullmq." },
-          { name: "ioredis", message: "Only packages/shared may import ioredis." },
-        ],
-        ...crossPackageRelative,
-      }],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@prisma/client",
+              message:
+                "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead.",
+            },
+            { name: "googleapis", message: "Only packages/google may import googleapis." },
+            { name: "google-gax", message: "Only packages/google may import google-gax." },
+            { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
+            { name: "bullmq", message: "Only packages/jobs and apps/worker may import bullmq." },
+            { name: "ioredis", message: "Only packages/shared may import ioredis." },
+          ],
+          ...crossPackageRelative,
+        },
+      ],
     },
   },
   {
     files: ["packages/google/**"],
     rules: {
-      "no-restricted-imports": ["error", {
-        paths: [
-          { name: "@prisma/client", message: "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead." },
-          { name: "better-auth", message: "Only packages/auth may import better-auth." },
-          { name: "better-auth/crypto", message: "Only packages/auth (and the db seed) may import better-auth/crypto." },
-          { name: "bullmq", message: "Only packages/jobs and apps/worker may import bullmq." },
-          { name: "ioredis", message: "Only packages/shared may import ioredis." },
-        ],
-        ...crossPackageRelative,
-      }],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@prisma/client",
+              message:
+                "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead.",
+            },
+            { name: "better-auth", message: "Only packages/auth may import better-auth." },
+            {
+              name: "better-auth/crypto",
+              message: "Only packages/auth (and the db seed) may import better-auth/crypto.",
+            },
+            { name: "bullmq", message: "Only packages/jobs and apps/worker may import bullmq." },
+            { name: "ioredis", message: "Only packages/shared may import ioredis." },
+          ],
+          ...crossPackageRelative,
+        },
+      ],
     },
   },
   {
     files: ["packages/jobs/**"],
     rules: {
-      "no-restricted-imports": ["error", {
-        paths: [
-          { name: "@prisma/client", message: "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead." },
-          { name: "better-auth", message: "Only packages/auth may import better-auth." },
-          { name: "better-auth/crypto", message: "Only packages/auth (and the db seed) may import better-auth/crypto." },
-          { name: "googleapis", message: "Only packages/google may import googleapis." },
-          { name: "google-gax", message: "Only packages/google may import google-gax." },
-          { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
-          { name: "ioredis", message: "Only packages/shared may import ioredis." },
-        ],
-        ...crossPackageRelative,
-      }],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@prisma/client",
+              message:
+                "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead.",
+            },
+            { name: "better-auth", message: "Only packages/auth may import better-auth." },
+            {
+              name: "better-auth/crypto",
+              message: "Only packages/auth (and the db seed) may import better-auth/crypto.",
+            },
+            { name: "googleapis", message: "Only packages/google may import googleapis." },
+            { name: "google-gax", message: "Only packages/google may import google-gax." },
+            { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
+            { name: "ioredis", message: "Only packages/shared may import ioredis." },
+          ],
+          ...crossPackageRelative,
+        },
+      ],
     },
   },
   {
     files: ["packages/shared/**"],
     rules: {
-      "no-restricted-imports": ["error", {
-        paths: [
-          { name: "@prisma/client", message: "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead." },
-          { name: "better-auth", message: "Only packages/auth may import better-auth." },
-          { name: "better-auth/crypto", message: "Only packages/auth (and the db seed) may import better-auth/crypto." },
-          { name: "googleapis", message: "Only packages/google may import googleapis." },
-          { name: "google-gax", message: "Only packages/google may import google-gax." },
-          { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
-          { name: "bullmq", message: "Only packages/jobs and apps/worker may import bullmq." },
-        ],
-        ...crossPackageRelative,
-      }],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@prisma/client",
+              message:
+                "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead.",
+            },
+            { name: "better-auth", message: "Only packages/auth may import better-auth." },
+            {
+              name: "better-auth/crypto",
+              message: "Only packages/auth (and the db seed) may import better-auth/crypto.",
+            },
+            { name: "googleapis", message: "Only packages/google may import googleapis." },
+            { name: "google-gax", message: "Only packages/google may import google-gax." },
+            { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
+            { name: "bullmq", message: "Only packages/jobs and apps/worker may import bullmq." },
+          ],
+          ...crossPackageRelative,
+        },
+      ],
     },
   },
   {
     files: ["apps/worker/**"],
     rules: {
-      "no-restricted-imports": ["error", {
-        paths: [
-          { name: "@prisma/client", message: "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead." },
-          { name: "better-auth", message: "Only packages/auth may import better-auth." },
-          { name: "better-auth/crypto", message: "Only packages/auth (and the db seed) may import better-auth/crypto." },
-          { name: "googleapis", message: "Only packages/google may import googleapis." },
-          { name: "google-gax", message: "Only packages/google may import google-gax." },
-          { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
-          { name: "ioredis", message: "Only packages/shared may import ioredis." },
-        ],
-        ...crossPackageRelative,
-      }],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@prisma/client",
+              message:
+                "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead.",
+            },
+            { name: "better-auth", message: "Only packages/auth may import better-auth." },
+            {
+              name: "better-auth/crypto",
+              message: "Only packages/auth (and the db seed) may import better-auth/crypto.",
+            },
+            { name: "googleapis", message: "Only packages/google may import googleapis." },
+            { name: "google-gax", message: "Only packages/google may import google-gax." },
+            { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
+            { name: "ioredis", message: "Only packages/shared may import ioredis." },
+          ],
+          ...crossPackageRelative,
+        },
+      ],
     },
   },
   {
     files: ["apps/web/**"],
     rules: {
-      "no-restricted-imports": ["error", {
-        paths: [
-          { name: "@prisma/client", message: "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead." },
-          { name: "better-auth", message: "Only packages/auth may import better-auth." },
-          { name: "better-auth/crypto", message: "Only packages/auth (and the db seed) may import better-auth/crypto." },
-          { name: "googleapis", message: "Only packages/google may import googleapis." },
-          { name: "google-gax", message: "Only packages/google may import google-gax." },
-          { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
-          { name: "bullmq", message: "Only packages/jobs and apps/worker may import bullmq." },
-          { name: "ioredis", message: "Only packages/shared may import ioredis." },
-        ],
-        ...crossPackageRelative,
-      }],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@prisma/client",
+              message:
+                "Only packages/db may import @prisma/client — import the prisma client from @metricflock/db instead.",
+            },
+            { name: "better-auth", message: "Only packages/auth may import better-auth." },
+            {
+              name: "better-auth/crypto",
+              message: "Only packages/auth (and the db seed) may import better-auth/crypto.",
+            },
+            { name: "googleapis", message: "Only packages/google may import googleapis." },
+            { name: "google-gax", message: "Only packages/google may import google-gax." },
+            { name: "@google-analytics/data", message: "Only packages/google may import @google-analytics/data." },
+            { name: "bullmq", message: "Only packages/jobs and apps/worker may import bullmq." },
+            { name: "ioredis", message: "Only packages/shared may import ioredis." },
+          ],
+          ...crossPackageRelative,
+        },
+      ],
     },
   },
 ];
@@ -186,6 +250,13 @@ export default [
   },
   ...boundaries,
   {
-    ignores: ["**/node_modules/**", "**/.next/**", "**/.turbo/**", "**/.open-next/**", "**/public/**", "packages/db/prisma/migrations/**"],
+    ignores: [
+      "**/node_modules/**",
+      "**/.next/**",
+      "**/.turbo/**",
+      "**/.open-next/**",
+      "**/public/**",
+      "packages/db/prisma/migrations/**",
+    ],
   },
 ];

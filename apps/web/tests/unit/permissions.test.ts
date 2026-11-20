@@ -1,10 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { hasPermission, rolePermissions, PERMISSIONS } from "@metricflock/auth";
 describe("permissions", () => {
-  it("defines all 17 spec permissions", () => { expect(PERMISSIONS).toHaveLength(17); });
-  it("super admin has every permission", () => { for (const p of PERMISSIONS) expect(hasPermission("SUPER_ADMIN", p)).toBe(true); });
+  it("defines all 17 spec permissions", () => {
+    expect(PERMISSIONS).toHaveLength(17);
+  });
+  it("super admin has every permission", () => {
+    for (const p of PERMISSIONS) expect(hasPermission("SUPER_ADMIN", p)).toBe(true);
+  });
   it("team member cannot manage teams, connections, transfers or audit", () => {
-    for (const p of ["team.manage", "member.manage", "google.connection.manage", "website.transfer", "audit.view", "organization.manage"] as const)
+    for (const p of [
+      "team.manage",
+      "member.manage",
+      "google.connection.manage",
+      "website.transfer",
+      "audit.view",
+      "organization.manage",
+    ] as const)
       expect(hasPermission("TEAM_MEMBER", p)).toBe(false);
   });
   it("team admin can manage connections but cannot transfer websites or view audit", () => {
@@ -16,5 +27,7 @@ describe("permissions", () => {
     expect(hasPermission("TEAM_MEMBER", "analytics.view")).toBe(true);
     expect(hasPermission("TEAM_MEMBER", "analytics.realtime.view")).toBe(false);
   });
-  it("rolePermissions is stable", () => { expect(rolePermissions("TEAM_ADMIN")).toContain("website.assign"); });
+  it("rolePermissions is stable", () => {
+    expect(rolePermissions("TEAM_ADMIN")).toContain("website.assign");
+  });
 });

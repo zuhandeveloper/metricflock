@@ -47,10 +47,17 @@ export async function revokeConnection(connectionId: string): Promise<void> {
     const client = getOAuthClient();
     const refreshToken = decryptToken(conn.encryptedRefreshToken);
     await client.revokeToken(refreshToken);
-  } catch { /* revoke is best-effort; still clear local tokens */ }
+  } catch {
+    /* revoke is best-effort; still clear local tokens */
+  }
   await prisma.googleConnection.update({
     where: { id: connectionId },
-    data: { status: "DISCONNECTED", encryptedAccessToken: null, encryptedRefreshToken: "revoked", tokenExpiresAt: null },
+    data: {
+      status: "DISCONNECTED",
+      encryptedAccessToken: null,
+      encryptedRefreshToken: "revoked",
+      tokenExpiresAt: null,
+    },
   });
 }
 export const _google = google;

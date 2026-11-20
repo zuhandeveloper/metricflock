@@ -41,7 +41,11 @@ export const auth = betterAuth({
           const u = user as typeof user & { organizationId?: string; role?: string };
           if (u.organizationId) return { data: user };
           const base = (u.name || u.email.split("@")[0] || "workspace").trim();
-          const slugBase = base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "workspace";
+          const slugBase =
+            base
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-+|-+$/g, "") || "workspace";
           const org = await prisma.organization.create({
             data: { name: `${base}'s workspace`, slug: `${slugBase}-${Math.random().toString(36).slice(2, 8)}` },
           });

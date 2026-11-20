@@ -19,9 +19,7 @@ function createClient() {
   const connectionString = process.env.DATABASE_URL;
 
   if (!connectionString) {
-    throw new Error(
-      "DATABASE_URL is missing. Check your .env configuration."
-    );
+    throw new Error("DATABASE_URL is missing. Check your .env configuration.");
   }
 
   const pool = new Pool({
@@ -32,15 +30,11 @@ function createClient() {
 
   return new PrismaClient({
     adapter,
-    log:
-      process.env.NODE_ENV === "development"
-        ? ["error", "warn"]
-        : ["error"],
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
 }
 
-export const prisma =
-  globalForPrisma.prisma ?? createClient();
+export const prisma = globalForPrisma.prisma ?? createClient();
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;

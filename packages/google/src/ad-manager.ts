@@ -5,7 +5,9 @@ import type { OAuth2Client } from "./auth-types";
 // API directly (https://admanager.googleapis.com/v1) with the user's OAuth2
 // access token. If Google changes the surface, this module fails loudly with
 // a clear error rather than returning invented metrics. Ad Manager != AdSense.
-export function adManagerEnabled(): boolean { return process.env.GOOGLE_AD_MANAGER_ENABLED === "true"; }
+export function adManagerEnabled(): boolean {
+  return process.env.GOOGLE_AD_MANAGER_ENABLED === "true";
+}
 async function admFetch(auth: OAuth2Client, path: string, init?: RequestInit) {
   const { token } = await auth.getAccessToken();
   if (!token) throw new Error("AD_MANAGER_NO_ACCESS_TOKEN");
@@ -27,7 +29,11 @@ export async function listAdManagerNetworks(auth: OAuth2Client) {
 }
 export async function runAdManagerReport(auth: OAuth2Client, networkCode: string, startDate: string, endDate: string) {
   if (!adManagerEnabled()) throw new Error("AD_MANAGER_DISABLED");
-  const toParts = (d: string) => ({ year: Number(d.slice(0, 4)), month: Number(d.slice(5, 7)), day: Number(d.slice(8, 10)) });
+  const toParts = (d: string) => ({
+    year: Number(d.slice(0, 4)),
+    month: Number(d.slice(5, 7)),
+    day: Number(d.slice(8, 10)),
+  });
   const report = await admFetch(auth, `/networks/${networkCode}/reports:run`, {
     method: "POST",
     body: JSON.stringify({
@@ -38,5 +44,11 @@ export async function runAdManagerReport(auth: OAuth2Client, networkCode: string
       },
     }),
   });
-  return { networkCode, startDate, endDate, report, note: "Ad Manager reporting via the Ad Manager REST API v1; verify the report shape against your network's API version." };
+  return {
+    networkCode,
+    startDate,
+    endDate,
+    report,
+    note: "Ad Manager reporting via the Ad Manager REST API v1; verify the report shape against your network's API version.",
+  };
 }

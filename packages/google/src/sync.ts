@@ -18,7 +18,15 @@ import { prisma } from "@metricflock/db";
 import { recordHealth } from "@metricflock/db/health";
 import { buildCacheKey, cacheSet, rateLimit } from "@metricflock/shared";
 import { getAuthorizedClientForWebsite, getPrimaryIntegration } from "./client";
-import { getGa4Client, runRealtimeReport, runHistoricalReport, runTrafficAcquisition, runAudienceReport, runPagesReport, runEventsReport } from "./ga4";
+import {
+  getGa4Client,
+  runRealtimeReport,
+  runHistoricalReport,
+  runTrafficAcquisition,
+  runAudienceReport,
+  runPagesReport,
+  runEventsReport,
+} from "./ga4";
 import { querySearchAnalytics } from "./search-console";
 import { runAdSenseReport } from "./adsense";
 import { runAdManagerReport, adManagerEnabled, listAdManagerNetworks } from "./ad-manager";
@@ -27,7 +35,8 @@ import { getValidAccessToken } from "./tokens";
 import { getOAuthClient } from "./oauth";
 import type { OAuth2Client } from "./auth-types";
 
-export type SyncKind = "ga4-realtime" | "ga4-historical" | "search-console" | "adsense" | "ad-manager" | "health-check" | "cache-refresh";
+export type SyncKind =
+  "ga4-realtime" | "ga4-historical" | "search-console" | "adsense" | "ad-manager" | "health-check" | "cache-refresh";
 export type SyncStatus = "ok" | "skipped" | "not_connected" | "no_mapping" | "disabled";
 export type SyncResult = { status: SyncStatus; reports: string[]; detail?: string };
 
@@ -58,8 +67,16 @@ export type SyncDeps = {
   };
   searchConsole: { querySearchAnalytics: typeof querySearchAnalytics };
   adsense: { runAdSenseReport: typeof runAdSenseReport };
-  adManager: { runAdManagerReport: typeof runAdManagerReport; adManagerEnabled: typeof adManagerEnabled; listAdManagerNetworks: typeof listAdManagerNetworks };
-  discovery: { listGa4Properties: typeof listGa4Properties; listSearchConsoleSites: typeof listSearchConsoleSites; listAdSenseAccounts: typeof listAdSenseAccounts };
+  adManager: {
+    runAdManagerReport: typeof runAdManagerReport;
+    adManagerEnabled: typeof adManagerEnabled;
+    listAdManagerNetworks: typeof listAdManagerNetworks;
+  };
+  discovery: {
+    listGa4Properties: typeof listGa4Properties;
+    listSearchConsoleSites: typeof listSearchConsoleSites;
+    listAdSenseAccounts: typeof listAdSenseAccounts;
+  };
   tokens: { getValidAccessToken: typeof getValidAccessToken };
   getConnectionAuth: (connectionId: string) => Promise<OAuth2Client>;
   prisma: typeof prisma;
@@ -84,7 +101,15 @@ export const defaultSyncDeps: SyncDeps = {
   cacheSet,
   recordHealth,
   rateLimit,
-  ga4: { getGa4Client, runRealtimeReport, runHistoricalReport, runTrafficAcquisition, runAudienceReport, runPagesReport, runEventsReport },
+  ga4: {
+    getGa4Client,
+    runRealtimeReport,
+    runHistoricalReport,
+    runTrafficAcquisition,
+    runAudienceReport,
+    runPagesReport,
+    runEventsReport,
+  },
   searchConsole: { querySearchAnalytics },
   adsense: { runAdSenseReport },
   adManager: { runAdManagerReport, adManagerEnabled, listAdManagerNetworks },
@@ -104,10 +129,14 @@ export function last28Days(now: Date): { startDate: string; endDate: string } {
 }
 
 type Provider = "GA4" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER";
-const REPORTS_BY_KIND: Record<string, { provider: Provider; source: string; reports: { report: string; ttlSeconds: number }[] }> = {
+const REPORTS_BY_KIND: Record<
+  string,
+  { provider: Provider; source: string; reports: { report: string; ttlSeconds: number }[] }
+> = {
   "ga4-realtime": { provider: "GA4", source: "ga4", reports: [{ report: "realtime", ttlSeconds: 30 }] },
   "ga4-historical": {
-    provider: "GA4", source: "ga4",
+    provider: "GA4",
+    source: "ga4",
     reports: [
       { report: "overview", ttlSeconds: 300 },
       { report: "traffic", ttlSeconds: 300 },
@@ -116,26 +145,52 @@ const REPORTS_BY_KIND: Record<string, { provider: Provider; source: string; repo
       { report: "events", ttlSeconds: 300 },
     ],
   },
-  "search-console": { provider: "SEARCH_CONSOLE", source: "search-console", reports: [{ report: "search-console", ttlSeconds: 3600 }] },
+  "search-console": {
+    provider: "SEARCH_CONSOLE",
+    source: "search-console",
+    reports: [{ report: "search-console", ttlSeconds: 3600 }],
+  },
   adsense: { provider: "ADSENSE", source: "adsense", reports: [{ report: "adsense", ttlSeconds: 3600 }] },
   "ad-manager": { provider: "AD_MANAGER", source: "ad-manager", reports: [{ report: "ad-manager", ttlSeconds: 3600 }] },
 };
 
-const TOKEN_ERRORS = new Set(["CONNECTION_REVOKED", "TOKEN_REFRESH_FAILED", "MISSING_REFRESH_TOKEN", "CONNECTION_NOT_FOUND"]);
+const TOKEN_ERRORS = new Set([
+  "CONNECTION_REVOKED",
+  "TOKEN_REFRESH_FAILED",
+  "MISSING_REFRESH_TOKEN",
+  "CONNECTION_NOT_FOUND",
+]);
 
-async function fetchReport(deps: SyncDeps, kind: string, report: string, auth: OAuth2Client, propertyId: string, range: { startDate: string; endDate: string }): Promise<unknown> {
+async function fetchReport(
+  deps: SyncDeps,
+  kind: string,
+  report: string,
+  auth: OAuth2Client,
+  propertyId: string,
+  range: { startDate: string; endDate: string },
+): Promise<unknown> {
   if (kind === "ga4-realtime") return deps.ga4.runRealtimeReport(deps.ga4.getGa4Client(auth), propertyId);
   if (kind === "ga4-historical") {
     const client = deps.ga4.getGa4Client(auth);
     switch (report) {
-      case "overview": return deps.ga4.runHistoricalReport(client, propertyId, range.startDate, range.endDate);
-      case "traffic": return deps.ga4.runTrafficAcquisition(client, propertyId, range.startDate, range.endDate);
-      case "audience": return deps.ga4.runAudienceReport(client, propertyId, range.startDate, range.endDate);
-      case "pages": return deps.ga4.runPagesReport(client, propertyId, range.startDate, range.endDate);
-      case "events": return deps.ga4.runEventsReport(client, propertyId, range.startDate, range.endDate);
+      case "overview":
+        return deps.ga4.runHistoricalReport(client, propertyId, range.startDate, range.endDate);
+      case "traffic":
+        return deps.ga4.runTrafficAcquisition(client, propertyId, range.startDate, range.endDate);
+      case "audience":
+        return deps.ga4.runAudienceReport(client, propertyId, range.startDate, range.endDate);
+      case "pages":
+        return deps.ga4.runPagesReport(client, propertyId, range.startDate, range.endDate);
+      case "events":
+        return deps.ga4.runEventsReport(client, propertyId, range.startDate, range.endDate);
     }
   }
-  if (kind === "search-console") return deps.searchConsole.querySearchAnalytics(auth, propertyId, range.startDate, range.endDate, ["date", "query", "page"]);
+  if (kind === "search-console")
+    return deps.searchConsole.querySearchAnalytics(auth, propertyId, range.startDate, range.endDate, [
+      "date",
+      "query",
+      "page",
+    ]);
   if (kind === "adsense") return deps.adsense.runAdSenseReport(auth, propertyId, range.startDate, range.endDate);
   if (kind === "ad-manager") return deps.adManager.runAdManagerReport(auth, propertyId, range.startDate, range.endDate);
   throw new Error(`UNKNOWN_SYNC_KIND:${kind}`);
@@ -148,13 +203,19 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
     return { status: "disabled", reports: [], detail: "GOOGLE_AD_MANAGER_ENABLED is false" };
   }
   const integration = await deps.getPrimaryIntegration(websiteId, spec.provider);
-  if (!integration) return { status: "no_mapping", reports: [], detail: `No ${spec.provider} property mapped to this website.` };
+  if (!integration)
+    return { status: "no_mapping", reports: [], detail: `No ${spec.provider} property mapped to this website.` };
   let client: Awaited<ReturnType<typeof getAuthorizedClientForWebsite>>;
   try {
     client = await deps.getAuthorizedClientForWebsite(websiteId);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg === "CONNECTION_REQUIRED") return { status: "not_connected", reports: [], detail: "No active Google connection for this website or its team." };
+    if (msg === "CONNECTION_REQUIRED")
+      return {
+        status: "not_connected",
+        reports: [],
+        detail: "No active Google connection for this website or its team.",
+      };
     if (TOKEN_ERRORS.has(msg)) {
       await deps.recordHealth({ websiteId, provider: spec.provider, status: "error", lastError: msg });
       return { status: "skipped", reports: [], detail: msg };
@@ -171,7 +232,14 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
   try {
     for (const { report, ttlSeconds } of spec.reports) {
       const data = await fetchReport(deps, kind, report, client.auth, integration.externalId, range);
-      const cacheKey = buildCacheKey({ organizationId, websiteId, propertyId: integration.externalId, source: spec.source, report, range: `${range.startDate}_${range.endDate}` });
+      const cacheKey = buildCacheKey({
+        organizationId,
+        websiteId,
+        propertyId: integration.externalId,
+        source: spec.source,
+        report,
+        range: `${range.startDate}_${range.endDate}`,
+      });
       await deps.cacheSet(cacheKey, data, ttlSeconds);
       written.push(report);
     }
@@ -185,7 +253,11 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
 }
 
 /** Run one background sync for a website. See the error contract above. */
-export async function syncWebsite(websiteId: string, kind: SyncKind, deps: SyncDeps = defaultSyncDeps): Promise<SyncResult> {
+export async function syncWebsite(
+  websiteId: string,
+  kind: SyncKind,
+  deps: SyncDeps = defaultSyncDeps,
+): Promise<SyncResult> {
   if (kind === "health-check") return healthCheckWebsite(websiteId, deps);
   if (kind === "cache-refresh") {
     // Warm every provider cache the website is mapped for.
@@ -215,17 +287,29 @@ export async function healthCheckWebsite(websiteId: string, deps: SyncDeps = def
     try {
       const client = await deps.getAuthorizedClientForWebsite(websiteId);
       anyConnected = true;
-      await deps.recordHealth({ websiteId, connectionId: client.connection.connectionId, provider, status: "ok", success: true });
+      await deps.recordHealth({
+        websiteId,
+        connectionId: client.connection.connectionId,
+        provider,
+        status: "ok",
+        success: true,
+      });
       checked.push(provider);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "CONNECTION_REQUIRED") return { status: "not_connected", reports: [], detail: "No active Google connection for this website or its team." };
+      if (msg === "CONNECTION_REQUIRED")
+        return {
+          status: "not_connected",
+          reports: [],
+          detail: "No active Google connection for this website or its team.",
+        };
       await deps.recordHealth({ websiteId, provider, status: "error", lastError: msg });
       if (TOKEN_ERRORS.has(msg)) return { status: "skipped", reports: checked, detail: msg };
       throw e;
     }
   }
-  if (!checked.length && !anyConnected) return { status: "no_mapping", reports: [], detail: "No mapped integrations to check." };
+  if (!checked.length && !anyConnected)
+    return { status: "no_mapping", reports: [], detail: "No mapped integrations to check." };
   return { status: "ok", reports: checked };
 }
 
@@ -244,7 +328,10 @@ export async function refreshConnection(connectionId: string, deps: SyncDeps = d
 
 /** Discover the Google properties a connection can access and upsert them.
  *  Returns counts per provider. Mapping them to websites stays a user action. */
-export async function discoverConnectionProperties(connectionId: string, deps: SyncDeps = defaultSyncDeps): Promise<{ ga4: number; searchConsole: number; adsense: number; adManager: number }> {
+export async function discoverConnectionProperties(
+  connectionId: string,
+  deps: SyncDeps = defaultSyncDeps,
+): Promise<{ ga4: number; searchConsole: number; adsense: number; adManager: number }> {
   const auth = await deps.getConnectionAuth(connectionId);
   const counts = { ga4: 0, searchConsole: 0, adsense: 0, adManager: 0 };
   for (const p of await deps.discovery.listGa4Properties(auth)) {
@@ -252,7 +339,12 @@ export async function discoverConnectionProperties(connectionId: string, deps: S
     await deps.prisma.googleProperty.upsert({
       where: { connectionId_propertyId: { connectionId, propertyId: p.propertyId } },
       update: { displayName: p.displayName ?? null, accountId: p.accountId ?? null },
-      create: { connectionId, propertyId: p.propertyId, displayName: p.displayName ?? null, accountId: p.accountId ?? null },
+      create: {
+        connectionId,
+        propertyId: p.propertyId,
+        displayName: p.displayName ?? null,
+        accountId: p.accountId ?? null,
+      },
     });
     counts.ga4++;
   }

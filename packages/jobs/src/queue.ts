@@ -1,6 +1,16 @@
 import { Queue } from "bullmq";
 import { getRedis } from "@metricflock/shared";
-export const QUEUE_NAMES = ["google-oauth-refresh", "google-property-discovery", "ga4-realtime-sync", "ga4-historical-sync", "search-console-sync", "adsense-sync", "ad-manager-sync", "analytics-cache-refresh", "integration-health-check"] as const;
+export const QUEUE_NAMES = [
+  "google-oauth-refresh",
+  "google-property-discovery",
+  "ga4-realtime-sync",
+  "ga4-historical-sync",
+  "search-console-sync",
+  "adsense-sync",
+  "ad-manager-sync",
+  "analytics-cache-refresh",
+  "integration-health-check",
+] as const;
 export type QueueName = (typeof QUEUE_NAMES)[number];
 /** Queue name -> Prisma SyncJobType enum value. Explicit map: a naive
  *  uppercase/underscore transform produces values that are NOT in the enum
@@ -36,14 +46,19 @@ export function getQueue(name: QueueName): Queue | null {
   if (!queues.has(name)) queues.set(name, new Queue(name, { connection: redis }));
   return queues.get(name)!;
 }
-export async function enqueue(name: QueueName, data: Record<string, unknown>, opts: { jobId?: string; delayMs?: number } = {}) {
+export async function enqueue(
+  name: QueueName,
+  data: Record<string, unknown>,
+  opts: { jobId?: string; delayMs?: number } = {},
+) {
   const q = getQueue(name);
   if (!q) return null;
   return q.add(name, data, {
     jobId: opts.jobId ?? `${name}:${JSON.stringify(data)}:${Date.now()}`,
     attempts: 5,
     backoff: { type: "exponential", delay: 60_000 },
-    removeOnComplete: 100, removeOnFail: 100,
+    removeOnComplete: 100,
+    removeOnFail: 100,
     ...(opts.delayMs ? { delay: opts.delayMs } : {}),
   });
 }

@@ -60,7 +60,7 @@ not green, stop — do not start the next step. Rollback for any step is
 - Move `prisma/schema.prisma`, `prisma/migrations/*`, `prisma.config.ts` into
   `packages/db/prisma/` (content unchanged).
 - Move `src/lib/prisma.ts` → `packages/db/src/client.ts` (the `PrismaPg` adapter
-  + singleton, unchanged). Export the client and generated types from the package.
+  - singleton, unchanged). Export the client and generated types from the package.
 - Move `prisma/seed.ts` → `packages/db/src/seed.ts`, `scripts/db-manager.ts` →
   `packages/db/scripts/` (behaviour unchanged).
 - `packages/db/package.json` owns `prisma`, `@prisma/client`,
@@ -176,35 +176,35 @@ It is the migration's safety net, and it stays as a permanent CI job afterwards.
 
 ## 5. Risks and mitigations
 
-| Risk | Likelihood / impact | Mitigation |
-|---|---|---|
-| Second Prisma client created during the move (bare `new PrismaClient()`) | Medium / high — runtime failure, seed/sync break | One owner (`packages/db`); grep after 3.2; smoke test login + seed |
-| Generated client missing at `next build` (fresh-checkout failure seen before) | Medium / medium — build fails | `db#build` (`prisma generate`) is a declared Turbo dependency of `web#build`; clean-checkout build in 3.7 |
-| better-auth adapter wired to the wrong client | Low / high — logins break | Smoke test login in 3.4; adapter takes the `db` client as a parameter, never constructs one |
-| Worker fetch decision made late, delaying 3.6 | Medium / low | Move first, fetch second — explicitly allowed; deferral is the default |
-| TS 7 + typescript-eslint gap (reduced lint config) | Certain / low | Carried over, not fixed by the migration; re-add `next/core-web-vitals` when a stable typescript-eslint supports TS 7 |
-| Secret sprawl across two deployables | Medium / medium | Per-process env table (target §6); worker gets no session secret |
-| `pnpm-workspace.yaml` `minimumReleaseAge: 0` masking a bad release | Low / low | Keep as-is (needed for fresh stable releases); revisit after the migration |
-| Scope creep (new features "while we're in there") | Medium / medium | Non-goals in §1; any feature request goes on the backlog, not the branch |
+| Risk                                                                          | Likelihood / impact                              | Mitigation                                                                                                            |
+| ----------------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Second Prisma client created during the move (bare `new PrismaClient()`)      | Medium / high — runtime failure, seed/sync break | One owner (`packages/db`); grep after 3.2; smoke test login + seed                                                    |
+| Generated client missing at `next build` (fresh-checkout failure seen before) | Medium / medium — build fails                    | `db#build` (`prisma generate`) is a declared Turbo dependency of `web#build`; clean-checkout build in 3.7             |
+| better-auth adapter wired to the wrong client                                 | Low / high — logins break                        | Smoke test login in 3.4; adapter takes the `db` client as a parameter, never constructs one                           |
+| Worker fetch decision made late, delaying 3.6                                 | Medium / low                                     | Move first, fetch second — explicitly allowed; deferral is the default                                                |
+| TS 7 + typescript-eslint gap (reduced lint config)                            | Certain / low                                    | Carried over, not fixed by the migration; re-add `next/core-web-vitals` when a stable typescript-eslint supports TS 7 |
+| Secret sprawl across two deployables                                          | Medium / medium                                  | Per-process env table (target §6); worker gets no session secret                                                      |
+| `pnpm-workspace.yaml` `minimumReleaseAge: 0` masking a bad release            | Low / low                                        | Keep as-is (needed for fresh stable releases); revisit after the migration                                            |
+| Scope creep (new features "while we're in there")                             | Medium / medium                                  | Non-goals in §1; any feature request goes on the backlog, not the branch                                              |
 
 ## 6. Effort estimate (rough, not a commitment)
 
 The codebase is small (~1,900 LOC app code) and the dependency graph is a shallow
 tree (audit §12), so the work is mechanical moves + verification, not a rewrite.
 
-| Step | Estimate |
-|---|---|
-| 3.1 Scaffold | 0.5 day |
-| 3.2 `db` | 0.5–1 day |
-| 3.3 `shared` | 0.5 day |
-| 3.4 `auth` | 0.5–1 day |
-| 3.5 `google` | 0.5 day |
-| 3.6 `jobs` + worker (move only) | 0.5–1 day |
-| 3.6 worker real fetch (if approved) | +1–2 days |
-| 3.7 Web slimming + clean-checkout build | 0.5–1 day |
-| 3.8 CI + deploy wiring + docs | 1 day |
-| **Total (move only)** | **~4–6 focused days** |
-| **Total (with worker fetch)** | **~5–8 focused days** |
+| Step                                    | Estimate              |
+| --------------------------------------- | --------------------- |
+| 3.1 Scaffold                            | 0.5 day               |
+| 3.2 `db`                                | 0.5–1 day             |
+| 3.3 `shared`                            | 0.5 day               |
+| 3.4 `auth`                              | 0.5–1 day             |
+| 3.5 `google`                            | 0.5 day               |
+| 3.6 `jobs` + worker (move only)         | 0.5–1 day             |
+| 3.6 worker real fetch (if approved)     | +1–2 days             |
+| 3.7 Web slimming + clean-checkout build | 0.5–1 day             |
+| 3.8 CI + deploy wiring + docs           | 1 day                 |
+| **Total (move only)**                   | **~4–6 focused days** |
+| **Total (with worker fetch)**           | **~5–8 focused days** |
 
 Estimates assume the person doing it can run staging Postgres + Redis and has
 Node 26. They exclude the deploy cutover, which is a separate decision.

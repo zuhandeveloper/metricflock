@@ -36,12 +36,21 @@ export async function assertWebsiteAccess(user: User, websiteId: string) {
 }
 export async function listAccessibleWebsiteIds(user: User): Promise<string[] | null> {
   if (user.role === "SUPER_ADMIN") return null; // null = all in org
-  const memberships = await prisma.teamMember.findMany({ where: { userId: user.id }, select: { teamId: true, isAdmin: true } });
+  const memberships = await prisma.teamMember.findMany({
+    where: { userId: user.id },
+    select: { teamId: true, isAdmin: true },
+  });
   const teamIds = memberships.map((m) => m.teamId);
-  const teamWebsites = await prisma.website.findMany({ where: { organizationId: user.organizationId, teamId: { in: teamIds } }, select: { id: true } });
+  const teamWebsites = await prisma.website.findMany({
+    where: { organizationId: user.organizationId, teamId: { in: teamIds } },
+    select: { id: true },
+  });
   const ids = new Set(teamWebsites.map((w) => w.id));
   if (user.role === "TEAM_ADMIN") return [...ids];
-  const assignments = await prisma.websiteAssignment.findMany({ where: { userId: user.id }, select: { websiteId: true } });
+  const assignments = await prisma.websiteAssignment.findMany({
+    where: { userId: user.id },
+    select: { websiteId: true },
+  });
   for (const a of assignments) ids.add(a.websiteId);
   return [...ids];
 }

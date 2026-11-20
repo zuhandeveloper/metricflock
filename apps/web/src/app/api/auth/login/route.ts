@@ -27,7 +27,9 @@ export async function POST(req: NextRequest) {
     asResponse: true,
   });
   if (!res.ok) return NextResponse.json({ error: "invalid_credentials" }, { status: 401 });
-  const data = (await res.json().catch(() => null)) as { user?: { id: string; email: string; name: string; role?: string } } | null;
+  const data = (await res.json().catch(() => null)) as {
+    user?: { id: string; email: string; name: string; role?: string };
+  } | null;
   const out = NextResponse.json({
     status: "ok",
     user: data?.user

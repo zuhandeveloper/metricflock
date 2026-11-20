@@ -11,5 +11,7 @@ export async function GET(req: NextRequest) {
   try {
     const url = buildAuthUrl(parsed.data.ownerType, parsed.data.ownerId, auth.user.id);
     return NextResponse.json({ authUrl: url });
-  } catch { return NextResponse.json({ error: "google_oauth_not_configured" }, { status: 503 }); }
+  } catch {
+    return NextResponse.json({ error: "google_oauth_not_configured" }, { status: 503 });
+  }
 }

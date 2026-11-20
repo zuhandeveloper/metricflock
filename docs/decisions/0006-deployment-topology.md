@@ -2,7 +2,7 @@
 
 Date: 2026-11-18
 Status: Proposed (Phase 2) — shapes deploy wiring in migration step 3.8;
-  **the production cutover is a separate decision and is not part of Phase 3.**
+**the production cutover is a separate decision and is not part of Phase 3.**
 
 ## Context
 
@@ -41,7 +41,7 @@ a long-running BullMQ process holding persistent Redis connections.
 - **Worker as a Vercel Cron / serverless function:** BullMQ workers are
   long-lived consumers, not cron invocations. Cron could enqueue, but cannot
   replace the consumer. (A Vercel Cron that hits `/api/sync` is a valid
-  *trigger* for the manual endpoint, and is worth considering separately —
+  _trigger_ for the manual endpoint, and is worth considering separately —
   it does not change the worker's host.)
 - **Single host running web + worker together:** works for now, but couples
   their scaling and deploys — the exact coupling the monorepo is meant to

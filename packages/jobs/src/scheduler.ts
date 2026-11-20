@@ -17,13 +17,20 @@ export type DueSyncPlanEntry = { queue: QueueName; websiteId: string; jobId: str
 /** Interval (ms) after which a queue's sync is due again for a website. */
 export function intervalMsForQueue(queue: QueueName, intervals: typeof SYNC_INTERVALS = SYNC_INTERVALS): number {
   switch (queue) {
-    case "ga4-realtime-sync": return intervals.ga4RealtimeSeconds * 1_000;
-    case "ga4-historical-sync": return intervals.ga4HistoricalMinutes * 60_000;
-    case "search-console-sync": return intervals.searchConsoleHours * 3_600_000;
-    case "adsense-sync": return intervals.adsenseHours * 3_600_000;
-    case "ad-manager-sync": return intervals.adManagerHours * 3_600_000;
-    case "integration-health-check": return intervals.healthCheckHours * 3_600_000;
-    default: return Number.POSITIVE_INFINITY; // oauth-refresh / discovery / cache-refresh are event-driven, not interval-driven
+    case "ga4-realtime-sync":
+      return intervals.ga4RealtimeSeconds * 1_000;
+    case "ga4-historical-sync":
+      return intervals.ga4HistoricalMinutes * 60_000;
+    case "search-console-sync":
+      return intervals.searchConsoleHours * 3_600_000;
+    case "adsense-sync":
+      return intervals.adsenseHours * 3_600_000;
+    case "ad-manager-sync":
+      return intervals.adManagerHours * 3_600_000;
+    case "integration-health-check":
+      return intervals.healthCheckHours * 3_600_000;
+    default:
+      return Number.POSITIVE_INFINITY; // oauth-refresh / discovery / cache-refresh are event-driven, not interval-driven
   }
 }
 

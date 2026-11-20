@@ -1,4 +1,5 @@
 # Environment Configuration
+
 See `apps/web/.env.example`. The `.env` file lives in `apps/web/` (Next.js
 loads env from the app directory); the db and worker scripts read the same
 file via `DOTENV_CONFIG_PATH`. Do not keep a second `.env` at the repo root.

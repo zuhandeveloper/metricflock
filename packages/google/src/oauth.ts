@@ -19,23 +19,42 @@ export function buildState(ownerType: "TEAM" | "WEBSITE", ownerId: string, userI
   const sig = hmacState(payload);
   return Buffer.from(JSON.stringify({ payload, sig })).toString("base64url");
 }
-export function verifyState(state: string, maxAgeMs = 10 * 60 * 1000): { ownerType: "TEAM" | "WEBSITE"; ownerId: string; userId: string } {
+export function verifyState(
+  state: string,
+  maxAgeMs = 10 * 60 * 1000,
+): { ownerType: "TEAM" | "WEBSITE"; ownerId: string; userId: string } {
   let parsed: { payload: string; sig: string };
-  try { parsed = JSON.parse(Buffer.from(state, "base64url").toString("utf8")); } catch { throw new Error("INVALID_STATE"); }
+  try {
+    parsed = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("INVALID_STATE");
+  }
   if (hmacState(parsed.payload) !== parsed.sig) throw new Error("INVALID_STATE");
-  const data = JSON.parse(parsed.payload) as { ownerType: "TEAM" | "WEBSITE"; ownerId: string; userId: string; ts: number };
+  const data = JSON.parse(parsed.payload) as {
+    ownerType: "TEAM" | "WEBSITE";
+    ownerId: string;
+    userId: string;
+    ts: number;
+  };
   if (Date.now() - data.ts >= maxAgeMs) throw new Error("STATE_EXPIRED");
   return data;
 }
 /** Fetch the Google account profile (email + id) for an authorized OAuth2 client.
  * Used by the OAuth callback right after token exchange, to identify which
  * Google account was just connected. */
-export async function getGoogleAccountProfile(client: InstanceType<typeof google.auth.OAuth2>): Promise<{ email: string; id: string | null }> {
+export async function getGoogleAccountProfile(
+  client: InstanceType<typeof google.auth.OAuth2>,
+): Promise<{ email: string; id: string | null }> {
   const oauth2 = google.oauth2({ version: "v2", auth: client });
   const me = await oauth2.userinfo.get();
   return { email: me.data.email ?? "unknown@google", id: me.data.id ?? null };
 }
-export function buildAuthUrl(ownerType: "TEAM" | "WEBSITE", ownerId: string, userId: string, extraScopes: string[] = []): string {
+export function buildAuthUrl(
+  ownerType: "TEAM" | "WEBSITE",
+  ownerId: string,
+  userId: string,
+  extraScopes: string[] = [],
+): string {
   const client = getOAuthClient();
   return client.generateAuthUrl({
     access_type: "offline",

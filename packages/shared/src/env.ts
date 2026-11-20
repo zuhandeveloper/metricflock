@@ -24,15 +24,25 @@ export function getEnv(): Env {
   if (!parsed.success) {
     // During build/prisma generate, DATABASE_URL may be a placeholder; fail loudly at runtime use instead.
     if (process.env.NEXT_PHASE === "phase-production-build") {
-      return { DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder", SESSION_SECRET: "build-placeholder-secret-32-chars-long!!" } as Env;
+      return {
+        DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder",
+        SESSION_SECRET: "build-placeholder-secret-32-chars-long!!",
+      } as Env;
     }
-    throw new Error("Invalid environment: " + parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+    throw new Error(
+      "Invalid environment: " + parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+    );
   }
   cached = parsed.data;
   return cached;
 }
 export function googleEnabled(provider: "ANALYTICS" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER"): boolean {
   const e = process.env;
-  const v = { ANALYTICS: e.GOOGLE_ANALYTICS_ENABLED, SEARCH_CONSOLE: e.GOOGLE_SEARCH_CONSOLE_ENABLED, ADSENSE: e.GOOGLE_ADSENSE_ENABLED, AD_MANAGER: e.GOOGLE_AD_MANAGER_ENABLED }[provider];
+  const v = {
+    ANALYTICS: e.GOOGLE_ANALYTICS_ENABLED,
+    SEARCH_CONSOLE: e.GOOGLE_SEARCH_CONSOLE_ENABLED,
+    ADSENSE: e.GOOGLE_ADSENSE_ENABLED,
+    AD_MANAGER: e.GOOGLE_AD_MANAGER_ENABLED,
+  }[provider];
   return v !== "false";
 }

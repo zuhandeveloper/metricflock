@@ -6,6 +6,7 @@ They never present mocked results as live Google verification.
 ## Real-account integration test mode (manual, not run in CI)
 
 Prerequisites:
+
 - A Google Cloud project with the Analytics Data API, Search Console API and
   AdSense Management API enabled, OAuth consent screen configured, and a test
   user added (see `docs/google-cloud-setup.md`).
@@ -14,6 +15,7 @@ Prerequisites:
 - A Postgres + Redis instance running (`docker compose up -d`).
 
 Steps:
+
 1. `npx prisma migrate deploy && npm run db:seed`
 2. Start the app (`npm run dev`), sign in as the seed admin, connect a Google
    account from `/integrations`, discover properties and map one to a website.

@@ -1,15 +1,18 @@
 # Implementation Plan
 
 ## Audit finding
+
 There is **no existing Next.js CMS** in this workspace — only the Astro cottage-food starter
 (`~/workspace/cottage-food-blog-starter/`, astro ^7, no Prisma/auth). This app was therefore
 created from scratch at `~/workspace/metricflock/`, reusing nothing except the cottage-food
 site domains as seed example data. The Astro blog was left untouched.
 
 ## Existing architecture reused
+
 - None (greenfield). Conventions follow the spec's target stack.
 
 ## Files created
+
 - Scaffold: package.json, tsconfig, next.config.ts, Tailwind 4 + PostCSS, docker-compose.yml, .env.example, README.md
 - Prisma: schema.prisma (18 models — the original 16 plus better-auth `Account`
   and `Verification`), seed.ts (demo admin via better-auth scrypt hash),
@@ -29,9 +32,11 @@ site domains as seed example data. The Astro blog was left untouched.
 - Docs: 11 guides in docs/
 
 ## Database changes
+
 New Postgres schema (see prisma/schema.prisma). No existing DB was modified.
 
 ## Dependencies (stable only)
+
 next 16.4.6, react 19.3.1, typescript 7.0.2, prisma 7.10.1, @prisma/client 7.10.1,
 tailwindcss 4.3.5, lucide-react 1.75.0, zod 4.6.7, @tanstack/react-query,
 recharts 3.11.0, googleapis 190, @google-analytics/data 7.3.0, google-gax 6.17.0
@@ -40,17 +45,19 @@ transitive deps), bullmq 6.7.7, ioredis 6, better-auth 1.7.26, dotenv 18,
 marked 18.2.1, vitest 5.1.1, tsx, eslint 10.15.0, prettier 3.10.1, husky 9.1.7,
 @opennextjs/cloudflare 1.20.17, wrangler 4.165.0. Package manager: pnpm 12.21.0,
 Node >= 26.
+
 - Prisma 8 was NOT used: npm `latest` for prisma is 8.0.0-rc.34 (an RC, not
   stable). 7.10.1 is the last stable (`prev` tag) and is what is pinned.
 - Prisma 7 needs a driver adapter on the client: `@prisma/adapter-pg@7.10.1`
-  + `pg@8.23.1` (+ `@types/pg` dev) were added; `src/lib/prisma.ts` passes a
-  `PrismaPg` adapter to `PrismaClient`. The URL in `prisma.config.ts` only
-  serves migrate/generate — without the adapter the build fails with
-  `PrismaClientConstructorValidationError` during page-data collection.
+  - `pg@8.23.1` (+ `@types/pg` dev) were added; `src/lib/prisma.ts` passes a
+    `PrismaPg` adapter to `PrismaClient`. The URL in `prisma.config.ts` only
+    serves migrate/generate — without the adapter the build fails with
+    `PrismaClientConstructorValidationError` during page-data collection.
 - `tailwindcss` in the user's package.json was `^4.3.15`, which does not exist
   (latest is 4.3.5); corrected to `^4.3.5`.
 
 ## Security considerations
+
 - Tokens AES-256-GCM encrypted at rest; key from env; never logged.
 - HMAC-signed OAuth state, CSRF via sameSite cookies, httpOnly session cookies.
 - Server-side tenant isolation on every route (assertWebsiteAccess/assertTeamAccess); frontend visibility is not security.
@@ -58,12 +65,14 @@ Node >= 26.
 - Ad Manager disabled by default; no mock data presented as real.
 
 ## Phases
+
 1 Foundation ✓ (reworked 2026-11-19: better-auth replaces custom sessions +
 bcryptjs — see "Phase 1 rework" below) · 2 OAuth ✓ · 3-5 Google APIs ✓ ·
 6 Dashboards ✓ · 7 Background ✓ · 8 Flipping ✓ · 9 QA (unit tests + build;
 real-Google verification still pending — needs a real account).
 
 ## Phase 1 rework (2026-11-19, after the user's package upgrades)
+
 - Auth migrated to better-auth 1.7.26 with the Prisma adapter
   (`emailAndPassword`, scrypt hashes in `Account`). `User` now carries the
   better-auth fields (`name` non-null, `email @unique`, `emailVerified`,
@@ -98,11 +107,12 @@ real-Google verification still pending — needs a real account).
   still pnpm@12.21.0.
 
 ## Verification (2026-11-19, this environment — Phase 1 rework)
+
 - `pnpm install` (pnpm 12.21.0, Node 24.22.1 in this sandbox — engines want
-  >=26, so it prints an "Unsupported engine" warning, not a failure):
-  SUCCEEDS after `pnpm approve-builds --all` and `minimumReleaseAge: 0`
-  (see pnpm 12 notes above). Produces `pnpm-lock.yaml`; stale npm
-  `package-lock.json` deleted.
+  > =26, so it prints an "Unsupported engine" warning, not a failure):
+  > SUCCEEDS after `pnpm approve-builds --all` and `minimumReleaseAge: 0`
+  > (see pnpm 12 notes above). Produces `pnpm-lock.yaml`; stale npm
+  > `package-lock.json` deleted.
 - `prisma validate`: valid. `prisma generate`: client (v7.10.1) generated.
   New migration `prisma/migrations/20261119000000_better_auth/migration.sql`
   (80 lines, Prisma-generated diff + safety preamble).
@@ -126,6 +136,7 @@ real-Google verification still pending — needs a real account).
   against its `.sha256` (7116e002…). On a normal network this is unnecessary.
 
 ## Verification (2026-11-18, this environment — original build)
+
 - `npx prisma validate`: valid. `npx prisma generate`: client generated and loads.
   Migration SQL: `prisma/migrations/20261118000000_init/migration.sql` (470 lines,
   18 CREATE TABLE) generated via `prisma migrate diff --from-empty` (no live DB).

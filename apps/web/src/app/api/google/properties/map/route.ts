@@ -13,11 +13,31 @@ export async function POST(req: NextRequest) {
   const website = await assertWebsiteAccess(auth.user, body.data.websiteId).catch(() => null);
   if (!website) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
   const integration = await prisma.websiteIntegration.upsert({
-    where: { websiteId_provider_externalId: { websiteId: website.id, provider: body.data.provider, externalId: body.data.externalId } },
+    where: {
+      websiteId_provider_externalId: {
+        websiteId: website.id,
+        provider: body.data.provider,
+        externalId: body.data.externalId,
+      },
+    },
     update: { resourceName: body.data.resourceName, isPrimary: body.data.isPrimary ?? false, mappingStatus: "MAPPED" },
-    create: { websiteId: website.id, provider: body.data.provider, externalId: body.data.externalId, resourceName: body.data.resourceName, isPrimary: body.data.isPrimary ?? false, mappingStatus: "MAPPED" },
+    create: {
+      websiteId: website.id,
+      provider: body.data.provider,
+      externalId: body.data.externalId,
+      resourceName: body.data.resourceName,
+      isPrimary: body.data.isPrimary ?? false,
+      mappingStatus: "MAPPED",
+    },
   });
-  await writeAudit({ organizationId: auth.user.organizationId, actorId: auth.user.id, action: "google.property.mapped", entityType: "Website", entityId: website.id, details: { provider: body.data.provider, externalId: body.data.externalId } });
+  await writeAudit({
+    organizationId: auth.user.organizationId,
+    actorId: auth.user.id,
+    action: "google.property.mapped",
+    entityType: "Website",
+    entityId: website.id,
+    details: { provider: body.data.provider, externalId: body.data.externalId },
+  });
   await invalidateWebsiteCache(auth.user.organizationId, website.id);
   return NextResponse.json({ integration });
 }

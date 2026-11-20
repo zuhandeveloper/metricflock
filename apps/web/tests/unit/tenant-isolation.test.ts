@@ -6,8 +6,20 @@ import { hasPermission } from "@metricflock/auth";
 // which require a real Postgres instance and are not run in CI without one.
 describe("tenant isolation (unit-level)", () => {
   it("cache keys are org-scoped so no cross-tenant leak via cache", () => {
-    const k1 = buildCacheKey({ organizationId: "org-a", websiteId: "w", source: "ga4", report: "overview", range: "r" });
-    const k2 = buildCacheKey({ organizationId: "org-b", websiteId: "w", source: "ga4", report: "overview", range: "r" });
+    const k1 = buildCacheKey({
+      organizationId: "org-a",
+      websiteId: "w",
+      source: "ga4",
+      report: "overview",
+      range: "r",
+    });
+    const k2 = buildCacheKey({
+      organizationId: "org-b",
+      websiteId: "w",
+      source: "ga4",
+      report: "overview",
+      range: "r",
+    });
     expect(k1).not.toBe(k2);
   });
   it("team members lack cross-team management permissions", () => {

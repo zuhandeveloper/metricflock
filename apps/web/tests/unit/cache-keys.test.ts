@@ -2,7 +2,14 @@ import { describe, it, expect } from "vitest";
 import { buildCacheKey } from "@metricflock/shared";
 describe("cache keys (tenant isolation)", () => {
   it("includes org, website, property, source, report, range", () => {
-    const k = buildCacheKey({ organizationId: "org1", websiteId: "w1", propertyId: "p1", source: "ga4", report: "overview", range: "2026-11-01_2026-11-28" });
+    const k = buildCacheKey({
+      organizationId: "org1",
+      websiteId: "w1",
+      propertyId: "p1",
+      source: "ga4",
+      report: "overview",
+      range: "2026-11-01_2026-11-28",
+    });
     expect(k).toBe("analytics:org1:w1:p1:ga4:overview:2026-11-01_2026-11-28:all");
   });
   it("different orgs never share a key", () => {

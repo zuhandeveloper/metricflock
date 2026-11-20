@@ -12,7 +12,11 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.redirect(`${appUrl}/integrations?oauth=denied`);
   if (!code || !state) return NextResponse.redirect(`${appUrl}/integrations?oauth=invalid`);
   let data: { ownerType: "TEAM" | "WEBSITE"; ownerId: string; userId: string };
-  try { data = verifyState(state); } catch { return NextResponse.redirect(`${appUrl}/integrations?oauth=bad_state`); }
+  try {
+    data = verifyState(state);
+  } catch {
+    return NextResponse.redirect(`${appUrl}/integrations?oauth=bad_state`);
+  }
   try {
     const client = getOAuthClient();
     const { tokens } = await client.getToken(code);
@@ -27,26 +31,47 @@ export async function GET(req: NextRequest) {
     if (!user) return NextResponse.redirect(`${appUrl}/integrations?oauth=user_not_found`);
     const email = me.email;
     await prisma.googleConnection.upsert({
-      where: { organizationId_ownerType_ownerId_googleAccountEmail: { organizationId: user.organizationId, ownerType: data.ownerType, ownerId: data.ownerId, googleAccountEmail: email } },
+      where: {
+        organizationId_ownerType_ownerId_googleAccountEmail: {
+          organizationId: user.organizationId,
+          ownerType: data.ownerType,
+          ownerId: data.ownerId,
+          googleAccountEmail: email,
+        },
+      },
       update: {
         encryptedRefreshToken: encryptToken(tokens.refresh_token),
         encryptedAccessToken: tokens.access_token ? encryptToken(tokens.access_token) : null,
         tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
         googleAccountId: me.id,
         scopes: tokens.scope ? tokens.scope.split(" ") : [],
-        status: "ACTIVE", lastSuccessfulAuthAt: new Date(), lastUsedAt: new Date(),
+        status: "ACTIVE",
+        lastSuccessfulAuthAt: new Date(),
+        lastUsedAt: new Date(),
       },
       create: {
-        organizationId: user.organizationId, ownerType: data.ownerType, ownerId: data.ownerId,
-        googleAccountEmail: email, googleAccountId: me.id,
+        organizationId: user.organizationId,
+        ownerType: data.ownerType,
+        ownerId: data.ownerId,
+        googleAccountEmail: email,
+        googleAccountId: me.id,
         encryptedRefreshToken: encryptToken(tokens.refresh_token),
         encryptedAccessToken: tokens.access_token ? encryptToken(tokens.access_token) : null,
         tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
         scopes: tokens.scope ? tokens.scope.split(" ") : [],
-        status: "ACTIVE", createdById: user.id, lastSuccessfulAuthAt: new Date(), lastUsedAt: new Date(),
+        status: "ACTIVE",
+        createdById: user.id,
+        lastSuccessfulAuthAt: new Date(),
+        lastUsedAt: new Date(),
       },
     });
-    await writeAudit({ organizationId: user.organizationId, actorId: user.id, action: "google.connection.created", entityType: "GoogleConnection", details: { ownerType: data.ownerType, ownerId: data.ownerId, googleAccountEmail: email } });
+    await writeAudit({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      action: "google.connection.created",
+      entityType: "GoogleConnection",
+      details: { ownerType: data.ownerType, ownerId: data.ownerId, googleAccountEmail: email },
+    });
     await invalidateOrgCache(user.organizationId);
     return NextResponse.redirect(`${appUrl}/integrations?oauth=connected`);
   } catch {

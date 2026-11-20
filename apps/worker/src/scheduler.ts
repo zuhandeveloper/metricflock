@@ -38,7 +38,10 @@ async function tick(redis: RedisClient): Promise<void> {
     if (row.websiteId) lastSucceededAt.set(`${row.websiteId}:${row.type}`, row._max.updatedAt);
   }
   const plan = planDueSyncs({
-    websites: websites.map((w) => ({ id: w.id, providers: [...new Set(w.integrations.map((i) => i.provider as SyncProviderName))] })),
+    websites: websites.map((w) => ({
+      id: w.id,
+      providers: [...new Set(w.integrations.map((i) => i.provider as SyncProviderName))],
+    })),
     lastSucceededAt,
     now,
     adManagerEnabled: adManagerEnabled(),
@@ -53,7 +56,11 @@ async function tick(redis: RedisClient): Promise<void> {
   });
   const hourBucket = Math.floor(now.getTime() / 3_600_000);
   for (const conn of expiring) {
-    await enqueue("google-oauth-refresh", { connectionId: conn.id }, { jobId: `google-oauth-refresh:${conn.id}:${hourBucket}` });
+    await enqueue(
+      "google-oauth-refresh",
+      { connectionId: conn.id },
+      { jobId: `google-oauth-refresh:${conn.id}:${hourBucket}` },
+    );
   }
 
   const undiscovered = await prisma.googleConnection.findMany({
@@ -68,16 +75,26 @@ async function tick(redis: RedisClient): Promise<void> {
   });
   const dayBucket = Math.floor(now.getTime() / 86_400_000);
   for (const conn of undiscovered) {
-    await enqueue("google-property-discovery", { connectionId: conn.id }, { jobId: `google-property-discovery:${conn.id}:${dayBucket}` });
+    await enqueue(
+      "google-property-discovery",
+      { connectionId: conn.id },
+      { jobId: `google-property-discovery:${conn.id}:${dayBucket}` },
+    );
   }
 
   if (plan.length || expiring.length || undiscovered.length) {
-    console.log(`[scheduler] enqueued syncs=${plan.length} oauth-refresh=${expiring.length} discovery=${undiscovered.length}`);
+    console.log(
+      `[scheduler] enqueued syncs=${plan.length} oauth-refresh=${expiring.length} discovery=${undiscovered.length}`,
+    );
   }
 }
 
 export function startScheduler(redis: RedisClient): void {
-  const run = () => { tick(redis).catch((err) => console.error("[scheduler] tick failed:", err instanceof Error ? err.message : String(err))); };
+  const run = () => {
+    tick(redis).catch((err) =>
+      console.error("[scheduler] tick failed:", err instanceof Error ? err.message : String(err)),
+    );
+  };
   run();
   setInterval(run, TICK_MS);
   console.log("Scheduler started (60s tick)");

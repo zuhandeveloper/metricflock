@@ -11,13 +11,13 @@ Sandbox: Node v24.22.1 (below the `engines: node >=26` floor — warning only, c
 pnpm 12.21.0. All checks run with a dummy `DATABASE_URL` where a DB is required;
 no live Postgres/Redis is reachable from the sandbox (known egress limit, not a code fault).
 
-| Check | Command | Result |
-|---|---|---|
-| Typecheck | `pnpm typecheck` | exit 0 |
-| Lint | `pnpm lint` | exit 0 |
-| Tests | `pnpm test` | 30/30 pass, 9 files, ~5.5 s |
-| Prisma | `prisma validate` (dummy URL) | schema valid |
-| Build | `pnpm build` (dummy URL) | passes — 37 route entries (26 API + 10 pages + `_not-found`) |
+| Check     | Command                       | Result                                                       |
+| --------- | ----------------------------- | ------------------------------------------------------------ |
+| Typecheck | `pnpm typecheck`              | exit 0                                                       |
+| Lint      | `pnpm lint`                   | exit 0                                                       |
+| Tests     | `pnpm test`                   | 30/30 pass, 9 files, ~5.5 s                                  |
+| Prisma    | `prisma validate` (dummy URL) | schema valid                                                 |
+| Build     | `pnpm build` (dummy URL)      | passes — 37 route entries (26 API + 10 pages + `_not-found`) |
 
 ## 2. What the repo is
 

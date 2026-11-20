@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll } from "vitest";
-beforeAll(() => { process.env.SESSION_SECRET = "test-session-secret-min-32-chars-long!!"; process.env.GOOGLE_CLIENT_ID = "id"; process.env.GOOGLE_CLIENT_SECRET = "secret"; process.env.GOOGLE_REDIRECT_URI = "http://localhost:3000/api/google/oauth/callback"; });
+beforeAll(() => {
+  process.env.SESSION_SECRET = "test-session-secret-min-32-chars-long!!";
+  process.env.GOOGLE_CLIENT_ID = "id";
+  process.env.GOOGLE_CLIENT_SECRET = "secret";
+  process.env.GOOGLE_REDIRECT_URI = "http://localhost:3000/api/google/oauth/callback";
+});
 import { buildState, verifyState, buildAuthUrl, ALL_SCOPES } from "@metricflock/google/oauth";
 describe("OAuth state", () => {
   it("builds and verifies a state token", () => {

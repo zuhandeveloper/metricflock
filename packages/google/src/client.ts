@@ -13,13 +13,25 @@ export async function resolveConnectionForWebsite(websiteId: string): Promise<Co
     where: { ownerType: "WEBSITE", ownerId: websiteId, status: { in: ["ACTIVE", "EXPIRED", "NEEDS_REAUTH"] } },
     orderBy: { updatedAt: "desc" },
   });
-  if (siteConn) return { status: "connected", connectionId: siteConn.id, level: "WEBSITE", googleAccountEmail: siteConn.googleAccountEmail };
+  if (siteConn)
+    return {
+      status: "connected",
+      connectionId: siteConn.id,
+      level: "WEBSITE",
+      googleAccountEmail: siteConn.googleAccountEmail,
+    };
   if (website.teamId) {
     const teamConn = await prisma.googleConnection.findFirst({
       where: { ownerType: "TEAM", ownerId: website.teamId, status: { in: ["ACTIVE", "EXPIRED", "NEEDS_REAUTH"] } },
       orderBy: { updatedAt: "desc" },
     });
-    if (teamConn) return { status: "connected", connectionId: teamConn.id, level: "TEAM", googleAccountEmail: teamConn.googleAccountEmail };
+    if (teamConn)
+      return {
+        status: "connected",
+        connectionId: teamConn.id,
+        level: "TEAM",
+        googleAccountEmail: teamConn.googleAccountEmail,
+      };
   }
   return { status: "not_connected", connectionId: null, level: null, googleAccountEmail: null };
 }
@@ -31,7 +43,13 @@ export async function getAuthorizedClientForWebsite(websiteId: string) {
   auth.setCredentials({ access_token: accessToken });
   return { auth, connection: resolved };
 }
-export async function getPrimaryIntegration(websiteId: string, provider: "GA4" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER") {
-  return prisma.websiteIntegration.findFirst({ where: { websiteId, provider, mappingStatus: "MAPPED" }, orderBy: [{ isPrimary: "desc" }, { updatedAt: "desc" }] });
+export async function getPrimaryIntegration(
+  websiteId: string,
+  provider: "GA4" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER",
+) {
+  return prisma.websiteIntegration.findFirst({
+    where: { websiteId, provider, mappingStatus: "MAPPED" },
+    orderBy: [{ isPrimary: "desc" }, { updatedAt: "desc" }],
+  });
 }
 export const _google = google;
