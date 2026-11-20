@@ -11,7 +11,7 @@ export default async function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
-          <img src="/logo.png" alt="MetricFlock" width={48} height={48} className="rounded-xl" />
+          <img src="/logo.svg" alt="MetricFlock" width={48} height={48} className="rounded-xl" />
           <h1 className="text-xl font-bold">Sign in to MetricFlock</h1>
           <p className="text-sm text-zinc-500">Your whole website portfolio, in one dashboard.</p>
         </div>
