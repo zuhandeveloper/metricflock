@@ -76,12 +76,10 @@ DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec prisma
 pnpm db:seed >/dev/null || fail "db:seed"
 DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-member.ts >/dev/null || fail "smoke-member setup"
 DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-attacker.ts >/dev/null || fail "smoke-attacker setup"
-STAGE2_IDS="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-stage2.ts)" || fail "smoke-stage2 setup"
-ADMIN_USER_ID="$(echo "$STAGE2_IDS" | grep '^ADMIN_USER_ID=' | cut -d= -f2)"
-TEAMADMIN_USER_ID="$(echo "$STAGE2_IDS" | grep '^TEAMADMIN_USER_ID=' | cut -d= -f2)"
-CONN_A_ID="$(echo "$STAGE2_IDS" | grep '^CONN_A_ID=' | cut -d= -f2)"
-CONN_B_ID="$(echo "$STAGE2_IDS" | grep '^CONN_B_ID=' | cut -d= -f2)"
-[ -n "$ADMIN_USER_ID" ] && [ -n "$TEAMADMIN_USER_ID" ] && [ -n "$CONN_A_ID" ] && [ -n "$CONN_B_ID" ] || fail "stage2 fixture ids missing"
+# NOTE: the Stage 2 fixture (smoke-stage2.ts) runs later, just before the
+# Stage 2 checks — it creates GoogleConnection rows for team-a/team-b,
+# which would change the earlier "analytics returns not_connected" check
+# (with a team connection present, the correct status is missing_data).
 
 echo "smoke: starting web server on :$PORT"
 PORT="$PORT" pnpm --filter @metricflock/web start >"$TMP/server.log" 2>&1 &
@@ -176,6 +174,14 @@ echo "smoke: legitimate same-org website create still works"
 code="$(curl -s -o "$TMP/legit.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"Legit Site\",\"domain\":\"legit-$$.example.com\",\"url\":\"https://legit.example.com\",\"teamId\":\"$TEAM_B_ID\"}")"
 [ "$code" = "201" ] || { cat "$TMP/legit.json"; fail "same-org website create returned $code"; }
 ok "same-org website create works"
+
+echo "smoke: stage2 fixture (team admin + connections + discovered properties)"
+STAGE2_IDS="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-stage2.ts)" || fail "smoke-stage2 setup"
+ADMIN_USER_ID="$(echo "$STAGE2_IDS" | grep '^ADMIN_USER_ID=' | cut -d= -f2)"
+TEAMADMIN_USER_ID="$(echo "$STAGE2_IDS" | grep '^TEAMADMIN_USER_ID=' | cut -d= -f2)"
+CONN_A_ID="$(echo "$STAGE2_IDS" | grep '^CONN_A_ID=' | cut -d= -f2)"
+CONN_B_ID="$(echo "$STAGE2_IDS" | grep '^CONN_B_ID=' | cut -d= -f2)"
+[ -n "$ADMIN_USER_ID" ] && [ -n "$TEAMADMIN_USER_ID" ] && [ -n "$CONN_A_ID" ] && [ -n "$CONN_B_ID" ] || fail "stage2 fixture ids missing"
 
 echo "smoke: stage2 — mapping rejects undiscovered properties, persists FKs"
 code="$(curl -s -o "$TMP/map400.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/google/properties/map" -H "Content-Type: application/json" -d "{\"websiteId\":\"$WEBSITE_ID\",\"provider\":\"GA4\",\"externalId\":\"properties/999999999\"}")"
