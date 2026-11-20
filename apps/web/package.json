@@ -1,8 +1,8 @@
 {
   "name": "@metricflock/web",
   "version": "0.1.0",
-  "private": true,
   "description": "MetricFlock web app — Next.js dashboards and API routes",
+  "private": true,
   "scripts": {
     "build": "pnpm --filter @metricflock/db build && next build",
     "dev": "next dev",

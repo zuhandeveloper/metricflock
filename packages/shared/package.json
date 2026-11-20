@@ -1,8 +1,8 @@
 {
   "name": "@metricflock/shared",
   "version": "0.1.0",
-  "private": true,
   "description": "MetricFlock shared utilities — validation schemas, cache helpers and common types.",
+  "private": true,
   "exports": {
     ".": "./src/index.ts"
   },

@@ -1,8 +1,8 @@
 {
   "name": "@metricflock/jobs",
   "version": "0.1.0",
-  "private": true,
   "description": "MetricFlock job queues — BullMQ queues, sync planning and scheduling.",
+  "private": true,
   "exports": {
     ".": "./src/index.ts"
   },

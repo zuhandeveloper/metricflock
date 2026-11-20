@@ -7,3 +7,4 @@ apps/web/public
 assets
 packages/db/prisma/migrations
 *.log
+coverage

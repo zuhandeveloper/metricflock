@@ -1,8 +1,8 @@
 {
   "name": "@metricflock/worker",
   "version": "0.1.0",
-  "private": true,
   "description": "MetricFlock background worker — BullMQ job consumer and sync scheduler.",
+  "private": true,
   "scripts": {
     "dev": "cross-env DOTENV_CONFIG_PATH=../web/.env tsx --watch src/index.ts",
     "start": "cross-env DOTENV_CONFIG_PATH=../web/.env tsx src/index.ts",

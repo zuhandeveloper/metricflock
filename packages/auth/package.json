@@ -1,8 +1,8 @@
 {
   "name": "@metricflock/auth",
   "version": "0.1.0",
-  "private": true,
   "description": "MetricFlock authentication — better-auth setup, session helpers and RBAC.",
+  "private": true,
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts"
