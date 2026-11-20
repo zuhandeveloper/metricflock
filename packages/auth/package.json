@@ -1,0 +1,21 @@
+{
+  "name": "@metricflock/auth",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@metricflock/db": "workspace:*",
+    "better-auth": "1.7.26"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "next": "^16.4.6",
+    "typescript": "^7.0.2"
+  }
+}

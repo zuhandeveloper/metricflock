@@ -1,0 +1,9 @@
+node_modules
+.next
+.turbo
+pnpm-lock.yaml
+public
+apps/web/public
+assets
+packages/db/prisma/migrations
+*.log

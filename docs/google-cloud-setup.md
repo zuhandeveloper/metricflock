@@ -1,4 +1,5 @@
 # Google Cloud Setup Guide
+
 1. Go to Google Cloud Console → create a project.
 2. Enable APIs: Analytics Data API, Google Analytics Admin API, Search Console API, AdSense Management API. (Ad Manager API only if `GOOGLE_AD_MANAGER_ENABLED=true`.)
 3. APIs & Services → Credentials → Create OAuth client ID (Web application).

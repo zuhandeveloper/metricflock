@@ -1,4 +1,5 @@
 # OAuth Guide
+
 - Flow: Authorization Code Flow with `access_type=offline`, `prompt=consent`, `include_granted_scopes=true`.
 - State: HMAC-signed, single-use-ish (10-min expiry), binds ownerType/ownerId/userId; verified on callback.
 - Scopes (least privilege, read-only): analytics.readonly, webmasters.readonly, adsense.readonly. Request more only when a feature needs them.

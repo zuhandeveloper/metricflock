@@ -1,0 +1,15 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  // Turborepo strips undeclared env vars from task environments. The db
+  // package's `prisma generate` (db#build) resolves DATABASE_URL from the
+  // environment, so it must be passed through. It is NOT part of the task
+  // hash: the generated client is identical for any URL value.
+  "globalPassThroughEnv": ["DATABASE_URL"],
+  "tasks": {
+    "build": { "dependsOn": ["^build"], "outputs": [".next/**", "dist/**"] },
+    "dev": { "cache": false, "persistent": true },
+    "lint": {},
+    "test": { "dependsOn": ["^build"] },
+    "typecheck": { "dependsOn": ["^build"] }
+  }
+}

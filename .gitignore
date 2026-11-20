@@ -1,5 +1,18 @@
 node_modules
 .next
+.turbo
+.open-next
 .env
 .env.local
 *.log
+
+# Brand binaries copied at install time from root public/ (scripts/copy-brand-assets.mjs)
+apps/web/public/apple-touch-icon.png
+apps/web/public/favicon-16.png
+apps/web/public/favicon-32.png
+apps/web/public/favicon.ico
+apps/web/public/icon-192.png
+apps/web/public/icon-512.png
+apps/web/public/logo.png
+apps/web/public/og.png
+apps/web/public/twitter-card.png

@@ -1,0 +1,81 @@
+# MetricFlock CI — monorepo (step 3.8).
+#
+# Runs on the migration branch and on PRs to main. The smoke test needs
+# real Postgres + Redis, provided here as service containers. The app is
+# built before the smoke test, which boots it with `next start` and drives
+# the real HTTP endpoints (sign-in, not_connected analytics, sync queue,
+# transfer 403/200). Secrets here are dummy test values only.
+name: CI
+
+on:
+  push:
+    branches: [main, architecture/monorepo-migration]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: metricflock_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/metricflock_test?sslmode=disable
+      REDIS_URL: redis://localhost:6379
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      # Dummy test-only secrets. Never use these outside CI.
+      SESSION_SECRET: ci-test-session-secret-please-change-in-production
+      BETTER_AUTH_SECRET: ci-test-better-auth-secret-please-change-in-production
+      GOOGLE_TOKEN_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+      GOOGLE_CLIENT_ID: ci-test-client-id
+      GOOGLE_CLIENT_SECRET: ci-test-client-secret
+      GOOGLE_REDIRECT_URI: http://localhost:3000/api/google/oauth/callback
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.21.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Smoke test (real Postgres + Redis)
+        run: bash scripts/smoke-test.sh

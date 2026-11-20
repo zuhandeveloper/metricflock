@@ -1,0 +1,38 @@
+{
+  "name": "@metricflock/db",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    ".": "./src/client.ts",
+    "./audit": "./src/audit.ts",
+    "./health": "./src/health.ts"
+  },
+  "scripts": {
+    "build": "cross-env DOTENV_CONFIG_PATH=../../apps/web/.env prisma generate",
+    "db:generate": "cross-env DOTENV_CONFIG_PATH=../../apps/web/.env prisma generate",
+    "db:migrate": "cross-env DOTENV_CONFIG_PATH=../../apps/web/.env prisma migrate dev",
+    "db:reset": "cross-env DOTENV_CONFIG_PATH=../../apps/web/.env tsx scripts/db-manager.ts reset",
+    "db:seed": "cross-env DOTENV_CONFIG_PATH=../../apps/web/.env tsx src/seed.ts",
+    "db:status": "cross-env DOTENV_CONFIG_PATH=../../apps/web/.env tsx scripts/db-manager.ts status",
+    "db:studio": "cross-env DOTENV_CONFIG_PATH=../../apps/web/.env prisma studio",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "better-auth": "1.7.26",
+    "dotenv": "^18.0.10",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "cross-env": "^10.1.0",
+    "prisma": "^7.10.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "prisma": {
+    "seed": "tsx src/seed.ts"
+  }
+}

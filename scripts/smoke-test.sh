@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# MetricFlock smoke test (monorepo step 3.8).
+#
+# Runs against a REAL Postgres + Redis (GitHub Actions services in CI, or a
+# local docker-compose stack). Expects a production build already present
+# (`pnpm build` first). Verifies, end to end:
+#   1. migrate + seed work
+#   2. demo admin can sign in
+#   3. analytics for an unconnected website returns status "not_connected"
+#      (no invented metrics)
+#   4. one sync job can be queued via /api/sync
+#   5. website transfer as a TEAM_MEMBER returns 403 (no website.transfer
+#      permission) and as the super admin returns 200
+#
+# Env (CI sets these; locally export them or put them in apps/web/.env):
+#   DATABASE_URL, REDIS_URL, SESSION_SECRET (or BETTER_AUTH_SECRET),
+#   GOOGLE_TOKEN_ENCRYPTION_KEY, BASE_URL (default http://localhost:3000),
+#   PORT (default 3000).
+set -euo pipefail
+
+BASE_URL="${BASE_URL:-http://localhost:3000}"
+PORT="${PORT:-3000}"
+ADMIN_EMAIL="demo@example.com"
+ADMIN_PASSWORD="ChangeMe123!"
+MEMBER_EMAIL="member@example.com"
+MEMBER_PASSWORD="SmokeMember123!"
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "smoke: missing required command: $1" >&2; exit 1; }; }
+need curl
+need node
+need pnpm
+
+TMP="$(mktemp -d)"
+ADMIN_JAR="$TMP/admin.cookies"
+MEMBER_JAR="$TMP/member.cookies"
+trap 'rm -rf "$TMP"; kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+fail() { echo "smoke FAIL: $*" >&2; exit 1; }
+ok() { echo "smoke ok: $*"; }
+
+
+echo "smoke: migrate (deploy) + seed"
+# `migrate deploy` (not `migrate dev`): applies the checked-in migrations
+# without creating new ones — the right command for CI and servers.
+DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec prisma migrate deploy >/dev/null || fail "prisma migrate deploy"
+pnpm db:seed >/dev/null || fail "db:seed"
+DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-member.ts >/dev/null || fail "smoke-member setup"
+
+echo "smoke: starting web server on :$PORT"
+PORT="$PORT" pnpm --filter @metricflock/web start >"$TMP/server.log" 2>&1 &
+SERVER_PID=$!
+
+echo "smoke: waiting for readiness"
+ready=0
+for _ in $(seq 1 60); do
+  code="$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/login" || true)"
+  if [ "$code" = "200" ]; then ready=1; break; fi
+  sleep 1
+done
+[ "$ready" = "1" ] || { echo "--- server log ---"; tail -30 "$TMP/server.log"; fail "server did not become ready on $BASE_URL"; }
+ok "server ready"
+
+echo "smoke: admin sign-in"
+code="$(curl -s -o "$TMP/signin.json" -w "%{http_code}" -c "$ADMIN_JAR" -X POST "$BASE_URL/api/auth/sign-in/email" -H "Content-Type: application/json" -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")"
+[ "$code" = "200" ] || { cat "$TMP/signin.json"; fail "admin sign-in returned $code"; }
+grep -q "better-auth.session_token" "$ADMIN_JAR" || fail "no session cookie after admin sign-in"
+ok "admin signed in"
+
+TEAM_B_ID="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/teams" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const t=d.teams.find((x)=>x.slug==="team-b");if(!t){console.error("team-b not found");process.exit(1)}console.log(t.id)')"
+[ -n "$TEAM_B_ID" ] || fail "team-b not found"
+# Pick a website that is NOT already in the destination team (the API returns
+# newest first, and the seed puts the newest websites in team-b — transferring
+# one of those would correctly fail with already_in_team).
+WEBSITE_ID="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const w=d.websites.find((x)=>x.teamId!==process.argv[1]);if(!w){console.error("no website outside destination team");process.exit(1)}console.log(w.id)' "$TEAM_B_ID")"
+[ -n "$WEBSITE_ID" ] || fail "no website outside destination team"
+ok "website $WEBSITE_ID, destination team $TEAM_B_ID"
+
+echo "smoke: analytics returns not_connected for unconnected website"
+body="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/analytics/overview?websiteId=$WEBSITE_ID")"
+echo "$body" | grep -q '"status":"not_connected"' || { echo "$body"; fail "expected status not_connected"; }
+ok "analytics not_connected"
+
+echo "smoke: queue one sync job"
+code="$(curl -s -o "$TMP/sync.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/sync" -H "Content-Type: application/json" -d "{\"websiteId\":\"$WEBSITE_ID\",\"type\":\"integration-health-check\"}")"
+[ "$code" = "200" ] || { cat "$TMP/sync.json"; fail "sync returned $code"; }
+grep -q '"status":"ok"' "$TMP/sync.json" || { cat "$TMP/sync.json"; fail "sync did not return status ok"; }
+ok "sync job queued (or recorded)"
+
+echo "smoke: member sign-in + transfer must be 403"
+code="$(curl -s -o /dev/null -w "%{http_code}" -c "$MEMBER_JAR" -X POST "$BASE_URL/api/auth/sign-in/email" -H "Content-Type: application/json" -d "{\"email\":\"$MEMBER_EMAIL\",\"password\":\"$MEMBER_PASSWORD\"}")"
+[ "$code" = "200" ] || fail "member sign-in returned $code"
+code="$(curl -s -o "$TMP/t403.json" -w "%{http_code}" -b "$MEMBER_JAR" -X POST "$BASE_URL/api/websites/$WEBSITE_ID/transfer" -H "Content-Type: application/json" -d "{\"toTeamId\":\"$TEAM_B_ID\",\"reason\":\"smoke test\"}")"
+[ "$code" = "403" ] || { cat "$TMP/t403.json"; fail "member transfer returned $code, expected 403"; }
+ok "member transfer correctly forbidden (403)"
+
+echo "smoke: admin transfer succeeds"
+code="$(curl -s -o "$TMP/t200.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites/$WEBSITE_ID/transfer" -H "Content-Type: application/json" -d "{\"toTeamId\":\"$TEAM_B_ID\",\"reason\":\"smoke test\"}")"
+[ "$code" = "200" ] || { cat "$TMP/t200.json"; fail "admin transfer returned $code"; }
+ok "admin transfer succeeded"
+
+echo "smoke: ALL CHECKS PASSED"
