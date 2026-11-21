@@ -49,3 +49,12 @@ export const analyticsQuerySchema = dateRangeSchema.extend({
   websiteId: z.string().optional(),
   format: z.enum(["json", "csv"]).optional(),
 });
+export const inviteCreateSchema = z.object({
+  email: z.string().email().max(320),
+  // SUPER_ADMIN is never granted by invite — it is promoted afterwards
+  // by an existing SUPER_ADMIN via the role-change endpoint.
+  role: z.enum(["TEAM_ADMIN", "TEAM_MEMBER"]).default("TEAM_MEMBER"),
+});
+export const memberRoleSchema = z.object({
+  role: z.enum(["SUPER_ADMIN", "TEAM_ADMIN", "TEAM_MEMBER"]),
+});

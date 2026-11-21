@@ -86,9 +86,13 @@ export const auth = betterAuth({
     },
     user: {
       create: {
-        // User.organizationId is required, so a self sign-up (Google or
-        // email) gets a fresh organization and becomes its SUPER_ADMIN.
-        // Seed/invite flows create users through Prisma directly and never
+        // User.organizationId is required. Two paths:
+        //  1. Invited sign-up: a pending OrganizationInvite matches the
+        //     email (unexpired, unaccepted) → the user joins THAT
+        //     organization with the invite's role.
+        //  2. Self sign-up (Google or email) with no invite → a fresh
+        //     organization, and the user becomes its SUPER_ADMIN.
+        // Seed flows create users through Prisma directly and never
         // reach this hook.
         //
         // SECURITY: organizationId and role are ALWAYS assigned here,
@@ -96,8 +100,23 @@ export const auth = betterAuth({
         // additionalFields below also set `input: false`, so better-auth
         // rejects them at the API boundary — this hook is the second
         // layer). Never trust a client-provided organizationId: that was
-        // a cross-tenant takeover vector.
+        // a cross-tenant takeover vector. The invite lookup is by the
+        // account email; sign-in still requires a verified email
+        // (email verification / Google), so matching an invite here
+        // does not let anyone claim an invite for an inbox they do
+        // not control.
         before: async (user) => {
+          const invite = await prisma.organizationInvite.findFirst({
+            where: {
+              email: { equals: user.email, mode: "insensitive" },
+              acceptedAt: null,
+              expiresAt: { gt: new Date() },
+            },
+            orderBy: { createdAt: "desc" },
+          });
+          if (invite) {
+            return { data: { ...user, organizationId: invite.organizationId, role: invite.role } };
+          }
           const u = user as typeof user & { organizationId?: string; role?: string };
           const base = (u.name || u.email.split("@")[0] || "workspace").trim();
           const slugBase =
@@ -114,6 +133,21 @@ export const auth = betterAuth({
           return { data: { ...user, organizationId: org.id, role: "SUPER_ADMIN" } };
         },
         after: async (user) => {
+          // If this sign-up consumed an invite (see before-hook), mark
+          // it accepted so it cannot be reused.
+          const created = user as typeof user & { organizationId?: string };
+          if (created.organizationId) {
+            await prisma.organizationInvite
+              .updateMany({
+                where: {
+                  email: { equals: user.email, mode: "insensitive" },
+                  organizationId: created.organizationId,
+                  acceptedAt: null,
+                },
+                data: { acceptedAt: new Date() },
+              })
+              .catch(() => undefined);
+          }
           await auditAuthEvent(user.id, "auth.sign_up");
         },
       },

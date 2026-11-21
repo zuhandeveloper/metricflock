@@ -83,6 +83,7 @@ model Organization {
   websites  Website[]
   connections GoogleConnection[]
   auditLogs AuditLog[]
+  invites   OrganizationInvite[]
 }
 
 model User {
@@ -109,7 +110,29 @@ model User {
   initiatedTransfers WebsiteTransfer[] @relation("TransferInitiatedBy")
   acceptedTransfers  WebsiteTransfer[] @relation("TransferAcceptedBy")
   auditLogs    AuditLog[] @relation("AuditActor")
+  sentInvites  OrganizationInvite[] @relation("InviteSentBy")
   @@index([organizationId, role])
+}
+
+// Organization invite (invite-flow pass): an org admin invites an email
+// with a role. When that email signs up (or an existing account accepts),
+// the user joins THIS organization with the invite's role instead of
+// getting a fresh organization. Only the SHA-256 hash of the token is
+// stored; the raw token travels in the invite link.
+model OrganizationInvite {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           Role         @default(TEAM_MEMBER)
+  tokenHash      String       @unique
+  invitedById    String
+  invitedBy      User         @relation("InviteSentBy", fields: [invitedById], references: [id], onDelete: Cascade)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  @@index([organizationId, email])
+  @@index([email, acceptedAt])
 }
 
 // better-auth session (replaces the old custom tokenHash session)

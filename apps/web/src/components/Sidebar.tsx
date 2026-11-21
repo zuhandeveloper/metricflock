@@ -13,11 +13,13 @@ import {
   BarChart3,
   ShieldCheck,
   RefreshCw,
+  UserPlus,
 } from "lucide-react";
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/websites", label: "Websites", icon: Globe },
   { href: "/teams", label: "Teams", icon: Users },
+  { href: "/members", label: "Members", icon: UserPlus },
   { href: "/team", label: "My Team", icon: BarChart3 },
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/transfers", label: "Transfers", icon: ArrowLeftRight },

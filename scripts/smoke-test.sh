@@ -43,6 +43,7 @@ ADMIN_JAR="$TMP/admin.cookies"
 MEMBER_JAR="$TMP/member.cookies"
 ATTACKER_JAR="$TMP/attacker.cookies"
 TEAMADMIN_JAR="$TMP/teamadmin.cookies"
+INVITEE_JAR="$TMP/invitee.cookies"
 SERVER_PID=""
 trap 'rm -rf "$TMP"; [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true' EXIT
 
@@ -449,15 +450,37 @@ ok "IDOR matrix: 9 cross-tenant probes 404, lists scoped"
 # UI completion pass: the management forms must render for an admin.
 # (Regression guard for the "no way to attach a website" gap.)
 for page in /teams /websites /integrations /sync; do
-  code="$(curl -s -o "$WORK/ui-page.html" -w "%{http_code}" -b "$WORK/cookies.txt" "$BASE_URL$page")"
+  code="$(curl -s -o "$TMP/ui-page.html" -w "%{http_code}" -b "$ADMIN_JAR" "$BASE_URL$page")"
   [ "$code" = "200" ] || fail "ui: $page expected 200 got $code"
 done
-curl -s -b "$WORK/cookies.txt" "$BASE_URL/teams" | grep -q "Create team" || fail "ui: /teams missing create form"
-curl -s -b "$WORK/cookies.txt" "$BASE_URL/websites" | grep -q "Add website" || fail "ui: /websites missing add form"
-curl -s -b "$WORK/cookies.txt" "$BASE_URL/integrations" | grep -q "Discover properties" || fail "ui: /integrations missing discover button"
-curl -s -b "$WORK/cookies.txt" "$BASE_URL/sync" | grep -q "Failed jobs" || fail "ui: /sync missing failed jobs"
+curl -s -b "$ADMIN_JAR" "$BASE_URL/teams" | grep -q "Create team" || fail "ui: /teams missing create form"
+curl -s -b "$ADMIN_JAR" "$BASE_URL/websites" | grep -q "Add website" || fail "ui: /websites missing add form"
+curl -s -b "$ADMIN_JAR" "$BASE_URL/integrations" | grep -q "Discover properties" || fail "ui: /integrations missing discover button"
+curl -s -b "$ADMIN_JAR" "$BASE_URL/sync" | grep -q "Failed jobs" || fail "ui: /sync missing failed jobs"
 # Member (non-admin) must not see the sync admin page content.
 curl -s -b "$MEMBER_JAR" "$BASE_URL/sync" | grep -q "Super Admin only" || fail "ui: /sync not gated for member"
 ok "ui forms render for admin; sync page gated for member"
+
+# Invite flow: an invited sign-up joins the inviter's organization with
+# the invite's role (not a fresh org / SUPER_ADMIN), and a TEAM_MEMBER
+# cannot create invites.
+INVITEE_EMAIL="invitee-$$@example.com"
+code="$(curl -s -o "$TMP/invite.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/members/invite" -H "Content-Type: application/json" -d "{\"email\":\"$INVITEE_EMAIL\",\"role\":\"TEAM_MEMBER\"}")"
+[ "$code" = "201" ] || { cat "$TMP/invite.json"; fail "invite create returned $code"; }
+grep -q '"inviteUrl"' "$TMP/invite.json" || fail "invite response missing inviteUrl"
+code="$(auth_post "$TMP/invitee-su.json" - "$BASE_URL/api/auth/sign-up/email" "{\"name\":\"Invitee\",\"email\":\"$INVITEE_EMAIL\",\"password\":\"Invitee123!\"}")"
+[ "$code" = "200" ] || { cat "$TMP/invitee-su.json"; fail "invitee sign-up returned $code"; }
+DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-verify-user.ts "$INVITEE_EMAIL" >/dev/null || fail "verify invitee fixture"
+code="$(auth_post "$TMP/invitee-si.json" "$INVITEE_JAR" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$INVITEE_EMAIL\",\"password\":\"Invitee123!\"}")"
+[ "$code" = "200" ] || { cat "$TMP/invitee-si.json"; fail "invitee sign-in returned $code"; }
+curl -s -b "$INVITEE_JAR" "$BASE_URL/api/auth/get-session" > "$TMP/invitee-session.json"
+grep -q '"role":"TEAM_MEMBER"' "$TMP/invitee-session.json" || { cat "$TMP/invitee-session.json"; fail "invitee role is not TEAM_MEMBER"; }
+curl -s -b "$ADMIN_JAR" "$BASE_URL/api/auth/get-session" > "$TMP/admin-session.json"
+ADMIN_ORG="$(grep -o '"organizationId":"[^"]*"' "$TMP/admin-session.json" | head -1 | cut -d'"' -f4)"
+[ -n "$ADMIN_ORG" ] || fail "could not read admin organizationId from session"
+grep -q "\"organizationId\":\"$ADMIN_ORG\"" "$TMP/invitee-session.json" || fail "invitee did not join the admin organization"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$INVITEE_JAR" -X POST "$BASE_URL/api/members/invite" -H "Content-Type: application/json" -d '{"email":"nope@example.com","role":"TEAM_MEMBER"}')"
+[ "$code" = "403" ] || fail "invitee invite attempt returned $code, expected 403"
+ok "invite flow: invited sign-up joined org as TEAM_MEMBER; member cannot invite"
 
 echo "smoke: ALL CHECKS PASSED"
