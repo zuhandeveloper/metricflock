@@ -257,13 +257,13 @@ case "$loc" in *oauth=session_mismatch*) ;; *) fail "wrong-session redirect was 
 ok "wrong-session rejected"
 
 echo "smoke: stage3 — connect issues PKCE + single-use state; replay rejected"
-CONNECT_JSON="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/connect?ownerType=TEAM&ownerId=$TEAM_A_ID")"
-STATE1="$(echo "$CONNECT_JSON" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const u=new URL(d.authUrl);if(!u.searchParams.get("code_challenge")){console.error("no code_challenge in authUrl");process.exit(1)}console.log(u.searchParams.get("state"))')" || fail "connect authUrl missing PKCE/state"
+CONNECT_URL="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/connect?ownerType=TEAM&ownerId=$TEAM_A_ID")"
+STATE1="$(echo "$CONNECT_URL" | node -e 'const u=new URL(require("fs").readFileSync(0,"utf8").trim());if(!u.searchParams.get("code_challenge")){console.error("no code_challenge in redirect url");process.exit(1)}console.log(u.searchParams.get("state"))')" || fail "connect redirect missing PKCE/state"
 [ -n "$STATE1" ] || fail "connect returned no state"
 loc="$(curl -s -o /dev/null -w "%{redirect_url}" "$BASE_URL/api/google/oauth/callback?code=fake&state=$STATE1")"
 case "$loc" in *oauth=login_required*) ;; *) fail "no-session redirect was $loc" ;; esac
-CONNECT_JSON="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/connect?ownerType=TEAM&ownerId=$TEAM_A_ID")"
-STATE2="$(echo "$CONNECT_JSON" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(new URL(d.authUrl).searchParams.get("state"))')"
+CONNECT_URL="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/connect?ownerType=TEAM&ownerId=$TEAM_A_ID")"
+STATE2="$(echo "$CONNECT_URL" | node -e 'const u=new URL(require("fs").readFileSync(0,"utf8").trim());console.log(u.searchParams.get("state"))')"
 [ -n "$STATE2" ] || fail "second connect returned no state"
 loc="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/callback?code=fake-code&state=$STATE2")"
 case "$loc" in *oauth=failed*) ;; *) fail "first callback redirect was $loc (expected failed: fake code)" ;; esac

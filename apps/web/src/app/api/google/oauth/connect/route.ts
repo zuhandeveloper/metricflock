@@ -24,7 +24,10 @@ export async function GET(req: NextRequest) {
   if (!owner) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
   try {
     const url = await buildAuthUrl(auth.user, parsed.data.ownerType, parsed.data.ownerId);
-    return NextResponse.json({ authUrl: url });
+    // Browser navigation (the Integrations page links here directly):
+    // send the user to Google's consent screen instead of returning
+    // the URL as JSON, which rendered as raw text in the browser.
+    return NextResponse.redirect(url);
   } catch {
     return NextResponse.json({ error: "google_oauth_not_configured" }, { status: 503 });
   }
