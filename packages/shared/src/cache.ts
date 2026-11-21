@@ -1,4 +1,5 @@
 import Redis from "ioredis";
+import { incr } from "./metrics";
 // Lazy Redis client: app builds and runs without Redis; caching degrades to no-op.
 let redis: Redis | null = null;
 let redisTried = false;
@@ -71,10 +72,16 @@ export async function cacheGet<T>(key: string): Promise<{ value: T; stale: boole
   if (!r) return null;
   try {
     const raw = await r.get(key);
-    if (!raw) return null;
+    if (!raw) {
+      incr("cache.miss");
+      return null;
+    }
     const parsed = JSON.parse(raw) as { value: T; expiresAt: number };
-    return { value: parsed.value, stale: Date.now() > parsed.expiresAt };
+    const stale = Date.now() > parsed.expiresAt;
+    incr(stale ? "cache.stale_hit" : "cache.hit");
+    return { value: parsed.value, stale };
   } catch {
+    incr("cache.error");
     return null;
   }
 }

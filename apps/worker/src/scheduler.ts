@@ -9,7 +9,9 @@
 // discovered properties yet.
 import { randomUUID } from "node:crypto";
 import { prisma } from "@metricflock/db";
-import { getRedis } from "@metricflock/shared";
+import { getRedis, createLogger, errMeta, incr } from "@metricflock/shared";
+
+const log = createLogger("scheduler");
 import { enqueueBulk, getQueue, planDueSyncs, type EnqueueEntry, type SyncProviderName } from "@metricflock/jobs";
 import { adManagerEnabled } from "@metricflock/google/ad-manager";
 
@@ -88,7 +90,8 @@ async function runTick(): Promise<void> {
     const counts = await realtimeQueue.getJobCounts("waiting", "delayed").catch(() => null);
     const depth = counts ? (counts.waiting ?? 0) + (counts.delayed ?? 0) : 0;
     if (depth > REALTIME_BACKPRESSURE_DEPTH) {
-      console.log(`[scheduler] realtime backpressure: depth=${depth}, skipping realtime enqueues this tick`);
+      log.warn("realtime backpressure: skipping realtime enqueues this tick", { depth });
+      incr("scheduler.realtime_backpressure");
       plan = plan.filter((p) => p.queue !== "ga4-realtime-sync");
     }
   }
@@ -135,26 +138,30 @@ async function runTick(): Promise<void> {
   // OPS-7/11: one bulk round trip per queue instead of sequential awaits.
   const submitted = await enqueueBulk(entries);
   if (submitted) {
-    console.log(
-      `[scheduler] enqueued=${submitted} (syncs=${plan.length} oauth-refresh=${expiring.length} discovery=${undiscovered.length})`,
-    );
+    log.info("tick enqueued jobs", {
+      enqueued: submitted,
+      syncs: plan.length,
+      oauthRefresh: expiring.length,
+      discovery: undiscovered.length,
+    });
   }
 
   // OPS-3 retention: prune old bookkeeping in bounded batches.
   const pruned = await prisma.analyticsSyncJob.deleteMany({
     where: { updatedAt: { lt: windowStart }, status: { in: ["SUCCEEDED", "FAILED"] } },
   });
-  if (pruned.count) console.log(`[scheduler] pruned ${pruned.count} old sync-job rows`);
+  if (pruned.count) log.info("pruned old sync-job rows", { count: pruned.count });
 }
 
 export function startScheduler(redis: RedisClient): { stop: () => void } {
   const run = () => {
-    tick(redis).catch((err) =>
-      console.error("[scheduler] tick failed:", err instanceof Error ? err.message : String(err)),
-    );
+    tick(redis).catch((err) => {
+      incr("scheduler.tick_failed");
+      log.error("tick failed", errMeta(err));
+    });
   };
   run();
   const timer = setInterval(run, TICK_MS);
-  console.log("Scheduler started (60s tick)");
+  log.info("scheduler started", { tickMs: TICK_MS });
   return { stop: () => clearInterval(timer) };
 }

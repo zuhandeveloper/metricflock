@@ -3,7 +3,7 @@
 // weak secrets must refuse to start instead of running with library
 // defaults (better-auth falls back to a published default secret when
 // none is configured — that must never reach production).
-import { getEnv } from "@metricflock/shared";
+import { getEnv, createLogger } from "@metricflock/shared";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
@@ -17,8 +17,8 @@ export async function register() {
       );
     }
     if (!process.env.SMTP_HOST) {
-      console.warn(
-        "[startup] SMTP_HOST is not configured: email verification and password-reset emails will be logged to the server console instead of sent. Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM to enable real delivery.",
+      createLogger("startup").warn(
+        "SMTP_HOST is not configured: email verification and password-reset emails will be logged to the server console instead of sent. Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM to enable real delivery.",
       );
     }
   }

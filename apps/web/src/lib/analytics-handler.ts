@@ -3,7 +3,7 @@ import { requireApiAuth } from "@metricflock/auth";
 import { assertWebsiteAccess, listAccessibleWebsiteIds } from "@metricflock/auth";
 import { analyticsQuerySchema } from "@metricflock/shared";
 import { analyticsEnvelope, notConnectedEnvelope, missingDataEnvelope, resolveRange } from "./analytics-response";
-import { buildCacheKey, cacheGet, cacheSet, getRedis } from "@metricflock/shared";
+import { buildCacheKey, cacheGet, cacheSet, getRedis, createLogger, incr } from "@metricflock/shared";
 import {
   getAuthorizedClientForIntegration,
   getPrimaryIntegration,
@@ -168,8 +168,15 @@ export async function handleAnalyticsRequest(
     const quota = /quota|rateLimitExceeded|429/i.test(msg);
     // API-9: provider error text stays server-side; clients get a stable
     // code + requestId they can quote in a bug report.
-    const requestId = crypto.randomUUID();
-    console.error(`[analytics:${opts.report}] requestId=${requestId}`, msg);
+    const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
+    createLogger("analytics").error("provider fetch failed", {
+      requestId,
+      report: opts.report,
+      provider: opts.provider,
+      quota,
+      error: msg,
+    });
+    incr(quota ? "provider.quota_error" : "provider.error");
     // OPS-6 true stale-while-revalidate: on provider error, serve the stale
     // value we already hold (labeled stale) instead of failing the request.
     if (cached) {

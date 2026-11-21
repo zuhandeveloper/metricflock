@@ -10,7 +10,7 @@
 // manual sync endpoint, with dedup jobIds — no per-website polling loops.
 import { createServer } from "node:http";
 import { Worker, type Job } from "bullmq";
-import { getRedis, bullConnectionOptions } from "@metricflock/shared";
+import { getRedis, bullConnectionOptions, createLogger, errMeta, incr, counterSnapshot } from "@metricflock/shared";
 import { prisma } from "@metricflock/db";
 import { QUEUE_NAMES, SYNC_TYPE_BY_QUEUE, intervalMsForQueue, type QueueName } from "@metricflock/jobs";
 import {
@@ -25,6 +25,8 @@ import { sendMail } from "@metricflock/auth/mailer";
 import { startScheduler } from "./scheduler";
 
 type SyncJobData = { websiteId?: string; connectionId?: string; syncJobRowId?: string };
+
+const log = createLogger("worker");
 
 async function alertSyncFailure(websiteId: string, queue: string, error: string): Promise<void> {
   const website = await prisma.website.findUnique({
@@ -56,7 +58,7 @@ async function alertSyncFailure(websiteId: string, queue: string, error: string)
 const redis = getRedis();
 const bullConnection = bullConnectionOptions();
 if (!redis || !bullConnection) {
-  console.error("REDIS_URL not set — workers cannot start.");
+  log.error("REDIS_URL not set — workers cannot start");
   process.exit(1);
 }
 const redisClient: NonNullable<typeof redis> = redis;
@@ -180,8 +182,9 @@ for (const name of QUEUE_NAMES) {
         // SUPER_ADMINs (best-effort — alerting must never mask the job
         // error or crash the worker).
         if (attemptsLeft <= 0 && websiteId) {
+          incr(`jobs.terminal_failed.${name}`);
           await alertSyncFailure(websiteId, name, msg).catch((e) =>
-            console.error("[alert] sync failure email failed:", e instanceof Error ? e.message : e),
+            log.error("sync failure alert email failed", { queue: name, websiteId, ...errMeta(e) }),
           );
         }
         throw err; // BullMQ retries with exponential backoff (queue.ts)
@@ -191,9 +194,13 @@ for (const name of QUEUE_NAMES) {
     // cache client) with maxRetriesPerRequest: null.
     { connection: bullConnection, concurrency: 5, limiter: LIMITERS[name] },
   );
-  worker.on("failed", (job, err) => console.error(`[${name}] job ${job?.id} failed:`, err.message));
+  worker.on("completed", () => incr(`jobs.succeeded.${name}`));
+  worker.on("failed", (job, err) => {
+    incr(`jobs.failed.${name}`);
+    log.error("job failed", { queue: name, jobId: job?.id, error: err.message });
+  });
   workers.push(worker);
-  console.log(`Worker started: ${name}`);
+  log.info("worker started", { queue: name });
 }
 
 const scheduler = startScheduler(redisClient);
@@ -216,9 +223,22 @@ const healthServer = createServer(async (req, res) => {
     }
     return;
   }
+  if (req.url === "/metrics") {
+    // Stage 8: in-process job/cache counters + uptime for the host's
+    // monitoring. The durable picture lives in AnalyticsSyncJob rows
+    // (see the web app's /api/metrics).
+    res.writeHead(200, { "Content-Type": "application/json" }).end(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        uptimeSeconds: Math.round(process.uptime()),
+        counters: counterSnapshot(),
+      }),
+    );
+    return;
+  }
   res.writeHead(404).end();
 });
-healthServer.listen(healthPort, () => console.log(`Health endpoint on :${healthPort} (/healthz, /readyz)`));
+healthServer.listen(healthPort, () => log.info("health endpoint listening", { port: healthPort }));
 
 // OPS-5: graceful shutdown — stop taking jobs, let in-flight work finish,
 // close connections, then exit. Without this, SIGTERM mid-job means
@@ -227,7 +247,7 @@ let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`Received ${signal} — shutting down gracefully…`);
+  log.info("shutting down gracefully", { signal });
   scheduler.stop();
   healthServer.close();
   await Promise.allSettled(workers.map((w) => w.close()));

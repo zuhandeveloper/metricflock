@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@metricflock/db": "workspace:*",
+    "@metricflock/shared": "workspace:*",
     "better-auth": "catalog:",
     "nodemailer": "^10.6.1"
   },

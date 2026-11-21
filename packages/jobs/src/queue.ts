@@ -27,6 +27,11 @@ export const SYNC_TYPE_BY_QUEUE = {
   "integration-health-check": "HEALTH_CHECK",
 } as const satisfies Record<QueueName, string>;
 export type SyncJobTypeName = (typeof SYNC_TYPE_BY_QUEUE)[QueueName];
+/** Reverse map for the DLQ requeue path (Stage 8): a failed
+ *  AnalyticsSyncJob row knows its SyncJobType; requeue needs its queue. */
+export const QUEUE_BY_SYNC_TYPE: Record<string, QueueName> = Object.fromEntries(
+  Object.entries(SYNC_TYPE_BY_QUEUE).map(([queue, type]) => [type, queue as QueueName]),
+);
 /** Analytics report name (web routes) -> SyncJobType, for last-successful-sync lookups. */
 export const SYNC_TYPE_BY_REPORT: Record<string, SyncJobTypeName> = {
   realtime: "GA4_REALTIME",

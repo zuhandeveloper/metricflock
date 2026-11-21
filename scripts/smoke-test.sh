@@ -359,4 +359,55 @@ WITHIP="$(echo "$AUDIT_OUT" | sed -n 's/.*AUDIT_WITH_IP=\([0-9]*\).*/\1/p')"
 [ "${WITHIP:-0}" -ge 1 ] || fail "no audit rows with ipAddress ($AUDIT_OUT)"
 ok "security page renders; auth events + IPs in audit log"
 
+echo "smoke: stage8 — health, metrics, correlation ids, DLQ requeue"
+# Liveness + readiness are public and must report the real deps.
+code="$(curl -s -o "$TMP/health.json" -w "%{http_code}" "$BASE_URL/api/health")"
+[ "$code" = "200" ] || fail "/api/health returned $code"
+grep -q '"status":"ok"' "$TMP/health.json" || fail "/api/health body unexpected"
+# Correlation id: middleware stamps x-request-id on every response.
+curl -sI "$BASE_URL/api/health" | grep -qi "^x-request-id:" || fail "x-request-id header missing"
+code="$(curl -s -o "$TMP/ready.json" -w "%{http_code}" "$BASE_URL/api/health/ready")"
+[ "$code" = "200" ] || { cat "$TMP/ready.json"; fail "/api/health/ready returned $code"; }
+grep -q '"db":"ok"' "$TMP/ready.json" || fail "readiness db check not ok"
+grep -q '"redis":"ok"' "$TMP/ready.json" || fail "readiness redis check not ok"
+# Metrics are SUPER_ADMIN-only.
+code="$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/metrics")"
+[ "$code" = "401" ] || fail "anonymous /api/metrics returned $code, expected 401"
+code="$(curl -s -o "$TMP/metrics.json" -w "%{http_code}" -b "$ADMIN_JAR" "$BASE_URL/api/metrics")"
+[ "$code" = "200" ] || { cat "$TMP/metrics.json"; fail "admin /api/metrics returned $code"; }
+grep -q '"sync24h"' "$TMP/metrics.json" || fail "metrics missing sync24h"
+grep -q '"queues"' "$TMP/metrics.json" || fail "metrics missing queues"
+# DLQ: fixture a FAILED row, list it, requeue it, confirm it leaves the DLQ.
+FAILED_OUT="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-failed-job.ts)" || fail "failed-job fixture"
+FAILED_JOB_ID="$(echo "$FAILED_OUT" | sed -n 's/.*FAILED_JOB_ID=\([A-Za-z0-9_-]*\).*/\1/p')"
+[ -n "$FAILED_JOB_ID" ] || fail "failed-job fixture printed no id ($FAILED_OUT)"
+curl -s -b "$ADMIN_JAR" "$BASE_URL/api/sync/failed" | grep -q "$FAILED_JOB_ID" || fail "DLQ list missing fixture job"
+code="$(curl -s -o "$TMP/requeue.json" -w "%{http_code}" -b "$ADMIN_JAR" -H "Content-Type: application/json" -X POST "$BASE_URL/api/sync/requeue" -d "{\"jobId\":\"$FAILED_JOB_ID\"}")"
+[ "$code" = "200" ] || { cat "$TMP/requeue.json"; fail "requeue returned $code"; }
+curl -s -b "$ADMIN_JAR" "$BASE_URL/api/sync/failed" | grep -q "$FAILED_JOB_ID" && fail "requeued job still in DLQ"
+# Member cannot requeue.
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$MEMBER_JAR" -H "Content-Type: application/json" -X POST "$BASE_URL/api/sync/requeue" -d "{\"jobId\":\"$FAILED_JOB_ID\"}")"
+[ "$code" = "403" ] || fail "member requeue returned $code, expected 403"
+ok "health + readiness ok; metrics gated; DLQ list + requeue work"
+
+echo "smoke: stage8 — backup/restore drill"
+# Real pg_dump -> pg_restore into a scratch DB -> row checks -> drop.
+# Proves docs/operations/backup-restore.md against the current schema.
+if ! command -v pg_dump >/dev/null 2>&1; then
+  sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || fail "postgresql-client install failed"
+fi
+BACKUP_FILE="$TMP/mf-backup.dump"
+pg_dump "$DATABASE_URL" -Fc -f "$BACKUP_FILE" || fail "pg_dump failed"
+ADMIN_URL="$(echo "$DATABASE_URL" | sed 's|/metricflock_test|/postgres|')"
+SCRATCH_URL="$(echo "$DATABASE_URL" | sed 's|/metricflock_test|/metricflock_restore_test|')"
+psql "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS metricflock_restore_test" || fail "scratch drop failed"
+psql "$ADMIN_URL" -q -c "CREATE DATABASE metricflock_restore_test" || fail "scratch create failed"
+pg_restore --no-owner -d "$SCRATCH_URL" "$BACKUP_FILE" || fail "pg_restore failed"
+USER_COUNT="$(psql "$SCRATCH_URL" -tA -c 'SELECT count(*) FROM "User"')" || fail "restored user count query failed"
+[ "${USER_COUNT:-0}" -ge 1 ] || fail "restored DB has no users"
+MIG_COUNT="$(psql "$SCRATCH_URL" -tA -c 'SELECT count(*) FROM "_prisma_migrations"')" || fail "restored migrations query failed"
+[ "${MIG_COUNT:-0}" -ge 1 ] || fail "restored DB has no migration rows"
+psql "$ADMIN_URL" -q -c "DROP DATABASE metricflock_restore_test" || fail "scratch cleanup failed"
+ok "backup/restore drill: dump restored, users + migrations intact"
+
 echo "smoke: ALL CHECKS PASSED"

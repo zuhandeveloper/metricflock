@@ -14,6 +14,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { twoFactor } from "better-auth/plugins";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
+import { createLogger, errMeta } from "@metricflock/shared";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./mailer";
 
 /** DB-10: auth events land in the same audit trail as app mutations.
@@ -31,7 +32,7 @@ async function auditAuthEvent(userId: string, action: string, ipAddress?: string
       ipAddress: ipAddress ?? undefined,
     });
   } catch (e) {
-    console.error("[audit] auth event failed:", e instanceof Error ? e.message : e);
+    createLogger("audit").error("auth event audit failed", errMeta(e));
   }
 }
 
