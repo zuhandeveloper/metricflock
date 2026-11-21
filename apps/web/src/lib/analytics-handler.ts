@@ -23,6 +23,37 @@ export type AnalyticsFetchContext = {
   endDate: string;
 };
 
+/** Coarse, stable classification of provider failures (REST error shapes
+ * from googleapis and gRPC shapes from the GA4 Data client) so the UI can
+ * tell the user what to fix — e.g. enable an API in Google Cloud Console —
+ * instead of a blanket google_api_error. Raw provider text stays
+ * server-side in the logs (API-9). */
+export function classifyAnalyticsError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  const anyE = e as {
+    code?: number | string;
+    details?: string;
+    response?: { data?: { error?: { status?: string; message?: string; details?: { reason?: string }[] } } };
+  };
+  const data = anyE?.response?.data?.error;
+  const reasons = data?.details?.map((d) => d.reason ?? "") ?? [];
+  const full = `${msg} ${anyE?.details ?? ""} ${data?.message ?? ""} ${reasons.join(" ")}`;
+  if (/SERVICE_DISABLED|has not been used|is disabled|not been enabled/i.test(full)) return "api_not_enabled";
+  if (/quota|rateLimitExceeded|RESOURCE_EXHAUSTED/i.test(full) || anyE?.code === 8) return "google_quota_exceeded";
+  if (
+    data?.status === "PERMISSION_DENIED" ||
+    /PERMISSION_DENIED|insufficient.*permission/i.test(full) ||
+    anyE?.code === 7
+  ) {
+    return "permission_denied";
+  }
+  if (data?.status === "UNAUTHENTICATED" || /invalid_grant|unauthorized/i.test(full) || anyE?.code === 16) {
+    return "unauthorized";
+  }
+  if (/INVALID_ARGUMENT/i.test(full) || anyE?.code === 3) return "invalid_request";
+  return "google_api_error";
+}
+
 /** Shared analytics pipeline: auth -> permission -> website access -> connection
  *  resolution -> primary mapping -> cache -> real Google call -> envelope.
  *  Never invents metrics; missing connection/property returns an explicit status. */
@@ -165,7 +196,8 @@ export async function handleAnalyticsRequest(
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "google_api_error";
-    const quota = /quota|rateLimitExceeded|429/i.test(msg);
+    const code = classifyAnalyticsError(e);
+    const quota = code === "google_quota_exceeded";
     // API-9: provider error text stays server-side; clients get a stable
     // code + requestId they can quote in a bug report.
     const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
@@ -192,7 +224,7 @@ export async function handleAnalyticsRequest(
       });
     }
     return NextResponse.json(
-      { error: quota ? "google_quota_exceeded" : "google_api_error", requestId },
+      { error: code, requestId },
       { status: quota ? 429 : 502, headers: { "x-request-id": requestId } },
     );
   } finally {

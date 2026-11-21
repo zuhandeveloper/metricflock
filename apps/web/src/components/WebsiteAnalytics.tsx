@@ -56,9 +56,18 @@ function formatMetric(key: string, v: unknown): string {
 
 function ErrorNote({ error, onRetry }: { error: unknown; onRetry: () => void }) {
   const code = error instanceof Error ? error.message : "unknown_error";
+  const hints: Record<string, string> = {
+    api_not_enabled: " — enable this Google API in Google Cloud Console (APIs & Services → Library), then retry",
+    permission_denied: " — the connected Google account lacks access to this property",
+    unauthorized: " — reconnect the Google account on the Integrations page",
+    google_quota_exceeded: " — Google quota exceeded, try again later",
+    invalid_request: " — Google rejected the report request (check server logs)",
+  };
   return (
     <div role="alert" className="mt-2 text-sm">
-      <p className="text-red-600">Couldn&apos;t load this data ({code}).</p>
+      <p className="text-red-600">
+        Couldn&apos;t load this data ({code}){hints[code] ?? ""}.
+      </p>
       <button type="button" onClick={onRetry} className="mt-1 text-blue-600 hover:underline">
         Retry
       </button>
