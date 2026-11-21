@@ -29,6 +29,15 @@ function fakeDeps(overrides: Record<string, unknown> = {}): {
         googleAccountEmail: "owner@example.com",
       },
     })),
+    getAuthorizedClientForIntegration: vi.fn(async () => ({
+      auth: {},
+      connection: {
+        status: "connected",
+        connectionId: "conn-1",
+        level: "WEBSITE",
+        googleAccountEmail: "owner@example.com",
+      },
+    })),
     getPrimaryIntegration: vi.fn(async () => ({ externalId: "123456" })),
     getWebsiteOrganizationId: vi.fn(async () => "org-1"),
     cacheSet: vi.fn(async (key: string, _value: unknown, ttl: number) => {
@@ -82,7 +91,7 @@ describe("sync engine (mocked Google clients)", () => {
 
   it("returns not_connected without fetching or caching", async () => {
     const { deps, cacheWrites } = fakeDeps({
-      getAuthorizedClientForWebsite: vi.fn(async () => {
+      getAuthorizedClientForIntegration: vi.fn(async () => {
         throw new Error("CONNECTION_REQUIRED");
       }),
     });
@@ -150,7 +159,7 @@ describe("sync engine (mocked Google clients)", () => {
 
   it("revoked token returns skipped (no retry burn) and records health", async () => {
     const { deps, health } = fakeDeps({
-      getAuthorizedClientForWebsite: vi.fn(async () => {
+      getAuthorizedClientForIntegration: vi.fn(async () => {
         throw new Error("CONNECTION_REVOKED");
       }),
     });
@@ -188,6 +197,15 @@ describe("sync engine (mocked Google clients)", () => {
       },
     });
     expect((await refreshConnection("conn-1", bad.deps)).status).toBe("skipped");
+  });
+
+  it("DATA-5: authorizes via the connection the mapping was made under", async () => {
+    const integration = { externalId: "123456", googleConnectionId: "conn-mapped" };
+    const { deps } = fakeDeps({ getPrimaryIntegration: vi.fn(async () => integration) });
+    const r = await syncWebsite("site-1", "ga4-historical", deps);
+    expect(r.status).toBe("ok");
+    expect(deps.getAuthorizedClientForIntegration).toHaveBeenCalledWith("site-1", integration);
+    expect(deps.getAuthorizedClientForWebsite).not.toHaveBeenCalled();
   });
 
   it("discovery upserts properties and returns counts", async () => {

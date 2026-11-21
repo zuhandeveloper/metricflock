@@ -103,12 +103,25 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
         ) : ov.data?.status === "ok" ? (
           <>
             <StatusNote data={ov.data} />
+            {ov.data.data.sampling?.sampled && (
+              <p className="mt-1 text-xs text-amber-600">
+                Sampled data: GA4 read {ov.data.data.sampling.samplesReadCount?.toLocaleString()} of{" "}
+                {ov.data.data.sampling.samplingSpaceSize?.toLocaleString()} sessions — figures are estimates.
+              </p>
+            )}
+            {ov.data.data.sampling?.subjectToThresholding && (
+              <p className="mt-1 text-xs text-amber-600">
+                Some data was withheld by GA4 thresholding (low-volume segments).
+              </p>
+            )}
             <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
               {Object.entries(ov.data.data.summary ?? {})
                 .slice(0, 8)
                 .map(([k, v]) => (
                   <div key={k}>
-                    <p className="text-lg font-bold">{typeof v === "number" ? v.toLocaleString() : String(v)}</p>
+                    <p className="text-lg font-bold">
+                      {v === null || v === undefined ? "—" : typeof v === "number" ? v.toLocaleString() : String(v)}
+                    </p>
                     <p className="text-xs text-zinc-500">{k}</p>
                   </div>
                 ))}
@@ -165,7 +178,11 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
               {Object.entries(gsc.data.data.totals ?? {}).map(([k, v]) => (
                 <div key={k}>
                   <p className="text-lg font-bold">
-                    {typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(v)}
+                    {v === null || v === undefined
+                      ? "—"
+                      : typeof v === "number"
+                        ? v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                        : String(v)}
                   </p>
                   <p className="text-xs text-zinc-500">{k}</p>
                 </div>
@@ -181,9 +198,25 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
         {ads.isLoading ? (
           <p className="text-sm text-zinc-500">Loading…</p>
         ) : ads.data?.status === "ok" ? (
-          <p className="mt-2 text-sm">
-            {ads.data.data.note} · {(ads.data.data.rows ?? []).length} rows returned.
-          </p>
+          <>
+            <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
+              {Object.entries(ads.data.data.totalsByMetric ?? {}).map(([k, v]) => (
+                <div key={k}>
+                  <p className="text-lg font-bold">
+                    {v === null || v === undefined || v === ""
+                      ? "—"
+                      : typeof v === "number"
+                        ? v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                        : String(v)}
+                  </p>
+                  <p className="text-xs text-zinc-500">{k}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-sm text-zinc-500">
+              {ads.data.data.note} · {(ads.data.data.rows ?? []).length} daily rows returned.
+            </p>
+          </>
         ) : (
           <StatusNote data={ads.data} />
         )}

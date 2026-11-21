@@ -5,7 +5,7 @@ import { analyticsQuerySchema } from "@metricflock/shared";
 import { analyticsEnvelope, notConnectedEnvelope, missingDataEnvelope, resolveRange } from "./analytics-response";
 import { buildCacheKey, cacheGet, cacheSet } from "@metricflock/shared";
 import {
-  getAuthorizedClientForWebsite,
+  getAuthorizedClientForIntegration,
   getPrimaryIntegration,
   resolveConnectionForWebsite,
 } from "@metricflock/google/client";
@@ -74,9 +74,10 @@ export async function handleAnalyticsRequest(
   if (resolved.status !== "connected") return notConnectedEnvelope(websiteId);
   const integration = await getPrimaryIntegration(websiteId, opts.provider);
   if (!integration) return missingDataEnvelope(websiteId, `No ${opts.provider} property mapped to this website.`);
-  let client: Awaited<ReturnType<typeof getAuthorizedClientForWebsite>>;
+  let client: Awaited<ReturnType<typeof getAuthorizedClientForIntegration>>;
   try {
-    client = await getAuthorizedClientForWebsite(websiteId);
+    // DATA-5: fetch with the connection the mapping was made under.
+    client = await getAuthorizedClientForIntegration(websiteId, integration);
   } catch (e) {
     const m = e instanceof Error ? e.message : "";
     if (m === "CONNECTION_REQUIRED") return notConnectedEnvelope(websiteId);

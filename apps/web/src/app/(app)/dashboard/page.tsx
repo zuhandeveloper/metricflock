@@ -27,10 +27,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     }),
     prisma.websiteIntegration.findMany({
       where: { website: { organizationId: user.organizationId } },
-      select: { provider: true, mappingStatus: true },
+      select: { provider: true, mappingStatus: true, websiteId: true },
     }),
   ]);
-  const connected = websites.filter((w) => integrations.some((i) => i.mappingStatus === "MAPPED")).length;
+  // DATA-4: a website counts as connected only when IT has a mapped
+  // integration — not when any integration in the org is mapped.
+  const connected = websites.filter((w) =>
+    integrations.some((i) => i.websiteId === w.id && i.mappingStatus === "MAPPED"),
+  ).length;
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">

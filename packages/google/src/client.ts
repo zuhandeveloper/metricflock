@@ -55,6 +55,40 @@ export async function getAuthorizedClientForWebsite(websiteId: string) {
   auth.setCredentials({ access_token: accessToken });
   return { auth, connection: resolved };
 }
+/** DATA-5: authorize against the connection the mapping was made under.
+ *  A property discovered under connection A must be fetched with A's token
+ *  even when a website-level connection B also exists — resolving
+ *  independently could pair A's property with B's credentials. Falls back
+ *  to website→team resolution only when the mapping carries no connection
+ *  (legacy rows predating the Stage 2 backfill). */
+export async function getAuthorizedClientForIntegration(
+  websiteId: string,
+  integration: { googleConnectionId?: string | null },
+) {
+  if (integration.googleConnectionId) {
+    const website = await prisma.website.findUnique({ where: { id: websiteId }, select: { organizationId: true } });
+    if (!website) throw new Error("NOT_FOUND_OR_FORBIDDEN");
+    const conn = await prisma.googleConnection.findFirst({
+      where: {
+        id: integration.googleConnectionId,
+        organizationId: website.organizationId,
+        status: { in: ["ACTIVE", "EXPIRED", "NEEDS_REAUTH"] },
+      },
+    });
+    if (!conn) throw new Error("CONNECTION_REQUIRED");
+    const accessToken = await getValidAccessToken(conn.id);
+    const auth = getOAuthClient();
+    auth.setCredentials({ access_token: accessToken });
+    const connection: ConnectionResolution = {
+      status: "connected",
+      connectionId: conn.id,
+      level: conn.websiteId === websiteId ? "WEBSITE" : "TEAM",
+      googleAccountEmail: conn.googleAccountEmail,
+    };
+    return { auth, connection };
+  }
+  return getAuthorizedClientForWebsite(websiteId);
+}
 export async function getPrimaryIntegration(
   websiteId: string,
   provider: "GA4" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER",

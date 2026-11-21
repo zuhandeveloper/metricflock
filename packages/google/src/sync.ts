@@ -17,7 +17,7 @@
 import { prisma } from "@metricflock/db";
 import { recordHealth } from "@metricflock/db/health";
 import { buildCacheKey, cacheSet, rateLimit } from "@metricflock/shared";
-import { getAuthorizedClientForWebsite, getPrimaryIntegration } from "./client";
+import { getAuthorizedClientForWebsite, getAuthorizedClientForIntegration, getPrimaryIntegration } from "./client";
 import {
   getGa4Client,
   runRealtimeReport,
@@ -51,6 +51,7 @@ export class SyncRateLimitError extends Error {
  *  (spec §23: mocked Google clients for automated tests). */
 export type SyncDeps = {
   getAuthorizedClientForWebsite: typeof getAuthorizedClientForWebsite;
+  getAuthorizedClientForIntegration: typeof getAuthorizedClientForIntegration;
   getPrimaryIntegration: typeof getPrimaryIntegration;
   getWebsiteOrganizationId: (websiteId: string) => Promise<string>;
   cacheSet: typeof cacheSet;
@@ -92,6 +93,7 @@ async function defaultConnectionAuth(connectionId: string): Promise<OAuth2Client
 
 export const defaultSyncDeps: SyncDeps = {
   getAuthorizedClientForWebsite,
+  getAuthorizedClientForIntegration,
   getPrimaryIntegration,
   getWebsiteOrganizationId: async (websiteId) => {
     const website = await prisma.website.findUnique({ where: { id: websiteId }, select: { organizationId: true } });
@@ -205,9 +207,10 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
   const integration = await deps.getPrimaryIntegration(websiteId, spec.provider);
   if (!integration)
     return { status: "no_mapping", reports: [], detail: `No ${spec.provider} property mapped to this website.` };
-  let client: Awaited<ReturnType<typeof getAuthorizedClientForWebsite>>;
+  let client: Awaited<ReturnType<typeof getAuthorizedClientForIntegration>>;
   try {
-    client = await deps.getAuthorizedClientForWebsite(websiteId);
+    // DATA-5: fetch with the connection the mapping was made under.
+    client = await deps.getAuthorizedClientForIntegration(websiteId, integration);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === "CONNECTION_REQUIRED")
@@ -285,7 +288,7 @@ export async function healthCheckWebsite(websiteId: string, deps: SyncDeps = def
     if (!integration) continue;
     if (provider === "AD_MANAGER" && !deps.adManager.adManagerEnabled()) continue;
     try {
-      const client = await deps.getAuthorizedClientForWebsite(websiteId);
+      const client = await deps.getAuthorizedClientForIntegration(websiteId, integration);
       anyConnected = true;
       await deps.recordHealth({
         websiteId,
