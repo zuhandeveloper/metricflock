@@ -17,6 +17,9 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),
   GOOGLE_TOKEN_ENCRYPTION_KEY: z.string().optional(),
+  // Previous token-encryption key, set only during a rotation window so
+  // ciphertexts written under the old key still decrypt (OAUTH-7).
+  GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS: z.string().optional(),
   GOOGLE_ANALYTICS_ENABLED: z.string().optional(),
   GOOGLE_SEARCH_CONSOLE_ENABLED: z.string().optional(),
   GOOGLE_ADSENSE_ENABLED: z.string().optional(),

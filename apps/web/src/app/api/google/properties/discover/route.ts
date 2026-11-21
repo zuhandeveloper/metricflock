@@ -51,7 +51,8 @@ export async function POST(req: NextRequest) {
       });
     return NextResponse.json({ ga4, searchConsole: gsc, adsense });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "discovery_failed";
-    return NextResponse.json({ error: msg }, { status: 502 });
+    // Stable error code to the client; detail stays server-side (OAUTH-12).
+    console.error(`[discover] connection ${conn.id} failed:`, e instanceof Error ? e.message : "unknown error");
+    return NextResponse.json({ error: "discovery_failed" }, { status: 502 });
   }
 }

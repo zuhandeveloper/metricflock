@@ -229,4 +229,39 @@ code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BAS
 [ "$code" = "200" ] || fail "disconnect own-team connection returned $code"
 ok "connection visibility scoped; own-team disconnect works"
 
+echo "smoke: stage3 oauth fixture (expired + wrong-session states)"
+OAUTH_IDS="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-oauth-state.ts)" || fail "smoke-oauth-state setup"
+EXPIRED_STATE="$(echo "$OAUTH_IDS" | grep '^EXPIRED_STATE=' | cut -d= -f2-)"
+MEMBER_STATE="$(echo "$OAUTH_IDS" | grep '^MEMBER_STATE=' | cut -d= -f2-)"
+[ -n "$EXPIRED_STATE" ] && [ -n "$MEMBER_STATE" ] || fail "oauth fixture states missing"
+TEAM_A_ID="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/teams" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const t=d.teams.find((x)=>x.slug==="team-a");if(!t){console.error("team-a not found");process.exit(1)}console.log(t.id)')"
+[ -n "$TEAM_A_ID" ] || fail "team-a not found"
+
+echo "smoke: stage3 — forged and expired states are rejected"
+loc="$(curl -s -o /dev/null -w "%{redirect_url}" "$BASE_URL/api/google/oauth/callback?code=fake&state=garbage")"
+case "$loc" in *oauth=bad_state*) ;; *) fail "forged state redirect was $loc" ;; esac
+loc="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/callback?code=fake&state=$EXPIRED_STATE")"
+case "$loc" in *oauth=bad_state*) ;; *) fail "expired state redirect was $loc" ;; esac
+ok "forged + expired states rejected"
+
+echo "smoke: stage3 — wrong-session state is rejected"
+loc="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/callback?code=fake&state=$MEMBER_STATE")"
+case "$loc" in *oauth=session_mismatch*) ;; *) fail "wrong-session redirect was $loc" ;; esac
+ok "wrong-session rejected"
+
+echo "smoke: stage3 — connect issues PKCE + single-use state; replay rejected"
+CONNECT_JSON="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/connect?ownerType=TEAM&ownerId=$TEAM_A_ID")"
+STATE1="$(echo "$CONNECT_JSON" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const u=new URL(d.authUrl);if(!u.searchParams.get("code_challenge")){console.error("no code_challenge in authUrl");process.exit(1)}console.log(u.searchParams.get("state"))')" || fail "connect authUrl missing PKCE/state"
+[ -n "$STATE1" ] || fail "connect returned no state"
+loc="$(curl -s -o /dev/null -w "%{redirect_url}" "$BASE_URL/api/google/oauth/callback?code=fake&state=$STATE1")"
+case "$loc" in *oauth=login_required*) ;; *) fail "no-session redirect was $loc" ;; esac
+CONNECT_JSON="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/connect?ownerType=TEAM&ownerId=$TEAM_A_ID")"
+STATE2="$(echo "$CONNECT_JSON" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(new URL(d.authUrl).searchParams.get("state"))')"
+[ -n "$STATE2" ] || fail "second connect returned no state"
+loc="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/callback?code=fake-code&state=$STATE2")"
+case "$loc" in *oauth=failed*) ;; *) fail "first callback redirect was $loc (expected failed: fake code)" ;; esac
+loc="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/callback?code=fake-code&state=$STATE2")"
+case "$loc" in *oauth=bad_state*) ;; *) fail "replay redirect was $loc (expected bad_state)" ;; esac
+ok "PKCE present; state single-use; replay rejected"
+
 echo "smoke: ALL CHECKS PASSED"

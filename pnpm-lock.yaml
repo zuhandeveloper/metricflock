@@ -407,6 +407,9 @@ importers:
       '@metricflock/shared':
         specifier: workspace:*
         version: link:../shared
+      google-auth-library:
+        specifier: 11.3.4
+        version: 11.3.4(supports-color@10.2.2)
       google-gax:
         specifier: ^6.17.0
         version: 6.17.0(supports-color@10.2.2)

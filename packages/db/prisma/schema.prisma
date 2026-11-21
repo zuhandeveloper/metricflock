@@ -100,6 +100,7 @@ model User {
   teamMemberships TeamMember[]
   websiteAssignments WebsiteAssignment[]
   createdConnections GoogleConnection[] @relation("ConnectionCreatedBy")
+  oauthStates   OAuthState[]
   initiatedTransfers WebsiteTransfer[] @relation("TransferInitiatedBy")
   auditLogs    AuditLog[] @relation("AuditActor")
   @@index([organizationId, role])
@@ -288,6 +289,25 @@ model GoogleConnection {
   @@index([organizationId, teamId, status])
   @@index([organizationId, websiteId, status])
   @@index([status, tokenExpiresAt])
+}
+
+// Persisted OAuth flow state (Stage 3, OAUTH-1/2/5): one row per connect
+// attempt, consumed atomically at callback so a state value can never be
+// replayed. The raw nonce only travels in the `state` query parameter;
+// only its SHA-256 hash is stored. codeVerifier is the PKCE verifier.
+model OAuthState {
+  id             String   @id @default(cuid())
+  nonceHash      String   @unique
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  ownerType      ConnectionOwnerType
+  ownerId        String
+  codeVerifier   String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime @default(now())
+  @@index([expiresAt])
 }
 
 model GoogleProperty {
