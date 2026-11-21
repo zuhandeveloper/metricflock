@@ -446,4 +446,18 @@ curl -s -b "$ATTACKER_JAR" "$BASE_URL/api/websites?limit=200" | grep -q "$WEBSIT
 curl -s -b "$ATTACKER_JAR" "$BASE_URL/api/google/connections" | grep -q "ga-a@example.com" && fail "IDOR: attacker connection list leaks demo connection"
 ok "IDOR matrix: 9 cross-tenant probes 404, lists scoped"
 
+# UI completion pass: the management forms must render for an admin.
+# (Regression guard for the "no way to attach a website" gap.)
+for page in /teams /websites /integrations /sync; do
+  code="$(curl -s -o "$WORK/ui-page.html" -w "%{http_code}" -b "$WORK/cookies.txt" "$BASE_URL$page")"
+  [ "$code" = "200" ] || fail "ui: $page expected 200 got $code"
+done
+curl -s -b "$WORK/cookies.txt" "$BASE_URL/teams" | grep -q "Create team" || fail "ui: /teams missing create form"
+curl -s -b "$WORK/cookies.txt" "$BASE_URL/websites" | grep -q "Add website" || fail "ui: /websites missing add form"
+curl -s -b "$WORK/cookies.txt" "$BASE_URL/integrations" | grep -q "Discover properties" || fail "ui: /integrations missing discover button"
+curl -s -b "$WORK/cookies.txt" "$BASE_URL/sync" | grep -q "Failed jobs" || fail "ui: /sync missing failed jobs"
+# Member (non-admin) must not see the sync admin page content.
+curl -s -b "$MEMBER_JAR" "$BASE_URL/sync" | grep -q "Super Admin only" || fail "ui: /sync not gated for member"
+ok "ui forms render for admin; sync page gated for member"
+
 echo "smoke: ALL CHECKS PASSED"

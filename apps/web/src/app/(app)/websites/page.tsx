@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getSessionUser } from "@metricflock/auth";
+import { getSessionUser, hasPermission } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { listAccessibleWebsiteIds } from "@metricflock/auth";
 import { Card, Badge, EmptyState } from "@/components/ui";
+import { AddWebsiteForm } from "./WebsiteForms";
 export const dynamic = "force-dynamic";
 export default async function WebsitesPage({
   searchParams,
@@ -12,7 +13,13 @@ export default async function WebsitesPage({
 }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  const canManage = hasPermission(user.role, "website.manage");
   const { q, status } = await searchParams;
+  const teams = await prisma.team.findMany({
+    where: { organizationId: user.organizationId },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
   const ids = await listAccessibleWebsiteIds(user);
   const websites = await prisma.website.findMany({
     where: {
@@ -30,6 +37,12 @@ export default async function WebsitesPage({
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Websites</h1>
+      {canManage && (
+        <Card className="p-4">
+          <h2 className="mb-2 font-semibold">Add website</h2>
+          <AddWebsiteForm teams={teams} />
+        </Card>
+      )}
       <form className="flex gap-2">
         <input
           name="q"
@@ -57,7 +70,7 @@ export default async function WebsitesPage({
         {websites.length === 0 ? (
           <EmptyState
             title="No websites match"
-            hint="Add a website via POST /api/websites (Super Admin / Team Admin)."
+            hint={canManage ? "Add your first website with the form above." : "No websites are visible to you yet."}
           />
         ) : (
           <table className="w-full text-sm">

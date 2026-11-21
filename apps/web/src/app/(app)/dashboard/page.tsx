@@ -58,6 +58,31 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
         <DateRangePicker />
       </div>
+      {teams === 0 && (
+        <Card className="p-4">
+          <h2 className="font-semibold">Get started</h2>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-600 dark:text-zinc-400">
+            <li>
+              <Link href="/teams" className="text-blue-600 hover:underline">
+                Create a team
+              </Link>{" "}
+              — websites and Google connections attach to teams.
+            </li>
+            <li>
+              <Link href="/websites" className="text-blue-600 hover:underline">
+                Add a website
+              </Link>{" "}
+              to the team.
+            </li>
+            <li>
+              <Link href="/integrations" className="text-blue-600 hover:underline">
+                Connect a Google account
+              </Link>
+              , discover its properties, and map them to the website.
+            </li>
+          </ol>
+        </Card>
+      )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <MetricCard label="Total websites" value={String(websites.length)} />
         <MetricCard
