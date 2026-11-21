@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth, assertConnectionVisible } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { getValidAccessToken } from "@metricflock/google/tokens";
@@ -6,7 +7,7 @@ import { listGa4Properties, listSearchConsoleSites, listAdSenseAccounts } from "
 import { getOAuthClient } from "@metricflock/google/oauth";
 import { z } from "zod";
 const schema = z.object({ connectionId: z.string().min(1) });
-export async function POST(req: NextRequest) {
+async function post(req: NextRequest) {
   const auth = await requireApiAuth("google.connection.manage");
   if ("error" in auth) return auth.error;
   const body = schema.safeParse(await req.json().catch(() => ({})));
@@ -56,3 +57,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "discovery_failed" }, { status: 502 });
   }
 }
+
+export const POST = withApiErrors("google/properties/discover", post);

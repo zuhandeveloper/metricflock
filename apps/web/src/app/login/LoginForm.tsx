@@ -43,23 +43,39 @@ export default function LoginForm() {
         <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
       </div>
       <form onSubmit={submit} className="space-y-3">
-        <Input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          required
-          autoComplete="email"
-        />
-        <Input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          required
-          autoComplete="current-password"
-        />
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div>
+          <label htmlFor="login-email" className="mb-1 block text-sm font-medium">
+            Email
+          </label>
+          <Input
+            id="login-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email"
+            required
+            autoComplete="email"
+          />
+        </div>
+        <div>
+          <label htmlFor="login-password" className="mb-1 block text-sm font-medium">
+            Password
+          </label>
+          <Input
+            id="login-password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            required
+            autoComplete="current-password"
+          />
+        </div>
+        {error && (
+          <p role="alert" className="text-sm text-red-600">
+            {error}
+          </p>
+        )}
         <Button type="submit" className="w-full justify-center">
           {busy ? "Signing in…" : "Sign in"}
         </Button>

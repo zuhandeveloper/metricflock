@@ -269,4 +269,13 @@ PAGE_JSON="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites?limit=1&offset=0")"
 echo "$PAGE_JSON" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));if(!Array.isArray(d.websites)||d.websites.length>1)process.exit(1);if(typeof d.pagination?.total!=="number"||d.pagination.limit!==1)process.exit(1)' || fail "pagination shape wrong: $PAGE_JSON"
 ok "pagination bounded + total reported"
 
+echo "smoke: stage6 — security headers + login labels"
+HEADERS="$(curl -sI "$BASE_URL/login")"
+for h in "x-content-type-options: nosniff" "x-frame-options: DENY" "content-security-policy:" "referrer-policy:"; do
+  echo "$HEADERS" | grep -qi "^$h" || fail "missing security header: $h"
+done
+curl -s "$BASE_URL/login" | grep -q 'for="login-email"' || fail "login email label missing"
+curl -s "$BASE_URL/login" | grep -q 'for="login-password"' || fail "login password label missing"
+ok "security headers present; login inputs labeled"
+
 echo "smoke: ALL CHECKS PASSED"

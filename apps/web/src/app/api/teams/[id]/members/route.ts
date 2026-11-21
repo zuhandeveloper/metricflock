@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertTeamAccess } from "@metricflock/auth";
@@ -9,7 +10,7 @@ const schema = z.object({
   isAdmin: z.boolean().optional(),
   action: z.enum(["add", "remove"]).default("add"),
 });
-export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("member.manage");
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
@@ -60,3 +61,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   });
   return NextResponse.json({ status: "ok" });
 }
+
+export const POST = withApiErrors("teams/[id]/members", post);

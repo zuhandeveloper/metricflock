@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertWebsiteAccess } from "@metricflock/auth";
@@ -21,7 +22,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   });
   return NextResponse.json({ website: full });
 }
-export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("website.manage");
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
@@ -73,3 +74,5 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   });
   return NextResponse.json({ website: updated });
 }
+
+export const PATCH = withApiErrors("websites/[id]", patch);

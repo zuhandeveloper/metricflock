@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { getSessionUser } from "@metricflock/auth";
 import { hasPermission } from "@metricflock/auth";
 import { assertWebsiteAccess } from "@metricflock/auth";
@@ -16,7 +17,7 @@ const schema = z.object({
     "integration-health-check",
   ]),
 });
-export async function POST(req: NextRequest) {
+async function post(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   if (!hasPermission(user.role, "analytics.view")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -57,3 +58,5 @@ export async function POST(req: NextRequest) {
   });
   return NextResponse.json({ status: "ok", queued: !!job });
 }
+
+export const POST = withApiErrors("sync", post);

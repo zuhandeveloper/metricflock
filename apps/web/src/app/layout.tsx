@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import QueryProvider from "@/components/QueryProvider";
+// FE-6: canonical/OG URLs derive from the deployed app URL, not a
+// hardcoded domain (falls back to the production domain when unset).
+const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://metricflock.com";
 export const metadata: Metadata = {
   title: "MetricFlock",
   description:
     "Your whole website portfolio, in one dashboard. Multi-website Google Analytics, Search Console, AdSense and Ad Manager management.",
-  metadataBase: new URL("https://metricflock.com"),
+  metadataBase: new URL(appUrl),
   icons: {
     icon: [
       { url: "/logo.svg", type: "image/svg+xml" },
@@ -19,7 +22,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "MetricFlock",
     description: "Your whole website portfolio, in one dashboard.",
-    url: "https://metricflock.com",
+    url: appUrl,
     siteName: "MetricFlock",
     images: [
       {

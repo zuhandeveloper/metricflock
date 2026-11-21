@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertWebsiteAccess } from "@metricflock/auth";
@@ -6,7 +7,7 @@ import { writeAudit } from "@metricflock/db/audit";
 import { invalidateWebsiteCache } from "@metricflock/shared";
 import { z } from "zod";
 const schema = z.object({ userId: z.string().min(1), action: z.enum(["assign", "remove"]).default("assign") });
-export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("website.assign");
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
@@ -38,3 +39,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   await invalidateWebsiteCache(auth.user.organizationId, id);
   return NextResponse.json({ status: "ok" });
 }
+
+export const POST = withApiErrors("websites/[id]/assign", post);

@@ -27,8 +27,11 @@ export default function Sidebar({ user }: { user: SidebarUser }) {
     }
   }
   return (
-    <nav className="flex h-full flex-col gap-1 p-3">
-      <Link href="/dashboard" className="mb-4 flex items-center gap-2 px-2">
+    <nav aria-label="Main" className="flex h-full flex-col gap-1 p-3">
+      <Link
+        href="/dashboard"
+        className="mb-4 flex items-center gap-2 rounded-lg px-2 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+      >
         <img src="/logo.svg" alt="MetricFlock" width={32} height={32} className="rounded-lg" />
         <span className="text-lg font-bold">MetricFlock</span>
       </Link>
@@ -39,9 +42,10 @@ export default function Sidebar({ user }: { user: SidebarUser }) {
           <Link
             key={l.href}
             href={l.href}
-            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${active ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+            aria-current={active ? "page" : undefined}
+            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${active ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
           >
-            <Icon size={16} />
+            <Icon size={16} aria-hidden="true" />
             {l.label}
           </Link>
         );
@@ -57,9 +61,9 @@ export default function Sidebar({ user }: { user: SidebarUser }) {
           type="button"
           onClick={handleSignOut}
           disabled={signingOut}
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none disabled:opacity-50 dark:hover:bg-zinc-800"
         >
-          <LogOut size={16} />
+          <LogOut size={16} aria-hidden="true" />
           {signingOut ? "Signing out…" : "Sign out"}
         </button>
       </div>

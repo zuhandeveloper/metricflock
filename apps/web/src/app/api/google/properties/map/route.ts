@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth, assertWebsiteManageAccess } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { mapPropertySchema } from "@metricflock/shared";
@@ -52,7 +53,7 @@ async function resolveDiscoveredProperty(
   return { ok: true, connectionId: matches[0].connectionId, fk: { [fkField]: matches[0].id } };
 }
 
-export async function POST(req: NextRequest) {
+async function post(req: NextRequest) {
   const auth = await requireApiAuth("google.connection.manage");
   if ("error" in auth) return auth.error;
   const body = mapPropertySchema.safeParse(await req.json().catch(() => ({})));
@@ -115,3 +116,5 @@ export async function POST(req: NextRequest) {
   await invalidateWebsiteCache(auth.user.organizationId, website.id);
   return NextResponse.json({ integration });
 }
+
+export const POST = withApiErrors("google/properties/map", post);

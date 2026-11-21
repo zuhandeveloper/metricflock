@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { transferSchema } from "@metricflock/shared";
@@ -8,7 +9,7 @@ import { invalidateWebsiteCache } from "@metricflock/shared";
 // transfer, reassigns the team, removes old assignments, preserves history/audit.
 // OAuth tokens are NEVER transferred between owners — the new team must connect
 // its own Google account and map properties before the transfer completes.
-export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("website.transfer");
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
@@ -52,3 +53,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     note: "Transfer recorded. New owner must connect their own Google account and map properties; then mark the transfer completed from /transfers. OAuth tokens were not transferred.",
   });
 }
+
+export const POST = withApiErrors("websites/[id]/transfer", post);

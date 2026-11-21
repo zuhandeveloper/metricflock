@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { listAccessibleWebsiteIds } from "@metricflock/auth";
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
   ]);
   return NextResponse.json({ websites, pagination: { total, limit, offset } });
 }
-export async function POST(req: NextRequest) {
+async function post(req: NextRequest) {
   const auth = await requireApiAuth("website.manage");
   if ("error" in auth) return auth.error;
   const body = websiteCreateSchema.safeParse(await req.json().catch(() => ({})));
@@ -85,3 +86,5 @@ export async function POST(req: NextRequest) {
   });
   return NextResponse.json({ website }, { status: 201 });
 }
+
+export const POST = withApiErrors("websites", post);

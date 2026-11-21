@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { teamCreateSchema } from "@metricflock/shared";
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
   ]);
   return NextResponse.json({ teams, pagination: { total, limit, offset } });
 }
-export async function POST(req: NextRequest) {
+async function post(req: NextRequest) {
   const auth = await requireApiAuth("team.manage");
   if ("error" in auth) return auth.error;
   const body = teamCreateSchema.safeParse(await req.json().catch(() => ({})));
@@ -39,3 +40,5 @@ export async function POST(req: NextRequest) {
   });
   return NextResponse.json({ team }, { status: 201 });
 }
+
+export const POST = withApiErrors("teams", post);

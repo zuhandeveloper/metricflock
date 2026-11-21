@@ -166,6 +166,10 @@ export async function handleAnalyticsRequest(
   } catch (e) {
     const msg = e instanceof Error ? e.message : "google_api_error";
     const quota = /quota|rateLimitExceeded|429/i.test(msg);
+    // API-9: provider error text stays server-side; clients get a stable
+    // code + requestId they can quote in a bug report.
+    const requestId = crypto.randomUUID();
+    console.error(`[analytics:${opts.report}] requestId=${requestId}`, msg);
     // OPS-6 true stale-while-revalidate: on provider error, serve the stale
     // value we already hold (labeled stale) instead of failing the request.
     if (cached) {
@@ -181,8 +185,8 @@ export async function handleAnalyticsRequest(
       });
     }
     return NextResponse.json(
-      { error: quota ? "google_quota_exceeded" : "google_api_error", details: msg },
-      { status: quota ? 429 : 502 },
+      { error: quota ? "google_quota_exceeded" : "google_api_error", requestId },
+      { status: quota ? 429 : 502, headers: { "x-request-id": requestId } },
     );
   } finally {
     if (redis && lockToken) {

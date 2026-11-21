@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertTeamAccess } from "@metricflock/auth";
 import { teamCreateSchema } from "@metricflock/shared";
-export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("team.manage");
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
@@ -14,3 +15,5 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const updated = await prisma.team.update({ where: { id }, data: body.data });
   return NextResponse.json({ team: updated });
 }
+
+export const PATCH = withApiErrors("teams/[id]", patch);
