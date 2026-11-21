@@ -5,6 +5,10 @@ import type { NextConfig } from "next";
 // (hence 'unsafe-inline'), charts render as inline SVG (no eval needed),
 // images may come from Google avatars. Tightening script-src further
 // requires nonce plumbing — tracked as future work.
+// Dev only: React's development build uses eval() for debugging aids, so
+// 'unsafe-eval' is added when NODE_ENV !== "production" (production
+// React never evals, and the strict policy stays in force there).
+const isDev = process.env.NODE_ENV !== "production";
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -15,7 +19,7 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https:",
       "font-src 'self' data:",

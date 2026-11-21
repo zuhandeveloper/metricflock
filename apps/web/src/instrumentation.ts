@@ -3,10 +3,13 @@
 // weak secrets must refuse to start instead of running with library
 // defaults (better-auth falls back to a published default secret when
 // none is configured — that must never reach production).
-import { getEnv, createLogger } from "@metricflock/shared";
-
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // Dynamic import AFTER the runtime guard: the shared barrel pulls in
+  // node:crypto (token encryption), which must never enter the Edge
+  // instrumentation bundle — a static import makes Turbopack warn (and
+  // risks evaluating Node-only code in the edge runtime).
+  const { getEnv, createLogger } = await import("@metricflock/shared");
   // Throws with a readable message when DATABASE_URL is missing or
   // SESSION_SECRET / BETTER_AUTH_SECRET are unset or shorter than 32.
   getEnv();

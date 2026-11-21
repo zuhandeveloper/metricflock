@@ -20,7 +20,9 @@ DATABASE_URL=postgresql://… bash scripts/backup.sh ./backups
 
 Produces `backups/metricflock-<UTC timestamp>.dump` (pg_dump custom
 format, compressed). Requires `postgresql-client` (`pg_dump`) on the
-machine running the script.
+machine running the script — use a client whose major version matches
+your Postgres server (a newer client can emit settings an older
+server rejects on restore).
 
 Recommended cadence: daily, retained 7 days + one weekly retained 4
 weeks, copied off the database host. If your Postgres provider (e.g.

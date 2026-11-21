@@ -402,7 +402,13 @@ ADMIN_URL="$(echo "$DATABASE_URL" | sed 's|/metricflock_test|/postgres|')"
 SCRATCH_URL="$(echo "$DATABASE_URL" | sed 's|/metricflock_test|/metricflock_restore_test|')"
 psql "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS metricflock_restore_test" || fail "scratch drop failed"
 psql "$ADMIN_URL" -q -c "CREATE DATABASE metricflock_restore_test" || fail "scratch create failed"
-pg_restore --no-owner -d "$SCRATCH_URL" "$BACKUP_FILE" || fail "pg_restore failed"
+# Restore via SQL pipe: the runner's pg_dump (17+) emits
+# `SET transaction_timeout = 0;` which a PG16 server rejects, making
+# pg_restore exit 1 even though the restore itself succeeds. Filtering
+# that one GUC and restoring through psql with ON_ERROR_STOP keeps the
+# drill strict about real errors. (scripts/restore.sh stays a plain
+# pg_restore — operators should use a client matching their server.)
+pg_restore -f - "$BACKUP_FILE" | grep -v '^SET transaction_timeout' | psql "$SCRATCH_URL" -q -v ON_ERROR_STOP=1 || fail "pg_restore failed"
 USER_COUNT="$(psql "$SCRATCH_URL" -tA -c 'SELECT count(*) FROM "User"')" || fail "restored user count query failed"
 [ "${USER_COUNT:-0}" -ge 1 ] || fail "restored DB has no users"
 MIG_COUNT="$(psql "$SCRATCH_URL" -tA -c 'SELECT count(*) FROM "_prisma_migrations"')" || fail "restored migrations query failed"
