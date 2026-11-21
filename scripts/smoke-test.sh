@@ -56,14 +56,17 @@ ok() { echo "smoke ok: $*"; }
 # Usage: auth_post OUTFILE JAR|- URL JSON   (prints the HTTP status code)
 # The jar is both read (-b) and written (-c): sign-in only needs the
 # write, but authenticated auth calls (two-factor enable/verify, sign-out)
-# must also SEND the session cookie.
+# must also SEND the session cookie. The Origin header mimics a browser
+# same-origin POST — better-auth runs its CSRF origin check whenever a
+# cookie header is present and rejects cookie-bearing requests without
+# one (403 MISSING_OR_NULL_ORIGIN).
 auth_post() {
   local out="$1" jar="$2" url="$3" data="$4" code attempt
   for attempt in 1 2 3 4 5 6 7 8; do
     if [ "$jar" = "-" ]; then
-      code="$(curl -s -o "$out" -w "%{http_code}" -X POST "$url" -H "Content-Type: application/json" -d "$data")"
+      code="$(curl -s -o "$out" -w "%{http_code}" -X POST "$url" -H "Content-Type: application/json" -H "Origin: $BASE_URL" -d "$data")"
     else
-      code="$(curl -s -o "$out" -w "%{http_code}" -b "$jar" -c "$jar" -X POST "$url" -H "Content-Type: application/json" -d "$data")"
+      code="$(curl -s -o "$out" -w "%{http_code}" -b "$jar" -c "$jar" -X POST "$url" -H "Content-Type: application/json" -H "Origin: $BASE_URL" -d "$data")"
     fi
     [ "$code" != "429" ] && { echo "$code"; return 0; }
     sleep 4
@@ -153,7 +156,7 @@ ok "unverified sign-in blocked ($code)"
 
 echo "smoke: security — update-user role escalation is rejected"
 # audit AUTH-2: a TEAM_MEMBER must not be able to set their own role.
-code="$(curl -s -o "$TMP/uu.json" -w "%{http_code}" -b "$MEMBER_JAR" -X POST "$BASE_URL/api/auth/update-user" -H "Content-Type: application/json" -d '{"role":"SUPER_ADMIN"}')"
+code="$(curl -s -o "$TMP/uu.json" -w "%{http_code}" -b "$MEMBER_JAR" -X POST "$BASE_URL/api/auth/update-user" -H "Content-Type: application/json" -H "Origin: $BASE_URL" -d '{"role":"SUPER_ADMIN"}')"
 [ "$code" != "200" ] || { cat "$TMP/uu.json"; fail "update-user accepted role escalation"; }
 code="$(curl -s -o "$TMP/t403b.json" -w "%{http_code}" -b "$MEMBER_JAR" -X POST "$BASE_URL/api/websites/$WEBSITE_ID/transfer" -H "Content-Type: application/json" -d "{\"toTeamId\":\"$TEAM_B_ID\",\"reason\":\"smoke test\"}")"
 [ "$code" = "403" ] || { cat "$TMP/t403b.json"; fail "member transfer after escalation attempt returned $code, expected 403"; }
