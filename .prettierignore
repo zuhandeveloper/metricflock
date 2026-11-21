@@ -8,3 +8,5 @@ assets
 packages/db/prisma/migrations
 *.log
 coverage
+# Written by gitleaks-action into the workspace during CI
+results.sarif
