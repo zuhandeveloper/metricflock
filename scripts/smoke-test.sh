@@ -54,13 +54,16 @@ ok() { echo "smoke ok: $*"; }
 # succession, so retry on 429 (waiting out the window) instead of failing —
 # the limiter doing its job must not be mistaken for a broken sign-in.
 # Usage: auth_post OUTFILE JAR|- URL JSON   (prints the HTTP status code)
+# The jar is both read (-b) and written (-c): sign-in only needs the
+# write, but authenticated auth calls (two-factor enable/verify, sign-out)
+# must also SEND the session cookie.
 auth_post() {
   local out="$1" jar="$2" url="$3" data="$4" code attempt
   for attempt in 1 2 3 4 5 6 7 8; do
     if [ "$jar" = "-" ]; then
       code="$(curl -s -o "$out" -w "%{http_code}" -X POST "$url" -H "Content-Type: application/json" -d "$data")"
     else
-      code="$(curl -s -o "$out" -w "%{http_code}" -c "$jar" -X POST "$url" -H "Content-Type: application/json" -d "$data")"
+      code="$(curl -s -o "$out" -w "%{http_code}" -b "$jar" -c "$jar" -X POST "$url" -H "Content-Type: application/json" -d "$data")"
     fi
     [ "$code" != "429" ] && { echo "$code"; return 0; }
     sleep 4
