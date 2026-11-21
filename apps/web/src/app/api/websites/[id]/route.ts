@@ -67,6 +67,7 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
     action: "website.updated",
     entityType: "Website",
     entityId: id,

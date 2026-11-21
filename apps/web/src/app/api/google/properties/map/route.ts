@@ -108,6 +108,7 @@ async function post(req: NextRequest) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
     action: "google.property.mapped",
     entityType: "Website",
     entityId: website.id,

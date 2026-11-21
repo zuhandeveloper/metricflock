@@ -11,8 +11,29 @@ import crypto from "node:crypto";
 import { headers } from "next/headers";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { twoFactor } from "better-auth/plugins";
 import { prisma } from "@metricflock/db";
+import { writeAudit } from "@metricflock/db/audit";
 import { sendPasswordResetEmail, sendVerificationEmail } from "./mailer";
+
+/** DB-10: auth events land in the same audit trail as app mutations.
+ *  Audit failures must never break sign-in, so every write is best-effort. */
+async function auditAuthEvent(userId: string, action: string, ipAddress?: string | null) {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { organizationId: true } });
+    if (!user) return;
+    await writeAudit({
+      organizationId: user.organizationId,
+      actorId: userId,
+      action,
+      entityType: "User",
+      entityId: userId,
+      ipAddress: ipAddress ?? undefined,
+    });
+  } catch (e) {
+    console.error("[audit] auth event failed:", e instanceof Error ? e.message : e);
+  }
+}
 
 // Google sign-in (social login) uses the same Google Cloud app as the data
 // connections. Only enabled when both credentials are configured, so the app
@@ -29,6 +50,9 @@ export const auth = betterAuth({
     // can sign in. Without this, anyone can register (squat) any email.
     requireEmailVerification: true,
     minPasswordLength: 12,
+    // AUTH-10: a password reset kills every existing session — a reset is
+    // the standard account-recovery path after a suspected compromise.
+    revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url }) => {
       await sendPasswordResetEmail(user.email, url);
     },
@@ -52,6 +76,13 @@ export const auth = betterAuth({
     accountLinking: { enabled: true, trustedProviders: ["google"], requireLocalEmailVerified: true },
   },
   databaseHooks: {
+    session: {
+      create: {
+        after: async (session) => {
+          await auditAuthEvent(session.userId, "auth.sign_in", session.ipAddress);
+        },
+      },
+    },
     user: {
       create: {
         // User.organizationId is required, so a self sign-up (Google or
@@ -81,6 +112,9 @@ export const auth = betterAuth({
           });
           return { data: { ...user, organizationId: org.id, role: "SUPER_ADMIN" } };
         },
+        after: async (user) => {
+          await auditAuthEvent(user.id, "auth.sign_up");
+        },
       },
       update: {
         // SECURITY: role and organizationId must never change through a
@@ -104,7 +138,15 @@ export const auth = betterAuth({
   session: {
     expiresIn: 60 * 60 * 24 * 30, // 30 days, as before
     updateAge: 60 * 60 * 24, // refresh the session cookie at most once a day
+    // AUTH-11: sensitive operations (password/email change, 2FA toggle)
+    // require a session fresher than 15 minutes.
+    freshAge: 60 * 15,
   },
+  plugins: [
+    // TOTP two-factor authentication (Stage 7). Passkeys are a separate
+    // increment (needs @better-auth/passkey + relying-party config).
+    twoFactor({ issuer: "MetricFlock" }),
+  ],
   user: {
     additionalFields: {
       // Exposed on the session user object so callers can read them

@@ -278,4 +278,79 @@ curl -s "$BASE_URL/login" | grep -q 'for="login-email"' || fail "login email lab
 curl -s "$BASE_URL/login" | grep -q 'for="login-password"' || fail "login password label missing"
 ok "security headers present; login inputs labeled"
 
+echo "smoke: stage7 — password reset end-to-end (attacker account)"
+curl -s "$BASE_URL/forgot-password" | grep -q 'for="forgot-email"' || fail "forgot-password label missing"
+NEW_ATTACKER_PASSWORD="${ATTACKER_PASSWORD}New9"
+code="$(auth_post "$TMP/reset-req.json" "-" "$BASE_URL/api/auth/request-password-reset" "{\"email\":\"$ATTACKER_EMAIL\",\"redirectTo\":\"/reset-password\"}")"
+[ "$code" = "200" ] || fail "request-password-reset returned $code"
+RESET_OUT="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-reset-token.ts "$ATTACKER_EMAIL")" || fail "reset token fixture"
+RESET_TOKEN="$(echo "$RESET_OUT" | sed -n 's/^RESET_TOKEN=//p')"
+[ -n "$RESET_TOKEN" ] || fail "no reset token"
+code="$(auth_post "$TMP/reset-do.json" "-" "$BASE_URL/api/auth/reset-password" "{\"newPassword\":\"$NEW_ATTACKER_PASSWORD\",\"token\":\"$RESET_TOKEN\"}")"
+[ "$code" = "200" ] || { cat "$TMP/reset-do.json"; fail "reset-password returned $code"; }
+# Sessions revoked on reset: the pre-reset attacker cookie must now fail.
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" "$BASE_URL/api/websites")"
+[ "$code" = "401" ] || fail "old session still valid after reset (got $code)"
+code="$(auth_post "$TMP/old-pw.json" "-" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$ATTACKER_EMAIL\",\"password\":\"$ATTACKER_PASSWORD\"}")"
+[ "$code" = "401" ] || fail "old password still works after reset (got $code)"
+code="$(auth_post "$TMP/new-pw.json" "$ATTACKER_JAR" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$ATTACKER_EMAIL\",\"password\":\"$NEW_ATTACKER_PASSWORD\"}")"
+[ "$code" = "200" ] || fail "new password sign-in returned $code"
+ok "password reset works; sessions revoked; old password dead"
+
+echo "smoke: stage7 — TOTP two-factor end-to-end"
+code="$(auth_post "$TMP/2fa-enable.json" "$ATTACKER_JAR" "$BASE_URL/api/auth/two-factor/enable" "{\"password\":\"$NEW_ATTACKER_PASSWORD\"}")"
+[ "$code" = "200" ] || { cat "$TMP/2fa-enable.json"; fail "two-factor enable returned $code"; }
+TOTP_SECRET="$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const m=/secret=([A-Z2-7]+)/i.exec(d.totpURI||"");console.log(m?m[1]:"")' "$TMP/2fa-enable.json")"
+[ -n "$TOTP_SECRET" ] || fail "no TOTP secret in enable response"
+TOTP_CODE="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-totp.ts "$TOTP_SECRET")"
+code="$(auth_post "$TMP/2fa-verify.json" "$ATTACKER_JAR" "$BASE_URL/api/auth/two-factor/verify-totp" "{\"code\":\"$TOTP_CODE\"}")"
+[ "$code" = "200" ] || { cat "$TMP/2fa-verify.json"; fail "two-factor verify returned $code"; }
+# Sign out, then sign in through the app wrapper: must demand the 2FA code.
+auth_post "$TMP/signout.json" "$ATTACKER_JAR" "$BASE_URL/api/auth/sign-out" "{}" >/dev/null || true
+sleep 32 # next TOTP window — the setup code must not be replayed
+code="$(auth_post "$TMP/2fa-login.json" "$ATTACKER_JAR" "$BASE_URL/api/auth/login" "{\"email\":\"$ATTACKER_EMAIL\",\"password\":\"$NEW_ATTACKER_PASSWORD\"}")"
+[ "$code" = "200" ] || fail "2FA login returned $code"
+grep -q "two_factor_required" "$TMP/2fa-login.json" || { cat "$TMP/2fa-login.json"; fail "login did not demand two-factor code"; }
+TOTP_CODE2="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-totp.ts "$TOTP_SECRET")"
+code="$(auth_post "$TMP/2fa-login-verify.json" "$ATTACKER_JAR" "$BASE_URL/api/auth/two-factor/verify-totp" "{\"code\":\"$TOTP_CODE2\"}")"
+[ "$code" = "200" ] || { cat "$TMP/2fa-login-verify.json"; fail "2FA login verify returned $code"; }
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" "$BASE_URL/api/websites")"
+[ "$code" = "200" ] || fail "session after 2FA verify returned $code"
+ok "TOTP 2FA: enable, verify, sign-in challenge all work"
+
+echo "smoke: stage7 — two-sided transfer lifecycle"
+TRANSFER_ID="$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(d.transfer?.id??"")' "$TMP/t200.json")"
+[ -n "$TRANSFER_ID" ] || fail "no transfer id from initiate"
+grep -q "PENDING_ACCEPTANCE" "$TMP/t200.json" || fail "initiate did not land in PENDING_ACCEPTANCE"
+# Duplicate open transfer for the same website is rejected.
+code="$(curl -s -o "$TMP/tdup.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites/$WEBSITE_ID/transfer" -H "Content-Type: application/json" -d "{\"toTeamId\":\"$TEAM_B_ID\"}")"
+[ "$code" = "409" ] || { cat "$TMP/tdup.json"; fail "duplicate transfer returned $code, expected 409"; }
+# A non-admin member cannot accept for the destination team.
+code="$(curl -s -o "$TMP/tacc403.json" -w "%{http_code}" -b "$MEMBER_JAR" -X POST "$BASE_URL/api/transfers/$TRANSFER_ID/accept")"
+[ "$code" = "403" ] || { cat "$TMP/tacc403.json"; fail "member accept returned $code, expected 403"; }
+# Website must NOT have moved yet.
+team_now="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites?limit=200" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const w=d.websites.find((x)=>x.id===process.argv[1]);console.log(w?.teamId??"")' "$WEBSITE_ID")"
+[ "$team_now" != "$TEAM_B_ID" ] || fail "website moved before acceptance"
+code="$(curl -s -o "$TMP/tacc.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/transfers/$TRANSFER_ID/accept")"
+[ "$code" = "200" ] || { cat "$TMP/tacc.json"; fail "accept returned $code"; }
+grep -q "PENDING_CONNECTION" "$TMP/tacc.json" || fail "accept did not land in PENDING_CONNECTION"
+# Stage-2 fixture gave team-b an ACTIVE connection, so completion succeeds.
+code="$(curl -s -o "$TMP/tcomp.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/transfers/$TRANSFER_ID/complete")"
+[ "$code" = "200" ] || { cat "$TMP/tcomp.json"; fail "complete returned $code"; }
+grep -q "COMPLETED" "$TMP/tcomp.json" || fail "complete did not land in COMPLETED"
+team_now="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites?limit=200" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const w=d.websites.find((x)=>x.id===process.argv[1]);console.log(w?.teamId??"")' "$WEBSITE_ID")"
+[ "$team_now" = "$TEAM_B_ID" ] || fail "website did not move to destination team at completion"
+code="$(curl -s -o "$TMP/tcomp2.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/transfers/$TRANSFER_ID/complete")"
+[ "$code" = "409" ] || fail "second complete returned $code, expected 409"
+ok "two-sided transfer: initiate, duplicate 409, accept, complete, team moved only at completion"
+
+echo "smoke: stage7 — security page + audit coverage"
+curl -s -b "$ADMIN_JAR" "$BASE_URL/settings/security" | grep -q "Active sessions" || fail "security page missing sessions"
+AUDIT_OUT="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-audit-check.ts)" || fail "audit fixture"
+SIGNINS="$(echo "$AUDIT_OUT" | sed -n 's/.*AUTH_SIGNIN_COUNT=\([0-9]*\).*/\1/p')"
+WITHIP="$(echo "$AUDIT_OUT" | sed -n 's/.*AUDIT_WITH_IP=\([0-9]*\).*/\1/p')"
+[ "${SIGNINS:-0}" -ge 1 ] || fail "no auth.sign_in audit rows ($AUDIT_OUT)"
+[ "${WITHIP:-0}" -ge 1 ] || fail "no audit rows with ipAddress ($AUDIT_OUT)"
+ok "security page renders; auth events + IPs in audit log"
+
 echo "smoke: ALL CHECKS PASSED"

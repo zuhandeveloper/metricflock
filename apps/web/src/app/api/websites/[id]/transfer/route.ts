@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors } from "@/lib/api-error";
+import { OPEN_TRANSFER_STATUSES, TRANSFER_TTL_MS } from "@/lib/transfers";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { transferSchema } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
-import { invalidateWebsiteCache } from "@metricflock/shared";
-// Ownership transfer (spec §11): transaction marks TRANSFER_PENDING, records the
-// transfer, reassigns the team, removes old assignments, preserves history/audit.
-// OAuth tokens are NEVER transferred between owners — the new team must connect
-// its own Google account and map properties before the transfer completes.
+// Two-sided ownership transfer (Stage 7, API-4/DB-4). Initiating only
+// RECORDS the intent: the destination team's admin must accept, then
+// connect their own Google account, then complete — teamId, assignments
+// and integrations move at completion, never before. OAuth tokens are
+// NEVER transferred between owners.
 async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("website.transfer");
   if ("error" in auth) return auth.error;
@@ -22,35 +23,33 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   });
   if (!toTeam) return NextResponse.json({ error: "destination_team_not_found" }, { status: 404 });
   if (website.teamId === toTeam.id) return NextResponse.json({ error: "already_in_team" }, { status: 400 });
-  const result = await prisma.$transaction(async (tx) => {
-    const transfer = await tx.websiteTransfer.create({
-      data: {
-        websiteId: id,
-        fromTeamId: website.teamId,
-        toTeamId: toTeam.id,
-        initiatedById: auth.user.id,
-        status: "INITIATED",
-        reason: body.data.reason,
-      },
-    });
-    await tx.website.update({ where: { id }, data: { status: "TRANSFER_PENDING", teamId: toTeam.id } });
-    // Remove previous team's member assignments; history + audit logs are preserved.
-    await tx.websiteAssignment.deleteMany({ where: { websiteId: id } });
-    await tx.websiteTransfer.update({ where: { id: transfer.id }, data: { status: "TRANSFERRED" } });
-    return transfer;
+  const open = await prisma.websiteTransfer.findFirst({
+    where: { websiteId: id, status: { in: OPEN_TRANSFER_STATUSES } },
+  });
+  if (open) return NextResponse.json({ error: "transfer_in_progress", transferId: open.id }, { status: 409 });
+  const transfer = await prisma.websiteTransfer.create({
+    data: {
+      websiteId: id,
+      fromTeamId: website.teamId,
+      toTeamId: toTeam.id,
+      initiatedById: auth.user.id,
+      status: "PENDING_ACCEPTANCE",
+      reason: body.data.reason,
+      expiresAt: new Date(Date.now() + TRANSFER_TTL_MS),
+    },
   });
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
     action: "website.transfer.initiated",
     entityType: "Website",
     entityId: id,
-    details: { fromTeamId: website.teamId, toTeamId: toTeam.id, transferId: result.id },
+    details: { fromTeamId: website.teamId, toTeamId: toTeam.id, transferId: transfer.id },
   });
-  await invalidateWebsiteCache(auth.user.organizationId, id);
   return NextResponse.json({
-    transfer: result,
-    note: "Transfer recorded. New owner must connect their own Google account and map properties; then mark the transfer completed from /transfers. OAuth tokens were not transferred.",
+    transfer,
+    note: "Transfer initiated. The destination team's admin must accept it from /transfers; the website stays with the current team until the transfer completes.",
   });
 }
 

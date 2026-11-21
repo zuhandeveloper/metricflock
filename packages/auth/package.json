@@ -5,7 +5,8 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./mailer": "./src/mailer.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

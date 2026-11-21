@@ -45,11 +45,13 @@ enum MappingStatus {
 }
 enum TransferStatus {
   INITIATED
+  PENDING_ACCEPTANCE
   PENDING_CONNECTION
   TRANSFERRED
   COMPLETED
   CANCELLED
   FAILED
+  EXPIRED
 }
 enum SyncJobStatus {
   PENDING
@@ -93,15 +95,19 @@ model User {
   emailVerified Boolean @default(false)
   image        String?
   role         Role     @default(TEAM_MEMBER)
+  // better-auth two-factor plugin flag (Stage 7, AUTH-11/MFA).
+  twoFactorEnabled Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   sessions     Session[]
   accounts     Account[]
+  twoFactors   TwoFactor[]
   teamMemberships TeamMember[]
   websiteAssignments WebsiteAssignment[]
   createdConnections GoogleConnection[] @relation("ConnectionCreatedBy")
   oauthStates   OAuthState[]
   initiatedTransfers WebsiteTransfer[] @relation("TransferInitiatedBy")
+  acceptedTransfers  WebsiteTransfer[] @relation("TransferAcceptedBy")
   auditLogs    AuditLog[] @relation("AuditActor")
   @@index([organizationId, role])
 }
@@ -238,6 +244,12 @@ model WebsiteTransfer {
   toTeam        Team     @relation("TransferToTeam", fields: [toTeamId], references: [id], onDelete: Restrict)
   initiatedById String
   initiatedBy   User     @relation("TransferInitiatedBy", fields: [initiatedById], references: [id], onDelete: Restrict)
+  // Two-sided acceptance (Stage 7, API-4/DB-4): the destination team's
+  // admin accepts before anything moves; open transfers expire.
+  acceptedById  String?
+  acceptedBy    User?    @relation("TransferAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+  acceptedAt    DateTime?
+  expiresAt     DateTime?
   status        TransferStatus @default(INITIATED)
   reason        String?
   connectionHealthChecked Boolean @default(false)
@@ -425,10 +437,29 @@ model IntegrationHealth {
   @@index([connectionId, provider])
 }
 
+// better-auth two-factor plugin (TOTP). `secret` and `backupCodes` are
+// encrypted by better-auth with the auth secret before storage.
+model TwoFactor {
+  id                      String    @id @default(cuid())
+  secret                  String
+  backupCodes             String
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verified                Boolean   @default(true)
+  failedVerificationCount Int       @default(0)
+  lockedUntil             DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  @@index([userId])
+  @@index([secret])
+}
+
 model AuditLog {
   id             String   @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // Restrict (Stage 7, DB-10): deleting an organization must not silently
+  // destroy its audit trail — archive first, then delete.
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   actorId        String?
   actor          User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
   action         String
@@ -436,6 +467,7 @@ model AuditLog {
   entityId       String?
   details        Json?
   ipAddress      String?
+  requestId      String?
   createdAt      DateTime @default(now())
   @@index([organizationId, createdAt])
   @@index([actorId, createdAt])

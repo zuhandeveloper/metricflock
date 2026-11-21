@@ -305,6 +305,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@metricflock/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@metricflock/db':
         specifier: workspace:*
         version: link:../../packages/db

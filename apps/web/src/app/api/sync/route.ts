@@ -51,6 +51,7 @@ async function post(req: NextRequest) {
   await writeAudit({
     organizationId: user.organizationId,
     actorId: user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
     action: "sync.triggered",
     entityType: "Website",
     entityId: website.id,

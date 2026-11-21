@@ -31,6 +31,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
     action: `website.${body.data.action}`,
     entityType: "Website",
     entityId: id,

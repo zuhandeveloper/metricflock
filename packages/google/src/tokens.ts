@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { google } from "googleapis";
 import { prisma } from "@metricflock/db";
+import { writeAudit } from "@metricflock/db/audit";
 import { decryptToken, encryptToken, connectionAad, needsReencryption, getRedis } from "@metricflock/shared";
 import { getOAuthClient } from "./oauth";
 
@@ -99,6 +100,15 @@ export async function getValidAccessToken(connectionId: string): Promise<string>
           where: { id: connectionId },
           data: { status: "REVOKED", lastUsedAt: new Date() },
         });
+        // DB-10: worker-side revocation is audited too (actor = system).
+        await writeAudit({
+          organizationId: fresh.organizationId,
+          actorId: null,
+          action: "google.connection.revoked",
+          entityType: "GoogleConnection",
+          entityId: connectionId,
+          details: { reason: "invalid_grant", googleAccountEmail: fresh.googleAccountEmail },
+        }).catch(() => undefined);
         throw new Error("CONNECTION_REVOKED");
       }
       // Transient/provider error: leave the connection status untouched.

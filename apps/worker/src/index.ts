@@ -21,9 +21,37 @@ import {
   type SyncResult,
 } from "@metricflock/google/sync";
 import { resolveConnectionForWebsite } from "@metricflock/google/client";
+import { sendMail } from "@metricflock/auth/mailer";
 import { startScheduler } from "./scheduler";
 
 type SyncJobData = { websiteId?: string; connectionId?: string; syncJobRowId?: string };
+
+async function alertSyncFailure(websiteId: string, queue: string, error: string): Promise<void> {
+  const website = await prisma.website.findUnique({
+    where: { id: websiteId },
+    select: { name: true, domain: true, organizationId: true },
+  });
+  if (!website) return;
+  const admins = await prisma.user.findMany({
+    where: { organizationId: website.organizationId, role: "SUPER_ADMIN" },
+    select: { email: true },
+  });
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+  for (const admin of admins) {
+    await sendMail({
+      to: admin.email,
+      subject: `MetricFlock: sync failed for ${website.domain}`,
+      text: [
+        `The ${queue} sync for ${website.name} (${website.domain}) failed after all retries.`,
+        ``,
+        `Error: ${error.slice(0, 300)}`,
+        ``,
+        appUrl ? `Open the dashboard: ${appUrl}/websites/${websiteId}` : `Open the dashboard to investigate.`,
+        `If the Google connection was revoked, reconnect it from Integrations.`,
+      ].join("\n"),
+    });
+  }
+}
 
 const redis = getRedis();
 const bullConnection = bullConnectionOptions();
@@ -148,6 +176,14 @@ for (const name of QUEUE_NAMES) {
             lastRunAt: new Date(),
           },
         });
+        // Stage 7 alert: a terminally failed sync emails the org's
+        // SUPER_ADMINs (best-effort — alerting must never mask the job
+        // error or crash the worker).
+        if (attemptsLeft <= 0 && websiteId) {
+          await alertSyncFailure(websiteId, name, msg).catch((e) =>
+            console.error("[alert] sync failure email failed:", e instanceof Error ? e.message : e),
+          );
+        }
         throw err; // BullMQ retries with exponential backoff (queue.ts)
       }
     },

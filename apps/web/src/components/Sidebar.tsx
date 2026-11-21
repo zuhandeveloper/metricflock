@@ -2,7 +2,17 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { LayoutDashboard, Globe, Users, Plug, ArrowLeftRight, ScrollText, LogOut, BarChart3 } from "lucide-react";
+import {
+  LayoutDashboard,
+  Globe,
+  Users,
+  Plug,
+  ArrowLeftRight,
+  ScrollText,
+  LogOut,
+  BarChart3,
+  ShieldCheck,
+} from "lucide-react";
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/websites", label: "Websites", icon: Globe },
@@ -11,6 +21,7 @@ const links = [
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/transfers", label: "Transfers", icon: ArrowLeftRight },
   { href: "/audit", label: "Audit Log", icon: ScrollText },
+  { href: "/settings/security", label: "Account security", icon: ShieldCheck },
 ];
 export type SidebarUser = { name: string | null; email: string; role: string };
 export default function Sidebar({ user }: { user: SidebarUser }) {

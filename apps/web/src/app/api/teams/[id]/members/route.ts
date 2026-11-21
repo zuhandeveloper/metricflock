@@ -54,10 +54,12 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
     action: `team.member.${body.data.action}`,
     entityType: "Team",
     entityId: id,
-    details: { userId: target.id },
+    // DB-10: role (isAdmin) changes are part of the audit record.
+    details: { userId: target.id, isAdmin: body.data.isAdmin ?? undefined },
   });
   return NextResponse.json({ status: "ok" });
 }
