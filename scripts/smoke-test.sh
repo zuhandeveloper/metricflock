@@ -468,10 +468,10 @@ INVITEE_EMAIL="invitee-$$@example.com"
 code="$(curl -s -o "$TMP/invite.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/members/invite" -H "Content-Type: application/json" -d "{\"email\":\"$INVITEE_EMAIL\",\"role\":\"TEAM_MEMBER\"}")"
 [ "$code" = "201" ] || { cat "$TMP/invite.json"; fail "invite create returned $code"; }
 grep -q '"inviteUrl"' "$TMP/invite.json" || fail "invite response missing inviteUrl"
-code="$(auth_post "$TMP/invitee-su.json" - "$BASE_URL/api/auth/sign-up/email" "{\"name\":\"Invitee\",\"email\":\"$INVITEE_EMAIL\",\"password\":\"Invitee123!\"}")"
+code="$(auth_post "$TMP/invitee-su.json" - "$BASE_URL/api/auth/sign-up/email" "{\"name\":\"Invitee\",\"email\":\"$INVITEE_EMAIL\",\"password\":\"Invitee1234!\"}")"
 [ "$code" = "200" ] || { cat "$TMP/invitee-su.json"; fail "invitee sign-up returned $code"; }
 DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-verify-user.ts "$INVITEE_EMAIL" >/dev/null || fail "verify invitee fixture"
-code="$(auth_post "$TMP/invitee-si.json" "$INVITEE_JAR" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$INVITEE_EMAIL\",\"password\":\"Invitee123!\"}")"
+code="$(auth_post "$TMP/invitee-si.json" "$INVITEE_JAR" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$INVITEE_EMAIL\",\"password\":\"Invitee1234!\"}")"
 [ "$code" = "200" ] || { cat "$TMP/invitee-si.json"; fail "invitee sign-in returned $code"; }
 curl -s -b "$INVITEE_JAR" "$BASE_URL/api/auth/get-session" > "$TMP/invitee-session.json"
 grep -q '"role":"TEAM_MEMBER"' "$TMP/invitee-session.json" || { cat "$TMP/invitee-session.json"; fail "invitee role is not TEAM_MEMBER"; }
