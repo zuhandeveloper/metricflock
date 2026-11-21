@@ -94,7 +94,7 @@ export default function LoginForm() {
       <Button type="button" variant="outline" className="w-full justify-center" onClick={google}>
         Continue with Google
       </Button>
-      <div className="my-4 flex items-center gap-3 text-xs text-zinc-400">
+      <div className="my-4 flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
         <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
         or continue with email
         <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />

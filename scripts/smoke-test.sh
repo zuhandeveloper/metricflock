@@ -416,4 +416,34 @@ MIG_COUNT="$(psql "$SCRATCH_URL" -tA -c 'SELECT count(*) FROM "_prisma_migration
 psql "$ADMIN_URL" -q -c "DROP DATABASE metricflock_restore_test" || fail "scratch cleanup failed"
 ok "backup/restore drill: dump restored, users + migrations intact"
 
+echo "smoke: stage9 — cross-tenant IDOR matrix (attacker org vs demo org)"
+# Every demo-org resource must be invisible (404) to the attacker org's
+# SUPER_ADMIN — the strongest cross-tenant probe. Route-level authz is
+# exercised against the real DB here, not mocked (CI-6).
+expect404() { # label code
+  [ "$2" = "404" ] || fail "IDOR: $1 returned $2, expected 404"
+}
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" "$BASE_URL/api/websites/$WEBSITE_ID")"
+expect404 "GET foreign website" "$code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" -X PATCH "$BASE_URL/api/websites/$WEBSITE_ID" -H "Content-Type: application/json" -d '{"name":"pwned"}')"
+expect404 "PATCH foreign website" "$code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" -X POST "$BASE_URL/api/websites/$WEBSITE_ID/transfer" -H "Content-Type: application/json" -d "{\"toTeamId\":\"$TEAM_B_ID\"}")"
+expect404 "transfer foreign website" "$code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" -X POST "$BASE_URL/api/teams/$TEAM_A_ID/members" -H "Content-Type: application/json" -d '{"userId":"nonexistent","role":"TEAM_MEMBER"}')"
+expect404 "add member to foreign team" "$code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" -X PATCH "$BASE_URL/api/teams/$TEAM_A_ID" -H "Content-Type: application/json" -d '{"name":"pwned"}')"
+expect404 "PATCH foreign team" "$code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" -X POST "$BASE_URL/api/google/connections/disconnect" -H "Content-Type: application/json" -d "{\"connectionId\":\"$CONN_A_ID\"}")"
+expect404 "disconnect foreign connection" "$code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" "$BASE_URL/api/analytics/overview?websiteId=$WEBSITE_ID")"
+expect404 "analytics for foreign website" "$code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" -X POST "$BASE_URL/api/sync" -H "Content-Type: application/json" -d "{\"websiteId\":\"$WEBSITE_ID\",\"type\":\"integration-health-check\"}")"
+expect404 "sync foreign website" "$code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" -X POST "$BASE_URL/api/transfers/$TRANSFER_ID/accept")"
+expect404 "accept foreign transfer" "$code"
+# List scoping: attacker lists must not leak demo-org rows.
+curl -s -b "$ATTACKER_JAR" "$BASE_URL/api/websites?limit=200" | grep -q "$WEBSITE_ID" && fail "IDOR: attacker website list leaks demo website"
+curl -s -b "$ATTACKER_JAR" "$BASE_URL/api/google/connections" | grep -q "ga-a@example.com" && fail "IDOR: attacker connection list leaks demo connection"
+ok "IDOR matrix: 9 cross-tenant probes 404, lists scoped"
+
 echo "smoke: ALL CHECKS PASSED"

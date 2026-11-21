@@ -22,7 +22,17 @@ allowBuilds:
   prisma: true
   protobufjs: true
 
-# All declared deps are latest stable; pnpm 12 defaults minimumReleaseAge
-# to 1440 minutes, which would block a fresh install of a just-published
-# version. 0 disables the age gate.
-minimumReleaseAge: 0
+# Security overrides (pnpm audit gate, CI-4): force patched versions of
+# transitive deps. effect <=3.22.0 has a ReDoS in Schema.TemplateLiteral
+# (GHSA-7589-6fvf-x4pw), pulled in via prisma>@prisma/config (pins 3.20.0).
+# Stay within effect 3.x, which is what @prisma/config expects.
+overrides:
+  "effect@<3.22.1": "^3.22.1"
+
+# Supply-chain age gate (CI-7): refuse to resolve package versions
+# published <24h ago — most malicious/compromised releases are caught
+# within that window. Lockfile-pinned installs (CI --frozen-lockfile)
+# are unaffected; only new resolutions are gated. The previous value
+# (0, with a wrangler/miniflare rationale) was stale — Cloudflare
+# tooling was removed 2026-11-20.
+minimumReleaseAge: 1440

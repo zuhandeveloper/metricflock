@@ -17,3 +17,5 @@ apps/web/public/logo.png
 apps/web/public/og.png
 apps/web/public/twitter-card.png
 coverage/
+test-results/
+playwright-report/

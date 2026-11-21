@@ -1,0 +1,110 @@
+# MetricFlock CI — monorepo (step 3.8) + Stage 9 supply-chain gates.
+#
+# Runs on main and on PRs to main. The smoke test needs real Postgres +
+# Redis, provided here as service containers. The app is built before
+# the smoke test, which boots it with `next start` and drives the real
+# HTTP endpoints. Secrets here are dummy test values only.
+#
+# Stage 9 changes vs the previous workflow:
+#   - Actions pinned to full commit SHAs (CI-4)
+#   - format:check step (CI-5)
+#   - unit tests run with coverage thresholds (CI-5)
+#   - `pnpm audit --prod` gate (CI-4)
+#   - gitleaks secret scan (CI-4)
+#   - Playwright + axe e2e step after the smoke test (Stage 6 gate)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: metricflock_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/metricflock_test?sslmode=disable
+      REDIS_URL: redis://localhost:6379
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      # Dummy test-only secrets. Never use these outside CI.
+      SESSION_SECRET: ci-test-session-secret-please-change-in-production
+      BETTER_AUTH_SECRET: ci-test-session-secret-please-change-in-production
+      GOOGLE_TOKEN_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+      GOOGLE_CLIENT_ID: ci-test-client-id
+      GOOGLE_CLIENT_SECRET: ci-test-client-secret
+      GOOGLE_REDIRECT_URI: http://localhost:3000/api/google/oauth/callback
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # gitleaks scans history
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 12.21.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "26"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests (with coverage thresholds)
+        run: pnpm test:coverage
+
+      - name: Build
+        run: pnpm build
+
+      - name: Smoke test (real Postgres + Redis)
+        run: bash scripts/smoke-test.sh
+
+      - name: Install Playwright chromium
+        run: pnpm --filter @metricflock/web exec playwright install --with-deps chromium
+
+      - name: E2E + accessibility (Playwright + axe)
+        run: pnpm --filter @metricflock/web test:e2e
