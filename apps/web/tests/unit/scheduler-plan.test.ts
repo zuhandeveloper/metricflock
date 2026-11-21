@@ -44,7 +44,9 @@ describe("scheduler due-plan", () => {
     ]);
     expect(plan.every((p) => p.jobId.startsWith(`${p.queue}:site-1`))).toBe(true);
     // OPS-2: realtime jobId is stable per website (coalescing); others bucketed.
-    expect(plan.find((p) => p.queue === "ga4-realtime-sync")!.jobId).toBe("ga4-realtime-sync:site-1");
+    // BullMQ requires exactly 3 colon-separated parts; ":stable" keeps the
+    // realtime id constant per website for coalescing.
+    expect(plan.find((p) => p.queue === "ga4-realtime-sync")!.jobId).toBe("ga4-realtime-sync:site-1:stable");
     expect(plan.every((p) => p.delayMs >= 0 && p.delayMs < 60_000)).toBe(true);
   });
 

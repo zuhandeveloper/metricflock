@@ -1,4 +1,5 @@
 import { Queue } from "bullmq";
+import { randomUUID } from "node:crypto";
 import { bullConnectionOptions } from "@metricflock/shared";
 export const QUEUE_NAMES = [
   "google-oauth-refresh",
@@ -82,7 +83,9 @@ export async function enqueue(
   return q.add(
     name,
     data,
-    jobOptions(name, opts.jobId ?? `${name}:${JSON.stringify(data)}:${Date.now()}`, opts.delayMs),
+    // Default id: exactly 3 colon-separated parts (BullMQ rejects custom
+    // ids with ":" in any other shape; JSON payloads contain colons).
+    jobOptions(name, opts.jobId ?? `${name}:${randomUUID()}:${Date.now()}`, opts.delayMs),
   );
 }
 

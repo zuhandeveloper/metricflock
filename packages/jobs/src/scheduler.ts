@@ -86,9 +86,12 @@ export function planDueSyncs(input: {
       // most one realtime job per website can be pending — repeat enqueues
       // while one is queued/running are BullMQ no-ops. Other queues keep
       // interval-bucketed ids (dedupe within the window, fresh next window).
+      // BullMQ custom jobIds with ":" must have exactly 3 colon-separated
+      // parts — the realtime id keeps a fixed third segment so it stays
+      // stable per website (coalescing) without tripping that check.
       const jobId =
         queue === "ga4-realtime-sync"
-          ? `${queue}:${website.id}`
+          ? `${queue}:${website.id}:stable`
           : `${queue}:${website.id}:${Math.floor(input.now.getTime() / intervalMs)}`;
       plan.push({ queue, websiteId: website.id, jobId, delayMs: staggerDelayMs(website.id) });
     }

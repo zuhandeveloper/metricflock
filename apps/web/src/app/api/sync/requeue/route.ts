@@ -24,7 +24,10 @@ async function post(req: NextRequest) {
   const queue = QUEUE_BY_SYNC_TYPE[row.type];
   if (!queue) return NextResponse.json({ error: "unknown_job_type", type: row.type }, { status: 422 });
   const payload = (row.payload ?? {}) as Record<string, unknown>;
-  const job = await enqueue(queue, { ...payload, syncJobRowId: row.id });
+  // BullMQ custom jobIds may contain ":" only as exactly 3 colon-separated
+  // parts (legacy compat check) — the enqueue default embeds JSON, which
+  // would throw. Explicit 3-part id, unique per requeue.
+  const job = await enqueue(queue, { ...payload, syncJobRowId: row.id }, { jobId: `requeue:${row.id}:${Date.now()}` });
   if (!job) return NextResponse.json({ error: "queue_unavailable" }, { status: 503 });
   await prisma.analyticsSyncJob.update({
     where: { id: row.id },
