@@ -21,9 +21,10 @@ Both apps log one JSON object per line to stdout/stderr
   (default `info`). `warn`/`error` go to stderr, the rest to stdout.
 - `context`: `api`, `analytics`, `discover`, `audit`, `startup`,
   `health`, `worker`, `scheduler`.
-- **Correlation IDs**: middleware stamps every request with
-  `x-request-id` (caller's value if sane, else a UUID), echoes it on
-  the response, and the API error contract returns it in the body.
+- **Correlation IDs**: the request proxy (`apps/web/src/proxy.ts`,
+  Next 16 convention — runs on the Node runtime) stamps every request
+  with `x-request-id` (caller's value if sane, else a UUID), echoes it
+  on the response, and the API error contract returns it in the body.
   A user-reported error can be traced to its log line by requestId.
 
 ## Health endpoints
