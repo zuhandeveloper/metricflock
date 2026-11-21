@@ -1,11 +1,15 @@
-import { BetaAnalyticsDataClient, protos } from "@google-analytics/data";
+import { google } from "googleapis";
 import type { OAuth2Client } from "./auth-types";
-import { toGoogleAuth } from "./auth-types";
 // Typed parsers for GA4 Data API responses. No mocked data: every function calls the real client.
-export function getGa4Client(auth: OAuth2Client) {
-  // The GA4 gax client accepts a GoogleAuth instance; wrap the user's
-  // OAuth2 client so per-user credentials are used (never a service account).
-  return new BetaAnalyticsDataClient({ auth: toGoogleAuth(auth) });
+//
+// The Data API is called over REST via googleapis — the same auth path
+// as Search Console and AdSense. The @google-analytics/data gRPC client
+// required bridging two google-auth-library copies through GoogleAuth;
+// in production every GA4 call failed with INVALID_ARGUMENT while the
+// REST providers worked with the same token, so the bridge is gone.
+export type Ga4Client = ReturnType<typeof google.analyticsdata>;
+export function getGa4Client(auth: OAuth2Client): Ga4Client {
+  return google.analyticsdata({ version: "v1beta", auth });
 }
 export type RowLike = {
   dimensionValues?: { value?: string | null }[] | null;
@@ -57,31 +61,34 @@ const REALTIME_BREAKDOWN_DIMENSIONS = [
   "browser",
   "operatingSystem",
   "unifiedPagePathScreen",
-  "sessionDefaultChannelGroup",
+  // NOTE: session-scoped dimensions (sessionDefaultChannelGroup etc.) are
+  // NOT valid in realtime reports — Google rejects the whole request with
+  // INVALID_ARGUMENT. "platform" (web/iOS/Android) is the realtime-safe
+  // traffic split.
+  "platform",
 ] as const;
 
-export async function runRealtimeReport(client: BetaAnalyticsDataClient, propertyId: string) {
+export async function runRealtimeReport(client: Ga4Client, propertyId: string) {
   // DATA-1: the total must come from a dimension-less query — summing a
   // multi-dimension report counts one user once per dimension combination.
   // Each breakdown likewise gets its own single-dimension query so per-value
   // counts are exact. (8 small realtime queries instead of 1 inflated one.)
   const property = `properties/${propertyId}`;
   const [totalsRes, ...breakdownRes] = await Promise.all([
-    client.runRealtimeReport({
+    client.properties.runRealtimeReport({
       property,
-      metrics: [{ name: "activeUsers" }, { name: "eventCount" }],
+      requestBody: { metrics: [{ name: "activeUsers" }, { name: "eventCount" }] },
     }),
     ...REALTIME_BREAKDOWN_DIMENSIONS.map((name) =>
-      client.runRealtimeReport({
+      client.properties.runRealtimeReport({
         property,
-        dimensions: [{ name }],
-        metrics: [{ name: "activeUsers" }],
+        requestBody: { dimensions: [{ name }], metrics: [{ name: "activeUsers" }] },
       }),
     ),
   ]);
-  const [totals] = totalsRes;
+  const totals = totalsRes.data;
   const { activeUsers, eventCount } = parseRealtimeTotals((totals.rows ?? []) as RowLike[]);
-  const by = (i: number) => parseRealtimeBreakdown((breakdownRes[i]?.[0].rows ?? []) as RowLike[]);
+  const by = (i: number) => parseRealtimeBreakdown((breakdownRes[i]?.data.rows ?? []) as RowLike[]);
   return {
     propertyId,
     activeUsers,
@@ -91,7 +98,7 @@ export async function runRealtimeReport(client: BetaAnalyticsDataClient, propert
     byBrowser: by(3),
     byOperatingSystem: by(4),
     byPage: by(5),
-    bySource: by(6),
+    byPlatform: by(6),
     eventCount,
     rowCount: totals.rowCount ? Number(totals.rowCount) : (totals.rows ?? []).length,
     // GA4 realtime is a sampled near-real-time window, not an exact live-session census.
@@ -165,39 +172,37 @@ export function parseSamplingMetadata(
 }
 
 export async function runHistoricalReport(
-  client: BetaAnalyticsDataClient,
+  client: Ga4Client,
   propertyId: string,
   startDate: string,
   endDate: string,
   dimensions: { name: string }[] = [{ name: "date" }],
   metrics: string[] = GA4_CORE_METRICS,
 ) {
-  const [res] = await client.runReport({
+  const res = await client.properties.runReport({
     property: `properties/${propertyId}`,
-    dateRanges: [{ startDate, endDate }],
-    dimensions,
-    metrics: metrics.map((name) => ({ name })),
-    // DATA-8: ask the provider for the TOTAL aggregation so the summary
-    // comes from GA4, not from summing (possibly truncated) detail rows.
-    metricAggregations: [protos.google.analytics.data.v1beta.MetricAggregation.TOTAL],
+    requestBody: {
+      dateRanges: [{ startDate, endDate }],
+      dimensions,
+      metrics: metrics.map((name) => ({ name })),
+      // DATA-8: ask the provider for the TOTAL aggregation so the summary
+      // comes from GA4, not from summing (possibly truncated) detail rows.
+      metricAggregations: ["TOTAL"],
+    },
   });
-  const totals = (res.totals ?? [])[0] as RowLike | undefined;
+  const data = res.data;
+  const totals = (data.totals ?? [])[0] as RowLike | undefined;
   return {
     propertyId,
     startDate,
     endDate,
     summary: parseHistoricalSummary(totals, metrics),
-    rows: parseReportRows((res.rows ?? []) as RowLike[], metrics),
-    rowCount: res.rowCount ? Number(res.rowCount) : 0,
-    sampling: parseSamplingMetadata(res.metadata),
+    rows: parseReportRows((data.rows ?? []) as RowLike[], metrics),
+    rowCount: data.rowCount ? Number(data.rowCount) : 0,
+    sampling: parseSamplingMetadata(data.metadata),
   };
 }
-export async function runTrafficAcquisition(
-  client: BetaAnalyticsDataClient,
-  propertyId: string,
-  startDate: string,
-  endDate: string,
-) {
+export async function runTrafficAcquisition(client: Ga4Client, propertyId: string, startDate: string, endDate: string) {
   return runHistoricalReport(
     client,
     propertyId,
@@ -207,12 +212,7 @@ export async function runTrafficAcquisition(
     ["sessions", "activeUsers", "engagedSessions", "engagementRate", "keyEvents"],
   );
 }
-export async function runAudienceReport(
-  client: BetaAnalyticsDataClient,
-  propertyId: string,
-  startDate: string,
-  endDate: string,
-) {
+export async function runAudienceReport(client: Ga4Client, propertyId: string, startDate: string, endDate: string) {
   const [country] = await Promise.all([
     runHistoricalReport(
       client,
@@ -233,12 +233,7 @@ export async function runAudienceReport(
   ]);
   return country;
 }
-export async function runPagesReport(
-  client: BetaAnalyticsDataClient,
-  propertyId: string,
-  startDate: string,
-  endDate: string,
-) {
+export async function runPagesReport(client: Ga4Client, propertyId: string, startDate: string, endDate: string) {
   // Article/author/category dimensions are custom dimensions; they only return data
   // when configured in the GA4 property. We request standard page dimensions here.
   return runHistoricalReport(
@@ -250,12 +245,7 @@ export async function runPagesReport(
     ["screenPageViews", "activeUsers", "engagedSessions", "averageEngagementTime"],
   );
 }
-export async function runEventsReport(
-  client: BetaAnalyticsDataClient,
-  propertyId: string,
-  startDate: string,
-  endDate: string,
-) {
+export async function runEventsReport(client: Ga4Client, propertyId: string, startDate: string, endDate: string) {
   return runHistoricalReport(
     client,
     propertyId,
