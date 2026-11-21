@@ -1,8 +1,16 @@
 // Configurable polling TARGETS (spec §15), not guarantees of source-data availability.
 // GA4 realtime 15-30s, GA4 daily 2-5min, GA4 historical 30-60min, GSC 6-12h, AdSense/Ad Manager 1-6h.
+//
+// OPS-2 capacity note: the worker realtime sync only WARMS the 30s-TTL
+// cache — the dashboard fetches live on cache miss, so background realtime
+// does not need a 30s cadence. At 30s, 100 websites produce ~100 jobs/min
+// against a 20/min queue limiter (breakeven 20 sites). The default is now
+// 300s (100 sites ≈ 20/min produced, matching the limiter), with per-site
+// coalescing (stable jobId) and hash stagger bounding the backlog at any
+// scale. Override with SYNC_GA4_REALTIME_SECONDS if quota allows.
 import { SYNC_TYPE_BY_QUEUE, type QueueName, type SyncJobTypeName } from "./queue";
 export const SYNC_INTERVALS = {
-  ga4RealtimeSeconds: 30,
+  ga4RealtimeSeconds: Number(process.env.SYNC_GA4_REALTIME_SECONDS ?? 300),
   ga4DailyMinutes: 5,
   ga4HistoricalMinutes: Number(process.env.SYNC_GA4_HISTORICAL_MINUTES ?? 45),
   searchConsoleHours: Number(process.env.SYNC_SEARCH_CONSOLE_HOURS ?? 8),
@@ -12,7 +20,15 @@ export const SYNC_INTERVALS = {
 } as const;
 
 export type SyncProviderName = "GA4" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER";
-export type DueSyncPlanEntry = { queue: QueueName; websiteId: string; jobId: string };
+export type DueSyncPlanEntry = { queue: QueueName; websiteId: string; jobId: string; delayMs: number };
+
+/** Deterministic per-website stagger (OPS-2): spreads enqueues across the
+ *  scheduler tick window instead of bursting every site at once. */
+export function staggerDelayMs(websiteId: string, windowMs = 60_000): number {
+  let hash = 0;
+  for (let i = 0; i < websiteId.length; i++) hash = (hash * 31 + websiteId.charCodeAt(i)) >>> 0;
+  return hash % windowMs;
+}
 
 /** Interval (ms) after which a queue's sync is due again for a website. */
 export function intervalMsForQueue(queue: QueueName, intervals: typeof SYNC_INTERVALS = SYNC_INTERVALS): number {
@@ -66,8 +82,15 @@ export function planDueSyncs(input: {
       const last = input.lastSucceededAt.get(`${website.id}:${type}`) ?? null;
       const due = !last || input.now.getTime() - last.getTime() >= intervalMs;
       if (!due) continue;
-      const bucket = Math.floor(input.now.getTime() / intervalMs);
-      plan.push({ queue, websiteId: website.id, jobId: `${queue}:${website.id}:${bucket}` });
+      // OPS-2 coalescing: realtime uses a STABLE per-website jobId, so at
+      // most one realtime job per website can be pending — repeat enqueues
+      // while one is queued/running are BullMQ no-ops. Other queues keep
+      // interval-bucketed ids (dedupe within the window, fresh next window).
+      const jobId =
+        queue === "ga4-realtime-sync"
+          ? `${queue}:${website.id}`
+          : `${queue}:${website.id}:${Math.floor(input.now.getTime() / intervalMs)}`;
+      plan.push({ queue, websiteId: website.id, jobId, delayMs: staggerDelayMs(website.id) });
     }
   }
   return plan;

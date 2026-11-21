@@ -17,7 +17,7 @@ function forwardCookies(from: Response, to: NextResponse) {
 // the scrypt password hash in its Account model and sets the session cookie.
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
-  const rl = rateLimit(`login:${ip}`, 10, 60_000);
+  const rl = await rateLimit(`login:${ip}`, 10, 60_000);
   if (!rl.allowed) return NextResponse.json({ error: "too_many_requests" }, { status: 429 });
   const body = schema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });

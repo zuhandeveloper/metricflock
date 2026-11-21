@@ -47,7 +47,7 @@ function fakeDeps(overrides: Record<string, unknown> = {}): {
       health.push(opts);
       return {};
     }),
-    rateLimit: vi.fn(() => ({ allowed: true, remaining: 29 })),
+    rateLimit: vi.fn(async () => ({ allowed: true, remaining: 29 })),
     ga4: {
       getGa4Client: vi.fn(() => ({})),
       runRealtimeReport: vi.fn(async () => ({ activeUsers: 3 })),
@@ -145,7 +145,7 @@ describe("sync engine (mocked Google clients)", () => {
   });
 
   it("per-connection rate limiting throws SyncRateLimitError before fetching", async () => {
-    const { deps } = fakeDeps({ rateLimit: vi.fn(() => ({ allowed: false, remaining: 0 })) });
+    const { deps } = fakeDeps({ rateLimit: vi.fn(async () => ({ allowed: false, remaining: 0 })) });
     await expect(syncWebsite("site-1", "ga4-historical", deps)).rejects.toBeInstanceOf(SyncRateLimitError);
     expect(deps.ga4.runHistoricalReport).not.toHaveBeenCalled();
   });

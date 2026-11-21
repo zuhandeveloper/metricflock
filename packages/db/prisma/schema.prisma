@@ -398,7 +398,8 @@ model AnalyticsSyncJob {
   website     Website? @relation(fields: [websiteId], references: [id], onDelete: Cascade)
   type        SyncJobType
   status      SyncJobStatus @default(PENDING)
-  externalId  String?
+  externalId  String?  @unique
+  payload     Json?
   attempts    Int      @default(0)
   lastError   String?
   lastRunAt   DateTime?
@@ -419,6 +420,7 @@ model IntegrationHealth {
   lastSuccessAt  DateTime?
   lastError      String?
   checkedAt      DateTime @default(now())
+  @@unique([websiteId, provider])
   @@index([websiteId, provider, checkedAt])
   @@index([connectionId, provider])
 }

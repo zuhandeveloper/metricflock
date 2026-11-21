@@ -8,8 +8,9 @@
 // This file owns only queue wiring and AnalyticsSyncJob bookkeeping.
 // Jobs are enqueued centrally by the scheduler (./scheduler.ts) and the
 // manual sync endpoint, with dedup jobIds — no per-website polling loops.
+import { createServer } from "node:http";
 import { Worker, type Job } from "bullmq";
-import { getRedis } from "@metricflock/shared";
+import { getRedis, bullConnectionOptions } from "@metricflock/shared";
 import { prisma } from "@metricflock/db";
 import { QUEUE_NAMES, SYNC_TYPE_BY_QUEUE, intervalMsForQueue, type QueueName } from "@metricflock/jobs";
 import {
@@ -22,13 +23,15 @@ import {
 import { resolveConnectionForWebsite } from "@metricflock/google/client";
 import { startScheduler } from "./scheduler";
 
-type SyncJobData = { websiteId?: string; connectionId?: string };
+type SyncJobData = { websiteId?: string; connectionId?: string; syncJobRowId?: string };
 
 const redis = getRedis();
-if (!redis) {
+const bullConnection = bullConnectionOptions();
+if (!redis || !bullConnection) {
   console.error("REDIS_URL not set — workers cannot start.");
   process.exit(1);
 }
+const redisClient: NonNullable<typeof redis> = redis;
 
 async function connectionIdForJob(data: SyncJobData): Promise<string | null> {
   if (data.connectionId) return data.connectionId;
@@ -85,15 +88,35 @@ const LIMITERS: Partial<Record<QueueName, { max: number; duration: number }>> = 
   "analytics-cache-refresh": { max: 10, duration: 60_000 },
 };
 
+const workers: Worker[] = [];
 for (const name of QUEUE_NAMES) {
   const worker = new Worker(
     name,
     async (job: Job<SyncJobData>) => {
       const websiteId = job.data.websiteId ?? null;
       const type = SYNC_TYPE_BY_QUEUE[name];
-      const row = await prisma.analyticsSyncJob.create({
-        data: { websiteId, type, status: "RUNNING", externalId: String(job.id), attempts: job.attemptsMade + 1 },
-      });
+      // OPS-3: ONE bookkeeping row per BullMQ job, upserted by externalId
+      // across attempts (was: a new row per attempt). Manual sync passes
+      // its pre-created row id so that row is the one updated (no orphans).
+      // OPS-4: the payload is stored so failed jobs stay inspectable.
+      const externalId = String(job.id);
+      const row = job.data.syncJobRowId
+        ? await prisma.analyticsSyncJob.update({
+            where: { id: job.data.syncJobRowId },
+            data: { status: "RUNNING", externalId, attempts: job.attemptsMade + 1, payload: { ...job.data } },
+          })
+        : await prisma.analyticsSyncJob.upsert({
+            where: { externalId },
+            update: { status: "RUNNING", attempts: job.attemptsMade + 1, payload: { ...job.data } },
+            create: {
+              websiteId,
+              type,
+              status: "RUNNING",
+              externalId,
+              attempts: job.attemptsMade + 1,
+              payload: { ...job.data },
+            },
+          });
       try {
         const result = await runJob(name, job.data);
         const intervalMs = intervalMsForQueue(name);
@@ -128,10 +151,53 @@ for (const name of QUEUE_NAMES) {
         throw err; // BullMQ retries with exponential backoff (queue.ts)
       }
     },
-    { connection: redis, concurrency: 5, limiter: LIMITERS[name] },
+    // OPS-10: BullMQ owns dedicated connections (options, not the shared
+    // cache client) with maxRetriesPerRequest: null.
+    { connection: bullConnection, concurrency: 5, limiter: LIMITERS[name] },
   );
   worker.on("failed", (job, err) => console.error(`[${name}] job ${job?.id} failed:`, err.message));
+  workers.push(worker);
   console.log(`Worker started: ${name}`);
 }
 
-startScheduler(redis);
+const scheduler = startScheduler(redisClient);
+
+// OPS-9: liveness/readiness endpoint for the host/Docker HEALTHCHECK.
+// /healthz = process up; /readyz = Redis + DB reachable.
+const healthPort = Number(process.env.WORKER_HEALTH_PORT ?? 8080);
+const healthServer = createServer(async (req, res) => {
+  if (req.url === "/healthz") {
+    res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ status: "ok" }));
+    return;
+  }
+  if (req.url === "/readyz") {
+    try {
+      await redisClient.ping();
+      await prisma.$queryRaw`SELECT 1`;
+      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ status: "ready" }));
+    } catch {
+      res.writeHead(503, { "Content-Type": "application/json" }).end(JSON.stringify({ status: "not_ready" }));
+    }
+    return;
+  }
+  res.writeHead(404).end();
+});
+healthServer.listen(healthPort, () => console.log(`Health endpoint on :${healthPort} (/healthz, /readyz)`));
+
+// OPS-5: graceful shutdown — stop taking jobs, let in-flight work finish,
+// close connections, then exit. Without this, SIGTERM mid-job means
+// stalled redelivery and duplicate side effects.
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`Received ${signal} — shutting down gracefully…`);
+  scheduler.stop();
+  healthServer.close();
+  await Promise.allSettled(workers.map((w) => w.close()));
+  await prisma.$disconnect().catch(() => {});
+  redisClient.disconnect();
+  process.exit(0);
+}
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));

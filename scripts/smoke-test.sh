@@ -264,4 +264,9 @@ loc="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_URL/api/
 case "$loc" in *oauth=bad_state*) ;; *) fail "replay redirect was $loc (expected bad_state)" ;; esac
 ok "PKCE present; state single-use; replay rejected"
 
+echo "smoke: stage5 — list pagination is bounded and reported"
+PAGE_JSON="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites?limit=1&offset=0")"
+echo "$PAGE_JSON" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));if(!Array.isArray(d.websites)||d.websites.length>1)process.exit(1);if(typeof d.pagination?.total!=="number"||d.pagination.limit!==1)process.exit(1)' || fail "pagination shape wrong: $PAGE_JSON"
+ok "pagination bounded + total reported"
+
 echo "smoke: ALL CHECKS PASSED"

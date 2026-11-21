@@ -3,7 +3,7 @@ import { requireApiAuth } from "@metricflock/auth";
 import { assertWebsiteAccess, listAccessibleWebsiteIds } from "@metricflock/auth";
 import { analyticsQuerySchema } from "@metricflock/shared";
 import { analyticsEnvelope, notConnectedEnvelope, missingDataEnvelope, resolveRange } from "./analytics-response";
-import { buildCacheKey, cacheGet, cacheSet } from "@metricflock/shared";
+import { buildCacheKey, cacheGet, cacheSet, getRedis } from "@metricflock/shared";
 import {
   getAuthorizedClientForIntegration,
   getPrimaryIntegration,
@@ -105,6 +105,36 @@ export async function handleAnalyticsRequest(
       range: { startDate: sd, endDate: ed },
     });
   }
+  // OPS-6 single-flight: one request per cache key calls Google; concurrent
+  // cold requests wait briefly for the winner's cache write instead of
+  // stampeding the provider (and burning quota) in parallel.
+  const redis = getRedis();
+  const lockKey = `lock:fetch:${cacheKey}`;
+  let lockToken: string | null = null;
+  if (redis) {
+    lockToken = `${process.pid}:${Date.now()}:${Math.random()}`;
+    const acquired = await redis.set(lockKey, lockToken, "PX", 30_000, "NX").catch(() => null);
+    if (acquired !== "OK") {
+      lockToken = null;
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const again = await cacheGet<unknown>(cacheKey);
+        if (again && !again.stale) {
+          return analyticsEnvelope({
+            data: again.value,
+            websiteId,
+            includedWebsites: [websiteId],
+            unavailableWebsites: [],
+            lastSyncedAt: syncType ? await lastSuccessfulSync(websiteId, syncType) : null,
+            dataSource: opts.source,
+            freshness: "cached",
+            range: { startDate: sd, endDate: ed },
+          });
+        }
+      }
+      // Winner is slow or died: fall through and fetch ourselves.
+    }
+  }
   try {
     const data = await opts.fetchFn({
       auth: client.auth,
@@ -129,16 +159,42 @@ export async function handleAnalyticsRequest(
       unavailableWebsites: [],
       lastSyncedAt: syncType ? await lastSuccessfulSync(websiteId, syncType) : null,
       dataSource: opts.source,
-      freshness: cached ? "stale-while-revalidate" : "live",
+      // DATA-10: freshly fetched data is "live" — never mislabeled SWR.
+      freshness: "live",
       range: { startDate: sd, endDate: ed },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "google_api_error";
     const quota = /quota|rateLimitExceeded|429/i.test(msg);
+    // OPS-6 true stale-while-revalidate: on provider error, serve the stale
+    // value we already hold (labeled stale) instead of failing the request.
+    if (cached) {
+      return analyticsEnvelope({
+        data: cached.value,
+        websiteId,
+        includedWebsites: [websiteId],
+        unavailableWebsites: [],
+        lastSyncedAt: syncType ? await lastSuccessfulSync(websiteId, syncType) : null,
+        dataSource: opts.source,
+        freshness: "stale",
+        range: { startDate: sd, endDate: ed },
+      });
+    }
     return NextResponse.json(
       { error: quota ? "google_quota_exceeded" : "google_api_error", details: msg },
       { status: quota ? 429 : 502 },
     );
+  } finally {
+    if (redis && lockToken) {
+      await redis
+        .eval(
+          `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end`,
+          1,
+          lockKey,
+          lockToken,
+        )
+        .catch(() => {});
+    }
   }
 }
 export { getGa4Client };

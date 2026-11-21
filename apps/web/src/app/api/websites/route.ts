@@ -4,11 +4,13 @@ import { prisma } from "@metricflock/db";
 import { listAccessibleWebsiteIds } from "@metricflock/auth";
 import { websiteCreateSchema } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
+import { parsePagination } from "@/lib/pagination";
 export async function GET(req: NextRequest) {
   const auth = await requireApiAuth("website.view");
   if ("error" in auth) return auth.error;
   const q = req.nextUrl.searchParams.get("q") ?? "";
   const status = req.nextUrl.searchParams.get("status") ?? undefined;
+  const { limit, offset } = parsePagination(req);
   const ids = await listAccessibleWebsiteIds(auth.user);
   const where: Record<string, unknown> = {
     organizationId: auth.user.organizationId,
@@ -18,16 +20,20 @@ export async function GET(req: NextRequest) {
       ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { domain: { contains: q, mode: "insensitive" } }] }
       : {}),
   };
-  const websites = await prisma.website.findMany({
-    where: where as never,
-    include: {
-      team: { select: { name: true } },
-      integrations: { select: { provider: true, mappingStatus: true, isPrimary: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
-  return NextResponse.json({ websites });
+  const [websites, total] = await Promise.all([
+    prisma.website.findMany({
+      where: where as never,
+      include: {
+        team: { select: { name: true } },
+        integrations: { select: { provider: true, mappingStatus: true, isPrimary: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.website.count({ where: where as never }),
+  ]);
+  return NextResponse.json({ websites, pagination: { total, limit, offset } });
 }
 export async function POST(req: NextRequest) {
   const auth = await requireApiAuth("website.manage");

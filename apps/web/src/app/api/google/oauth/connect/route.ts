@@ -7,9 +7,8 @@ const q = z.object({ ownerType: z.enum(["TEAM", "WEBSITE"]), ownerId: z.string()
 export async function GET(req: NextRequest) {
   const auth = await requireApiAuth("google.connection.manage");
   if ("error" in auth) return auth.error;
-  // Bound connect attempts per user (OAUTH-12); Redis-backed limiting
-  // replaces this in-memory bucket in Stage 5.
-  if (!rateLimit(`oauth-connect:${auth.user.id}`, 10, 60_000).allowed) {
+  // Bound connect attempts per user (OAUTH-12, Redis-backed since Stage 5).
+  if (!(await rateLimit(`oauth-connect:${auth.user.id}`, 10, 60_000)).allowed) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
   const parsed = q.safeParse(Object.fromEntries(req.nextUrl.searchParams.entries()));

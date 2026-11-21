@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   if (!code || !state) return NextResponse.redirect(`${appUrl}/integrations?oauth=invalid`);
   // Bound callback attempts per IP (OAUTH-12).
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (!rateLimit(`oauth-callback:${ip}`, 20, 60_000).allowed) {
+  if (!(await rateLimit(`oauth-callback:${ip}`, 20, 60_000)).allowed) {
     return NextResponse.redirect(`${appUrl}/integrations?oauth=rate_limited`);
   }
   let nonce: string;
