@@ -1,19 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { teamCreateSchema } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
-export async function GET() {
+import { parsePagination } from "@/lib/pagination";
+export async function GET(req: NextRequest) {
   const auth = await requireApiAuth("team.view");
   if ("error" in auth) return auth.error;
-  const teams = await prisma.team.findMany({
-    where: { organizationId: auth.user.organizationId },
-    include: { _count: { select: { members: true, websites: true } } },
-    orderBy: { createdAt: "desc" },
-  });
-  return NextResponse.json({ teams });
+  const { limit, offset } = parsePagination(req);
+  const where = { organizationId: auth.user.organizationId };
+  const [teams, total] = await Promise.all([
+    prisma.team.findMany({
+      where,
+      include: { _count: { select: { members: true, websites: true } } },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.team.count({ where }),
+  ]);
+  return NextResponse.json({ teams, pagination: { total, limit, offset } });
 }
-export async function POST(req: NextRequest) {
+async function post(req: NextRequest) {
   const auth = await requireApiAuth("team.manage");
   if ("error" in auth) return auth.error;
   const body = teamCreateSchema.safeParse(await req.json().catch(() => ({})));
@@ -24,6 +33,7 @@ export async function POST(req: NextRequest) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
     action: "team.created",
     entityType: "Team",
     entityId: team.id,
@@ -31,3 +41,5 @@ export async function POST(req: NextRequest) {
   });
   return NextResponse.json({ team }, { status: 201 });
 }
+
+export const POST = withApiErrors("teams", post);

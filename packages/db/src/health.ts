@@ -1,5 +1,9 @@
 import { prisma } from "./client";
 import type { SyncJobType } from "./client";
+/** Current-state health per (websiteId, provider) — upserted, not appended
+ *  (OPS-3): one row always reflects the latest check. Rows without a
+ *  websiteId (connection-level) still append, since the unique key cannot
+ *  match NULLs. */
 export async function recordHealth(opts: {
   websiteId?: string | null;
   connectionId?: string | null;
@@ -8,15 +12,27 @@ export async function recordHealth(opts: {
   lastError?: string | null;
   success?: boolean;
 }) {
+  const data = {
+    connectionId: opts.connectionId ?? null,
+    status: opts.status,
+    lastSuccessAt: opts.success ? new Date() : undefined,
+    lastError: opts.lastError ?? null,
+    checkedAt: new Date(),
+  };
+  if (opts.websiteId) {
+    return prisma.integrationHealth.upsert({
+      where: { websiteId_provider: { websiteId: opts.websiteId, provider: opts.provider } },
+      update: data,
+      create: {
+        websiteId: opts.websiteId,
+        provider: opts.provider,
+        ...data,
+        lastSuccessAt: data.lastSuccessAt ?? null,
+      },
+    });
+  }
   return prisma.integrationHealth.create({
-    data: {
-      websiteId: opts.websiteId ?? null,
-      connectionId: opts.connectionId ?? null,
-      provider: opts.provider,
-      status: opts.status,
-      lastSuccessAt: opts.success ? new Date() : null,
-      lastError: opts.lastError ?? null,
-    },
+    data: { websiteId: null, provider: opts.provider, ...data, lastSuccessAt: data.lastSuccessAt ?? null },
   });
 }
 export async function lastSuccessfulSync(websiteId: string, type: SyncJobType) {

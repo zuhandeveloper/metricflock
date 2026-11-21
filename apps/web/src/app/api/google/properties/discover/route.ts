@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiAuth } from "@metricflock/auth";
+import { withApiErrors } from "@/lib/api-error";
+import { requireApiAuth, assertConnectionVisible } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { getValidAccessToken } from "@metricflock/google/tokens";
 import { listGa4Properties, listSearchConsoleSites, listAdSenseAccounts } from "@metricflock/google/discovery";
 import { getOAuthClient } from "@metricflock/google/oauth";
+import { createLogger, errMeta } from "@metricflock/shared";
 import { z } from "zod";
 const schema = z.object({ connectionId: z.string().min(1) });
-export async function POST(req: NextRequest) {
+async function post(req: NextRequest) {
   const auth = await requireApiAuth("google.connection.manage");
   if ("error" in auth) return auth.error;
   const body = schema.safeParse(await req.json().catch(() => ({})));
@@ -15,6 +17,13 @@ export async function POST(req: NextRequest) {
     where: { id: body.data.connectionId, organizationId: auth.user.organizationId },
   });
   if (!conn) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  // Discovery spends the connection's Google quota and reveals its
+  // properties — same visibility rule as disconnect (audit AUTH-8/API-3).
+  const visible = await assertConnectionVisible(auth.user, conn).then(
+    () => true,
+    () => false,
+  );
+  if (!visible) return NextResponse.json({ error: "not_found" }, { status: 404 });
   try {
     const accessToken = await getValidAccessToken(conn.id);
     const client = getOAuthClient();
@@ -44,7 +53,10 @@ export async function POST(req: NextRequest) {
       });
     return NextResponse.json({ ga4, searchConsole: gsc, adsense });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "discovery_failed";
-    return NextResponse.json({ error: msg }, { status: 502 });
+    // Stable error code to the client; detail stays server-side (OAUTH-12).
+    createLogger("discover").error("property discovery failed", { connectionId: conn.id, ...errMeta(e) });
+    return NextResponse.json({ error: "discovery_failed" }, { status: 502 });
   }
 }
+
+export const POST = withApiErrors("google/properties/discover", post);

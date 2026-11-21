@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { buildCacheKey } from "@metricflock/shared";
 import { hasPermission } from "@metricflock/auth";
-// Pure, DB-free tenant-isolation checks. Full cross-org/cross-team isolation is
-// covered by the DB-backed integration tests (tests/integration/README.md),
-// which require a real Postgres instance and are not run in CI without one.
+// Pure, DB-free tenant-isolation checks. Full cross-org/cross-team isolation
+// is covered by the DB-backed security section of scripts/smoke-test.sh,
+// which runs in CI against real Postgres + Redis.
 describe("tenant isolation (unit-level)", () => {
   it("cache keys are org-scoped so no cross-tenant leak via cache", () => {
     const k1 = buildCacheKey({

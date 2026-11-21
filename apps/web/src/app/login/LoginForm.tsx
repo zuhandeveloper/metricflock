@@ -1,10 +1,13 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { signIn } from "@metricflock/auth/client";
 import { Card, Input, Button } from "@/components/ui";
 export default function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function google() {
@@ -26,11 +29,65 @@ export default function LoginForm() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    if (res.ok) window.location.assign("/dashboard");
-    else {
+    if (res.ok) {
+      const data = (await res.json().catch(() => null)) as { status?: string } | null;
+      if (data?.status === "two_factor_required") {
+        setBusy(false);
+        setNeedsTwoFactor(true);
+        return;
+      }
+      window.location.assign("/dashboard");
+    } else {
       setBusy(false);
       setError("Invalid email or password.");
     }
+  }
+  async function submitCode(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    const res = await fetch("/api/auth/two-factor/verify-totp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: code.trim() }),
+    });
+    if (res.ok) window.location.assign("/dashboard");
+    else {
+      setBusy(false);
+      setError("That code didn't work. Check your authenticator app and try again.");
+    }
+  }
+  if (needsTwoFactor) {
+    return (
+      <Card className="p-6">
+        <form onSubmit={submitCode} className="space-y-3">
+          <div>
+            <label htmlFor="login-2fa-code" className="mb-1 block text-sm font-medium">
+              Two-factor code
+            </label>
+            <Input
+              id="login-2fa-code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="123456"
+              required
+            />
+            <p className="mt-1 text-xs text-zinc-500">Enter the 6-digit code from your authenticator app.</p>
+          </div>
+          {error && (
+            <p role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          )}
+          <Button type="submit" className="w-full justify-center">
+            {busy ? "Verifying…" : "Verify and sign in"}
+          </Button>
+        </form>
+      </Card>
+    );
   }
   return (
     <Card className="p-6">
@@ -43,26 +100,47 @@ export default function LoginForm() {
         <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
       </div>
       <form onSubmit={submit} className="space-y-3">
-        <Input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          required
-          autoComplete="email"
-        />
-        <Input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          required
-          autoComplete="current-password"
-        />
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div>
+          <label htmlFor="login-email" className="mb-1 block text-sm font-medium">
+            Email
+          </label>
+          <Input
+            id="login-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email"
+            required
+            autoComplete="email"
+          />
+        </div>
+        <div>
+          <label htmlFor="login-password" className="mb-1 block text-sm font-medium">
+            Password
+          </label>
+          <Input
+            id="login-password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            required
+            autoComplete="current-password"
+          />
+        </div>
+        {error && (
+          <p role="alert" className="text-sm text-red-600">
+            {error}
+          </p>
+        )}
         <Button type="submit" className="w-full justify-center">
           {busy ? "Signing in…" : "Sign in"}
         </Button>
+        <p className="text-center text-sm">
+          <Link href="/forgot-password" className="text-blue-600 hover:underline">
+            Forgot your password?
+          </Link>
+        </p>
       </form>
     </Card>
   );

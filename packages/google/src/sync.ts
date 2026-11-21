@@ -17,7 +17,7 @@
 import { prisma } from "@metricflock/db";
 import { recordHealth } from "@metricflock/db/health";
 import { buildCacheKey, cacheSet, rateLimit } from "@metricflock/shared";
-import { getAuthorizedClientForWebsite, getPrimaryIntegration } from "./client";
+import { getAuthorizedClientForWebsite, getAuthorizedClientForIntegration, getPrimaryIntegration } from "./client";
 import {
   getGa4Client,
   runRealtimeReport,
@@ -51,6 +51,7 @@ export class SyncRateLimitError extends Error {
  *  (spec §23: mocked Google clients for automated tests). */
 export type SyncDeps = {
   getAuthorizedClientForWebsite: typeof getAuthorizedClientForWebsite;
+  getAuthorizedClientForIntegration: typeof getAuthorizedClientForIntegration;
   getPrimaryIntegration: typeof getPrimaryIntegration;
   getWebsiteOrganizationId: (websiteId: string) => Promise<string>;
   cacheSet: typeof cacheSet;
@@ -92,6 +93,7 @@ async function defaultConnectionAuth(connectionId: string): Promise<OAuth2Client
 
 export const defaultSyncDeps: SyncDeps = {
   getAuthorizedClientForWebsite,
+  getAuthorizedClientForIntegration,
   getPrimaryIntegration,
   getWebsiteOrganizationId: async (websiteId) => {
     const website = await prisma.website.findUnique({ where: { id: websiteId }, select: { organizationId: true } });
@@ -205,9 +207,10 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
   const integration = await deps.getPrimaryIntegration(websiteId, spec.provider);
   if (!integration)
     return { status: "no_mapping", reports: [], detail: `No ${spec.provider} property mapped to this website.` };
-  let client: Awaited<ReturnType<typeof getAuthorizedClientForWebsite>>;
+  let client: Awaited<ReturnType<typeof getAuthorizedClientForIntegration>>;
   try {
-    client = await deps.getAuthorizedClientForWebsite(websiteId);
+    // DATA-5: fetch with the connection the mapping was made under.
+    client = await deps.getAuthorizedClientForIntegration(websiteId, integration);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === "CONNECTION_REQUIRED")
@@ -223,7 +226,7 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
     throw e;
   }
   const connectionId = client.connection.connectionId;
-  if (connectionId && !deps.rateLimit(`google:${connectionId}`, 30, 60_000).allowed) {
+  if (connectionId && !(await deps.rateLimit(`google:${connectionId}`, 30, 60_000)).allowed) {
     throw new SyncRateLimitError(connectionId);
   }
   const organizationId = await deps.getWebsiteOrganizationId(websiteId);
@@ -285,7 +288,7 @@ export async function healthCheckWebsite(websiteId: string, deps: SyncDeps = def
     if (!integration) continue;
     if (provider === "AD_MANAGER" && !deps.adManager.adManagerEnabled()) continue;
     try {
-      const client = await deps.getAuthorizedClientForWebsite(websiteId);
+      const client = await deps.getAuthorizedClientForIntegration(websiteId, integration);
       anyConnected = true;
       await deps.recordHealth({
         websiteId,
@@ -334,47 +337,66 @@ export async function discoverConnectionProperties(
 ): Promise<{ ga4: number; searchConsole: number; adsense: number; adManager: number }> {
   const auth = await deps.getConnectionAuth(connectionId);
   const counts = { ga4: 0, searchConsole: 0, adsense: 0, adManager: 0 };
-  for (const p of await deps.discovery.listGa4Properties(auth)) {
-    if (!p.propertyId) continue;
-    await deps.prisma.googleProperty.upsert({
-      where: { connectionId_propertyId: { connectionId, propertyId: p.propertyId } },
-      update: { displayName: p.displayName ?? null, accountId: p.accountId ?? null },
-      create: {
-        connectionId,
-        propertyId: p.propertyId,
-        displayName: p.displayName ?? null,
-        accountId: p.accountId ?? null,
-      },
-    });
-    counts.ga4++;
+  // DB-11: upserts run in bounded parallel chunks instead of one sequential
+  // round trip per property (a large account can discover hundreds).
+  const CHUNK = 10;
+  const ga4Props = (await deps.discovery.listGa4Properties(auth)).filter((p) => p.propertyId);
+  for (let i = 0; i < ga4Props.length; i += CHUNK) {
+    await Promise.all(
+      ga4Props.slice(i, i + CHUNK).map((p) =>
+        deps.prisma.googleProperty.upsert({
+          where: { connectionId_propertyId: { connectionId, propertyId: p.propertyId! } },
+          update: { displayName: p.displayName ?? null, accountId: p.accountId ?? null },
+          create: {
+            connectionId,
+            propertyId: p.propertyId!,
+            displayName: p.displayName ?? null,
+            accountId: p.accountId ?? null,
+          },
+        }),
+      ),
+    );
+    counts.ga4 += Math.min(CHUNK, ga4Props.length - i);
   }
-  for (const s of await deps.discovery.listSearchConsoleSites(auth)) {
-    if (!s.siteUrl) continue;
-    await deps.prisma.searchConsoleProperty.upsert({
-      where: { connectionId_siteUrl: { connectionId, siteUrl: s.siteUrl } },
-      update: { permissionLevel: s.permissionLevel ?? null },
-      create: { connectionId, siteUrl: s.siteUrl, permissionLevel: s.permissionLevel ?? null },
-    });
-    counts.searchConsole++;
+  const scSites = (await deps.discovery.listSearchConsoleSites(auth)).filter((s) => s.siteUrl);
+  for (let i = 0; i < scSites.length; i += CHUNK) {
+    await Promise.all(
+      scSites.slice(i, i + CHUNK).map((s) =>
+        deps.prisma.searchConsoleProperty.upsert({
+          where: { connectionId_siteUrl: { connectionId, siteUrl: s.siteUrl! } },
+          update: { permissionLevel: s.permissionLevel ?? null },
+          create: { connectionId, siteUrl: s.siteUrl!, permissionLevel: s.permissionLevel ?? null },
+        }),
+      ),
+    );
+    counts.searchConsole += Math.min(CHUNK, scSites.length - i);
   }
-  for (const a of await deps.discovery.listAdSenseAccounts(auth)) {
-    if (!a.accountId) continue;
-    await deps.prisma.adSenseAccount.upsert({
-      where: { connectionId_accountId: { connectionId, accountId: a.accountId } },
-      update: { displayName: a.displayName ?? null },
-      create: { connectionId, accountId: a.accountId, displayName: a.displayName ?? null },
-    });
-    counts.adsense++;
+  const adsAccounts = (await deps.discovery.listAdSenseAccounts(auth)).filter((a) => a.accountId);
+  for (let i = 0; i < adsAccounts.length; i += CHUNK) {
+    await Promise.all(
+      adsAccounts.slice(i, i + CHUNK).map((a) =>
+        deps.prisma.adSenseAccount.upsert({
+          where: { connectionId_accountId: { connectionId, accountId: a.accountId! } },
+          update: { displayName: a.displayName ?? null },
+          create: { connectionId, accountId: a.accountId!, displayName: a.displayName ?? null },
+        }),
+      ),
+    );
+    counts.adsense += Math.min(CHUNK, adsAccounts.length - i);
   }
   if (deps.adManager.adManagerEnabled()) {
-    for (const n of await deps.adManager.listAdManagerNetworks(auth)) {
-      if (!n.networkCode) continue;
-      await deps.prisma.adManagerNetwork.upsert({
-        where: { connectionId_networkCode: { connectionId, networkCode: n.networkCode } },
-        update: { displayName: n.displayName ?? null },
-        create: { connectionId, networkCode: n.networkCode, displayName: n.displayName ?? null },
-      });
-      counts.adManager++;
+    const networks = (await deps.adManager.listAdManagerNetworks(auth)).filter((n) => n.networkCode);
+    for (let i = 0; i < networks.length; i += CHUNK) {
+      await Promise.all(
+        networks.slice(i, i + CHUNK).map((n) =>
+          deps.prisma.adManagerNetwork.upsert({
+            where: { connectionId_networkCode: { connectionId, networkCode: n.networkCode! } },
+            update: { displayName: n.displayName ?? null },
+            create: { connectionId, networkCode: n.networkCode!, displayName: n.displayName ?? null },
+          }),
+        ),
+      );
+      counts.adManager += Math.min(CHUNK, networks.length - i);
     }
   }
   return counts;

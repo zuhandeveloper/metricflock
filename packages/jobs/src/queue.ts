@@ -1,5 +1,6 @@
 import { Queue } from "bullmq";
-import { getRedis } from "@metricflock/shared";
+import { randomUUID } from "node:crypto";
+import { bullConnectionOptions } from "@metricflock/shared";
 export const QUEUE_NAMES = [
   "google-oauth-refresh",
   "google-property-discovery",
@@ -27,6 +28,11 @@ export const SYNC_TYPE_BY_QUEUE = {
   "integration-health-check": "HEALTH_CHECK",
 } as const satisfies Record<QueueName, string>;
 export type SyncJobTypeName = (typeof SYNC_TYPE_BY_QUEUE)[QueueName];
+/** Reverse map for the DLQ requeue path (Stage 8): a failed
+ *  AnalyticsSyncJob row knows its SyncJobType; requeue needs its queue. */
+export const QUEUE_BY_SYNC_TYPE: Record<string, QueueName> = Object.fromEntries(
+  Object.entries(SYNC_TYPE_BY_QUEUE).map(([queue, type]) => [type, queue as QueueName]),
+);
 /** Analytics report name (web routes) -> SyncJobType, for last-successful-sync lookups. */
 export const SYNC_TYPE_BY_REPORT: Record<string, SyncJobTypeName> = {
   realtime: "GA4_REALTIME",
@@ -41,11 +47,32 @@ export const SYNC_TYPE_BY_REPORT: Record<string, SyncJobTypeName> = {
 };
 const queues = new Map<string, Queue>();
 export function getQueue(name: QueueName): Queue | null {
-  const redis = getRedis();
-  if (!redis) return null; // No Redis: jobs are skipped, manual sync via API still works.
-  if (!queues.has(name)) queues.set(name, new Queue(name, { connection: redis }));
+  // OPS-10: BullMQ gets connection OPTIONS (dedicated connections,
+  // maxRetriesPerRequest: null), never the shared cache client.
+  const connection = bullConnectionOptions();
+  if (!connection) return null; // No Redis: jobs are skipped, manual sync via API still works.
+  if (!queues.has(name)) queues.set(name, new Queue(name, { connection }));
   return queues.get(name)!;
 }
+
+export type EnqueueEntry = { name: QueueName; data: Record<string, unknown>; jobId: string; delayMs?: number };
+
+function jobOptions(name: QueueName, jobId: string, delayMs?: number) {
+  return {
+    jobId,
+    attempts: 5,
+    backoff: { type: "exponential" as const, delay: 60_000 },
+    // Realtime jobs are coalesced by stable jobId (OPS-2): the completed
+    // job must be removed immediately or BullMQ would dedupe the NEXT
+    // cycle's enqueue against the finished one. Other queues keep a
+    // bounded completed/failed history in Redis; the durable record is
+    // the AnalyticsSyncJob row (OPS-4).
+    removeOnComplete: name === "ga4-realtime-sync" ? true : 100,
+    removeOnFail: 500,
+    ...(delayMs ? { delay: delayMs } : {}),
+  };
+}
+
 export async function enqueue(
   name: QueueName,
   data: Record<string, unknown>,
@@ -53,12 +80,30 @@ export async function enqueue(
 ) {
   const q = getQueue(name);
   if (!q) return null;
-  return q.add(name, data, {
-    jobId: opts.jobId ?? `${name}:${JSON.stringify(data)}:${Date.now()}`,
-    attempts: 5,
-    backoff: { type: "exponential", delay: 60_000 },
-    removeOnComplete: 100,
-    removeOnFail: 100,
-    ...(opts.delayMs ? { delay: opts.delayMs } : {}),
-  });
+  return q.add(
+    name,
+    data,
+    // Default id: exactly 3 colon-separated parts (BullMQ rejects custom
+    // ids with ":" in any other shape; JSON payloads contain colons).
+    jobOptions(name, opts.jobId ?? `${name}:${randomUUID()}:${Date.now()}`, opts.delayMs),
+  );
+}
+
+/** Bulk enqueue (OPS-7/11): one Redis round trip per queue instead of a
+ *  sequential await per job. Returns the number of jobs submitted. */
+export async function enqueueBulk(entries: EnqueueEntry[]): Promise<number> {
+  const byQueue = new Map<QueueName, EnqueueEntry[]>();
+  for (const e of entries) {
+    const list = byQueue.get(e.name) ?? [];
+    list.push(e);
+    byQueue.set(e.name, list);
+  }
+  let submitted = 0;
+  for (const [name, list] of byQueue) {
+    const q = getQueue(name);
+    if (!q) continue;
+    await q.addBulk(list.map((e) => ({ name, data: e.data, opts: jobOptions(name, e.jobId, e.delayMs) })));
+    submitted += list.length;
+  }
+  return submitted;
 }

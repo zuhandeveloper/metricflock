@@ -13,6 +13,32 @@ export function parseGscRows(
     position: r.position ?? 0,
   }));
 }
+
+export type GscTotals = {
+  clicks: number;
+  impressions: number;
+  avgCtr: number;
+  /** Impression-weighted average position; null when there are no
+   *  impressions to weight by (DATA-2). */
+  avgPosition: number | null;
+};
+
+/** Totals computed from detail rows (fallback when the provider totals
+ *  query returns nothing). Position is impression-weighted, never a
+ *  simple mean of per-row positions (DATA-2). */
+export function computeGscTotals(rows: ReturnType<typeof parseGscRows>): GscTotals {
+  const clicks = rows.reduce((s, r) => s + r.clicks, 0);
+  const impressions = rows.reduce((s, r) => s + r.impressions, 0);
+  return {
+    clicks,
+    impressions,
+    avgCtr: impressions ? clicks / impressions : 0,
+    avgPosition: impressions ? rows.reduce((s, r) => s + r.position * r.impressions, 0) / impressions : null,
+  };
+}
+
+const GSC_MAX_PAGES = 5;
+
 export async function querySearchAnalytics(
   auth: OAuth2Client,
   siteUrl: string,
@@ -22,20 +48,43 @@ export async function querySearchAnalytics(
   rowLimit = 1000,
 ) {
   const sc = google.searchconsole({ version: "v1", auth });
-  const res = await sc.searchanalytics.query({ siteUrl, requestBody: { startDate, endDate, dimensions, rowLimit } });
-  const rows = parseGscRows(res.data.rows as never);
-  const totals = rows.reduce(
-    (acc, r) => ({ clicks: acc.clicks + r.clicks, impressions: acc.impressions + r.impressions }),
-    { clicks: 0, impressions: 0 },
-  );
-  const avgCtr = totals.impressions ? totals.clicks / totals.impressions : 0;
-  const avgPosition = rows.length ? rows.reduce((s, r) => s + r.position, 0) / rows.length : 0;
+  // DATA-3: totals come from a separate dimension-less query. Reducing the
+  // detail page (sorted by clicks, capped at rowLimit) undercounts every
+  // site with more rows than the page size.
+  const totalsRes = await sc.searchanalytics.query({
+    siteUrl,
+    requestBody: { startDate, endDate, dimensions: [], rowLimit: 1 },
+  });
+  const totalsRow = parseGscRows(totalsRes.data.rows as never)[0];
+  // Detail rows are paginated with startRow; `truncated` surfaces when the
+  // page cap is hit instead of silently dropping the tail.
+  const rows: ReturnType<typeof parseGscRows> = [];
+  let truncated = false;
+  for (let page = 0; page < GSC_MAX_PAGES; page++) {
+    const res = await sc.searchanalytics.query({
+      siteUrl,
+      requestBody: { startDate, endDate, dimensions, rowLimit, startRow: page * rowLimit },
+    });
+    const pageRows = parseGscRows(res.data.rows as never);
+    rows.push(...pageRows);
+    if (pageRows.length < rowLimit) break;
+    if (page === GSC_MAX_PAGES - 1) truncated = true;
+  }
+  const totals: GscTotals = totalsRow
+    ? {
+        clicks: totalsRow.clicks,
+        impressions: totalsRow.impressions,
+        avgCtr: totalsRow.ctr,
+        avgPosition: totalsRow.impressions ? totalsRow.position : null,
+      }
+    : computeGscTotals(rows);
   return {
     siteUrl,
     startDate,
     endDate,
-    totals: { ...totals, avgCtr, avgPosition },
+    totals,
     rows,
+    truncated,
     dataDelayNote: GSC_DATA_DELAY_NOTE,
   };
 }

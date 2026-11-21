@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { planDueSyncs, SYNC_TYPE_BY_QUEUE, SYNC_TYPE_BY_REPORT } from "@metricflock/jobs";
+import {
+  planDueSyncs,
+  staggerDelayMs,
+  SYNC_INTERVALS,
+  SYNC_TYPE_BY_QUEUE,
+  SYNC_TYPE_BY_REPORT,
+} from "@metricflock/jobs";
 
 const NOW = new Date("2026-11-19T12:00:00Z");
 const VALID_SYNC_TYPES = [
@@ -36,7 +42,12 @@ describe("scheduler due-plan", () => {
       "integration-health-check",
       "search-console-sync",
     ]);
-    expect(plan.every((p) => p.jobId.startsWith(`${p.queue}:site-1:`))).toBe(true);
+    expect(plan.every((p) => p.jobId.startsWith(`${p.queue}:site-1`))).toBe(true);
+    // OPS-2: realtime jobId is stable per website (coalescing); others bucketed.
+    // BullMQ requires exactly 3 colon-separated parts; ":stable" keeps the
+    // realtime id constant per website for coalescing.
+    expect(plan.find((p) => p.queue === "ga4-realtime-sync")!.jobId).toBe("ga4-realtime-sync:site-1:stable");
+    expect(plan.every((p) => p.delayMs >= 0 && p.delayMs < 60_000)).toBe(true);
   });
 
   it("recently synced queues are not due; stale ones are", () => {
@@ -90,5 +101,32 @@ describe("scheduler due-plan", () => {
     const histA = a.find((p) => p.queue === "ga4-historical-sync")!;
     const histB = b.find((p) => p.queue === "ga4-historical-sync")!;
     expect(histA.jobId).toBe(histB.jobId);
+    // OPS-2: realtime jobId identical across ticks AND buckets (coalescing).
+    const rtA = a.find((p) => p.queue === "ga4-realtime-sync")!;
+    const rtB = b.find((p) => p.queue === "ga4-realtime-sync")!;
+    expect(rtA.jobId).toBe(rtB.jobId);
+  });
+
+  it("stagger is deterministic per website and bounded by the tick window", () => {
+    expect(staggerDelayMs("site-1")).toBe(staggerDelayMs("site-1"));
+    expect(staggerDelayMs("site-1")).toBeGreaterThanOrEqual(0);
+    expect(staggerDelayMs("site-1")).toBeLessThan(60_000);
+    expect(staggerDelayMs("site-2")).not.toBe(staggerDelayMs("site-1"));
+  });
+
+  it("OPS-2 capacity: produced realtime jobs/min stays within the 20/min limiter at 100 sites", () => {
+    // Steady-state simulation: every site synced exactly one interval ago,
+    // so all are due this tick. Produced per minute = sites / intervalMinutes.
+    const realtimePerMinute = (sites: number) => sites / (SYNC_INTERVALS.ga4RealtimeSeconds / 60);
+    expect(realtimePerMinute(100)).toBeLessThanOrEqual(20);
+    // At 500 sites production exceeds the limiter, but coalescing caps
+    // pending realtime jobs at one per website (stable jobIds, unique):
+    const websites = Array.from({ length: 500 }, (_, i) => ({ id: `site-${i}`, providers: ["GA4" as const] }));
+    const plan = planDueSyncs({ websites, lastSucceededAt: new Map(), now: NOW, adManagerEnabled: false });
+    const realtime = plan.filter((p) => p.queue === "ga4-realtime-sync");
+    expect(realtime).toHaveLength(500);
+    expect(new Set(realtime.map((p) => p.jobId)).size).toBe(500); // one pending per site, never more
+    // Stagger spreads the burst across the tick window:
+    expect(new Set(realtime.map((p) => p.delayMs)).size).toBeGreaterThan(100);
   });
 });

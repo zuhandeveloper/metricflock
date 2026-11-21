@@ -22,6 +22,7 @@
     "@google-analytics/data": "^7.3.0",
     "@metricflock/db": "workspace:*",
     "@metricflock/shared": "workspace:*",
+    "google-auth-library": "11.3.4",
     "google-gax": "^6.17.0",
     "googleapis": "^190.0.0"
   },
