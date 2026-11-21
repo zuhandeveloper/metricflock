@@ -8,6 +8,27 @@ import { getOAuthClient } from "@metricflock/google/oauth";
 import { createLogger, errMeta } from "@metricflock/shared";
 import { z } from "zod";
 const schema = z.object({ connectionId: z.string().min(1) });
+
+// Coarse, stable classification of provider failures so the UI can tell
+// the user what to fix (e.g. enable an API in Google Cloud Console)
+// instead of silently reporting "found 0". Raw provider text stays
+// server-side in the logs (OAUTH-12).
+function classifyProviderError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  const data = (
+    e as {
+      response?: { data?: { error?: { status?: string; message?: string; details?: { reason?: string }[] } } };
+    }
+  )?.response?.data?.error;
+  const reasons = data?.details?.map((d) => d.reason ?? "") ?? [];
+  const full = `${msg} ${data?.message ?? ""} ${reasons.join(" ")}`;
+  if (/SERVICE_DISABLED|has not been used|is disabled|not been enabled/i.test(full)) return "api_not_enabled";
+  if (data?.status === "PERMISSION_DENIED" || /PERMISSION_DENIED|insufficient.*permission/i.test(full)) {
+    return "permission_denied";
+  }
+  if (data?.status === "UNAUTHENTICATED" || /invalid_grant|unauthorized/i.test(full)) return "unauthorized";
+  return "provider_error";
+}
 async function post(req: NextRequest) {
   const auth = await requireApiAuth("google.connection.manage");
   if ("error" in auth) return auth.error;
@@ -28,11 +49,24 @@ async function post(req: NextRequest) {
     const accessToken = await getValidAccessToken(conn.id);
     const client = getOAuthClient();
     client.setCredentials({ access_token: accessToken });
-    const [ga4, gsc, adsense] = await Promise.all([
-      listGa4Properties(client).catch(() => []),
-      listSearchConsoleSites(client).catch(() => []),
-      listAdSenseAccounts(client).catch(() => []),
+    const log = createLogger("discover");
+    const connId = conn.id;
+    async function attempt<T>(provider: string, fn: () => Promise<T[]>): Promise<{ items: T[]; error?: string }> {
+      try {
+        return { items: await fn() };
+      } catch (e) {
+        log.error("provider discovery failed", { connectionId: connId, provider, ...errMeta(e) });
+        return { items: [], error: classifyProviderError(e) };
+      }
+    }
+    const [ga4r, gscr, adsr] = await Promise.all([
+      attempt("GA4", () => listGa4Properties(client)),
+      attempt("SEARCH_CONSOLE", () => listSearchConsoleSites(client)),
+      attempt("ADSENSE", () => listAdSenseAccounts(client)),
     ]);
+    const ga4 = ga4r.items;
+    const gsc = gscr.items;
+    const adsense = adsr.items;
     for (const p of ga4)
       await prisma.googleProperty.upsert({
         where: { connectionId_propertyId: { connectionId: conn.id, propertyId: p.propertyId } },
@@ -51,7 +85,11 @@ async function post(req: NextRequest) {
         update: { displayName: a.displayName },
         create: { connectionId: conn.id, accountId: a.accountId, displayName: a.displayName },
       });
-    return NextResponse.json({ ga4, searchConsole: gsc, adsense });
+    const errors: Record<string, string> = {};
+    if (ga4r.error) errors.ga4 = ga4r.error;
+    if (gscr.error) errors.searchConsole = gscr.error;
+    if (adsr.error) errors.adsense = adsr.error;
+    return NextResponse.json({ ga4, searchConsole: gsc, adsense, ...(Object.keys(errors).length ? { errors } : {}) });
   } catch (e) {
     // Stable error code to the client; detail stays server-side (OAUTH-12).
     createLogger("discover").error("property discovery failed", { connectionId: conn.id, ...errMeta(e) });

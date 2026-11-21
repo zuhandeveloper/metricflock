@@ -125,6 +125,39 @@ export function EditWebsiteForm({
   );
 }
 
+export function DeleteWebsiteButton({ websiteId, domain }: { websiteId: string; domain: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function act() {
+    if (
+      !window.confirm(
+        `Delete website ${domain}? Its integrations, assignments, transfers and sync history will be removed.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    const res = await fetch(`/api/websites/${websiteId}`, { method: "DELETE" });
+    setBusy(false);
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(data?.error ?? `request_failed_${res.status}`);
+      return;
+    }
+    router.push("/websites");
+    router.refresh();
+  }
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Button type="button" variant="outline" onClick={() => void act()}>
+        {busy ? "Deleting…" : "Delete website"}
+      </Button>
+      <ErrorText error={error} />
+    </span>
+  );
+}
+
 export function AssignForm({
   websiteId,
   assignments,

@@ -46,17 +46,32 @@ export function DiscoverButton({ connectionId }: { connectionId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState("");
+  const [providerErrors, setProviderErrors] = useState<string[]>([]);
   async function act() {
     setBusy(true);
     setError("");
     setSummary("");
+    setProviderErrors([]);
     const { error: err, data } = await sendJson("/api/google/properties/discover", { connectionId });
     setBusy(false);
     if (err) return setError(err);
-    const d = data as { ga4?: unknown[]; searchConsole?: unknown[]; adsense?: unknown[] } | null;
+    const d = data as {
+      ga4?: unknown[];
+      searchConsole?: unknown[];
+      adsense?: unknown[];
+      errors?: Record<string, string>;
+    } | null;
     setSummary(
       `Found ${d?.ga4?.length ?? 0} GA4, ${d?.searchConsole?.length ?? 0} Search Console, ${d?.adsense?.length ?? 0} AdSense.`,
     );
+    const hints: Record<string, string> = {
+      api_not_enabled: "API not enabled in Google Cloud Console",
+      permission_denied: "permission denied for this Google account",
+      unauthorized: "reconnect the Google account",
+      provider_error: "provider error (check server logs)",
+    };
+    const labels: Record<string, string> = { ga4: "GA4", searchConsole: "Search Console", adsense: "AdSense" };
+    setProviderErrors(Object.entries(d?.errors ?? {}).map(([k, v]) => `${labels[k] ?? k}: ${hints[v] ?? v}`));
     router.refresh();
   }
   return (
@@ -65,6 +80,11 @@ export function DiscoverButton({ connectionId }: { connectionId: string }) {
         {busy ? "Discovering…" : "Discover properties"}
       </Button>
       {summary && <span className="text-xs text-emerald-600">{summary}</span>}
+      {providerErrors.map((e) => (
+        <span key={e} role="alert" className="text-xs text-amber-600">
+          {e}
+        </span>
+      ))}
       {error && (
         <span role="alert" className="text-xs text-red-600">
           {error}

@@ -5,7 +5,7 @@ import { assertWebsiteAccess } from "@metricflock/auth";
 import { Card, Badge } from "@/components/ui";
 import DateRangePicker from "@/components/DateRangePicker";
 import WebsiteAnalytics from "@/components/WebsiteAnalytics";
-import { EditWebsiteForm, AssignForm, TransferForm, SyncNowForm } from "./WebsiteActions";
+import { EditWebsiteForm, AssignForm, TransferForm, SyncNowForm, DeleteWebsiteButton } from "./WebsiteActions";
 export const dynamic = "force-dynamic";
 export default async function WebsitePage({
   params,
@@ -92,6 +92,9 @@ export default async function WebsitePage({
             teamId={full.teamId}
             teams={teams}
           />
+          <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+            <DeleteWebsiteButton websiteId={id} domain={full.domain} />
+          </div>
         </Card>
       )}
       {canAssign && full && (

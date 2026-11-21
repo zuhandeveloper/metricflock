@@ -505,4 +505,16 @@ code="$(curl -s -o "$TMP/flipmap.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST
 curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites/$FLIP_ID" | grep -q '"status":"ACTIVE"' || fail "website status did not flip to ACTIVE after mapping"
 ok "website status flips PENDING_SETUP -> ACTIVE on first mapping"
 
+# Website delete: admin deletes; foreign org gets 404; gone afterwards.
+code="$(curl -s -o "$TMP/delsite.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"Delete Site\",\"domain\":\"delsite-$$.example.com\",\"url\":\"https://delsite.example.com\",\"teamId\":\"$TEAM_A_ID\"}")"
+[ "$code" = "201" ] || { cat "$TMP/delsite.json"; fail "create delete-site returned $code"; }
+DEL_SITE_ID="$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(d.website.id)' "$TMP/delsite.json")"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" -X DELETE "$BASE_URL/api/websites/$DEL_SITE_ID")"
+[ "$code" = "404" ] || fail "attacker website delete returned $code, expected 404"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/websites/$DEL_SITE_ID")"
+[ "$code" = "200" ] || fail "admin website delete returned $code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" "$BASE_URL/api/websites/$DEL_SITE_ID")"
+[ "$code" = "404" ] || fail "deleted website still readable ($code)"
+ok "website delete: deleted; foreign org 404"
+
 echo "smoke: ALL CHECKS PASSED"

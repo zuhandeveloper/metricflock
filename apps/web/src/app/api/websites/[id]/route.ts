@@ -3,7 +3,7 @@ import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertWebsiteAccess } from "@metricflock/auth";
-import { websiteCreateSchema } from "@metricflock/shared";
+import { websiteCreateSchema, invalidateWebsiteCache } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("website.view");
@@ -77,3 +77,27 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
 }
 
 export const PATCH = withApiErrors("websites/[id]", patch);
+
+async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await requireApiAuth("website.manage");
+  if ("error" in auth) return auth.error;
+  const { id } = await ctx.params;
+  const website = await assertWebsiteAccess(auth.user, id).catch(() => null);
+  if (!website) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
+  // Integrations, assignments, transfers, sync jobs and website-level
+  // Google connections cascade with the website (schema onDelete).
+  await prisma.website.delete({ where: { id } });
+  await writeAudit({
+    organizationId: auth.user.organizationId,
+    actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    action: "website.deleted",
+    entityType: "Website",
+    entityId: id,
+    details: { domain: website.domain },
+  });
+  await invalidateWebsiteCache(auth.user.organizationId, id);
+  return NextResponse.json({ status: "ok" });
+}
+
+export const DELETE = withApiErrors("websites/[id]", del);
