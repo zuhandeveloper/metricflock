@@ -4,6 +4,7 @@ import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertTeamAccess } from "@metricflock/auth";
 import { teamCreateSchema } from "@metricflock/shared";
+import { writeAudit } from "@metricflock/db/audit";
 async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("team.manage");
   if ("error" in auth) return auth.error;
@@ -17,3 +18,31 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
 }
 
 export const PATCH = withApiErrors("teams/[id]", patch);
+
+async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await requireApiAuth("team.manage");
+  if ("error" in auth) return auth.error;
+  const { id } = await ctx.params;
+  const team = await assertTeamAccess(auth.user, id).catch(() => null);
+  if (!team) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
+  // Website.team is Restrict (Stage 2): a team that still owns websites
+  // cannot be deleted — move or delete the websites first. Team
+  // members and team-level Google connections cascade with the team.
+  const websiteCount = await prisma.website.count({ where: { teamId: id } });
+  if (websiteCount > 0) {
+    return NextResponse.json({ error: "team_has_websites", websites: websiteCount }, { status: 409 });
+  }
+  await prisma.team.delete({ where: { id } });
+  await writeAudit({
+    organizationId: auth.user.organizationId,
+    actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    action: "team.deleted",
+    entityType: "Team",
+    entityId: id,
+    details: { name: team.name },
+  });
+  return NextResponse.json({ status: "ok" });
+}
+
+export const DELETE = withApiErrors("teams/[id]", del);

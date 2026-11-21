@@ -483,4 +483,26 @@ code="$(curl -s -o /dev/null -w "%{http_code}" -b "$INVITEE_JAR" -X POST "$BASE_
 [ "$code" = "403" ] || fail "invitee invite attempt returned $code, expected 403"
 ok "invite flow: invited sign-up joined org as TEAM_MEMBER; member cannot invite"
 
+# Team delete: empty team deletes; a team with websites is 409; a
+# foreign org's team is 404.
+code="$(curl -s -o "$TMP/teamdel.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/teams" -H "Content-Type: application/json" -d "{\"name\":\"Delete Me\",\"slug\":\"delete-me-$$\"}")"
+[ "$code" = "201" ] || { cat "$TMP/teamdel.json"; fail "create delete-me team returned $code"; }
+DEL_TEAM_ID="$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(d.team.id)' "$TMP/teamdel.json")"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ATTACKER_JAR" -X DELETE "$BASE_URL/api/teams/$DEL_TEAM_ID")"
+[ "$code" = "404" ] || fail "attacker team delete returned $code, expected 404"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/teams/$TEAM_B_ID")"
+[ "$code" = "409" ] || fail "delete team with websites returned $code, expected 409"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/teams/$DEL_TEAM_ID")"
+[ "$code" = "200" ] || fail "delete empty team returned $code"
+ok "team delete: empty team deleted; team with websites 409; foreign team 404"
+
+# First mapping flips PENDING_SETUP -> ACTIVE.
+code="$(curl -s -o "$TMP/flip.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"Flip Site\",\"domain\":\"flip-$$.example.com\",\"url\":\"https://flip.example.com\",\"teamId\":\"$TEAM_A_ID\"}")"
+[ "$code" = "201" ] || { cat "$TMP/flip.json"; fail "create flip website returned $code"; }
+FLIP_ID="$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));if(d.website.status!=="PENDING_SETUP"){console.error("expected PENDING_SETUP, got",d.website.status);process.exit(1)}console.log(d.website.id)' "$TMP/flip.json")" || fail "new website not PENDING_SETUP"
+code="$(curl -s -o "$TMP/flipmap.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/google/properties/map" -H "Content-Type: application/json" -d "{\"websiteId\":\"$FLIP_ID\",\"provider\":\"GA4\",\"externalId\":\"properties/123456789\",\"isPrimary\":true}")"
+[ "$code" = "200" ] || { cat "$TMP/flipmap.json"; fail "flip mapping returned $code"; }
+curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites/$FLIP_ID" | grep -q '"status":"ACTIVE"' || fail "website status did not flip to ACTIVE after mapping"
+ok "website status flips PENDING_SETUP -> ACTIVE on first mapping"
+
 echo "smoke: ALL CHECKS PASSED"

@@ -23,6 +23,42 @@ async function postJson(url: string, method: string, body: unknown): Promise<str
   return data?.error ?? `request_failed_${res.status}`;
 }
 
+export function DeleteTeamButton({ teamId, teamName }: { teamId: string; teamName: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function act() {
+    if (!window.confirm(`Delete team "${teamName}"? Its members and team-level Google connections will be removed.`))
+      return;
+    setBusy(true);
+    setError("");
+    const res = await fetch(`/api/teams/${teamId}`, { method: "DELETE" });
+    setBusy(false);
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string; websites?: number } | null;
+      setError(
+        data?.error === "team_has_websites"
+          ? `team_has_websites (${data.websites} website(s) — move or delete them first)`
+          : (data?.error ?? `request_failed_${res.status}`),
+      );
+      return;
+    }
+    router.refresh();
+  }
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Button type="button" variant="outline" onClick={() => void act()}>
+        {busy ? "Deleting…" : "Delete team"}
+      </Button>
+      {error && (
+        <span role="alert" className="text-xs text-red-600">
+          {error}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function CreateTeamForm() {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -216,6 +252,9 @@ export function TeamAdminControls({
       ) : (
         <p className="text-xs text-zinc-500">All organization users are already in this team.</p>
       )}
+      <div className="border-t border-zinc-100 pt-3 dark:border-zinc-800">
+        <DeleteTeamButton teamId={teamId} teamName={teamName} />
+      </div>
       {error && (
         <p role="alert" className="text-xs text-red-600">
           {error}

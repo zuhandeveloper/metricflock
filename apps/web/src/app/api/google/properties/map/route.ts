@@ -78,7 +78,7 @@ async function post(req: NextRequest) {
         data: { isPrimary: false },
       });
     }
-    return tx.websiteIntegration.upsert({
+    const integration = await tx.websiteIntegration.upsert({
       where: {
         websiteId_provider_externalId: {
           websiteId: website.id,
@@ -104,6 +104,14 @@ async function post(req: NextRequest) {
         ...resolved.fk,
       },
     });
+    // First successful mapping completes setup: a website stuck at
+    // PENDING_SETUP becomes ACTIVE. Only that transition is automatic —
+    // manually set states (DISCONNECTED/ARCHIVED) are left alone.
+    await tx.website.updateMany({
+      where: { id: website.id, status: "PENDING_SETUP" },
+      data: { status: "ACTIVE" },
+    });
+    return integration;
   });
   await writeAudit({
     organizationId: auth.user.organizationId,
