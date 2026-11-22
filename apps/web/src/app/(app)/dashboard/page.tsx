@@ -4,6 +4,8 @@ import { prisma } from "@metricflock/db";
 import { listAccessibleWebsiteIds } from "@metricflock/auth";
 import { MetricCard, Card, Badge, EmptyState } from "@/components/ui";
 import DateRangePicker from "@/components/DateRangePicker";
+import { loadPortfolio } from "@/lib/portfolio";
+import { resolveRange } from "@/lib/analytics-response";
 import Link from "next/link";
 export const dynamic = "force-dynamic";
 
@@ -80,6 +82,38 @@ export default async function DashboardPage({
     _max: { updatedAt: true },
   });
   const lastSyncByWebsite = new Map(lastSyncRows.map((r) => [r.websiteId, r._max.updatedAt]));
+  // Phase 7.1 — portfolio totals from per-website snapshots (no live
+  // fan-out). The range matches the worker's 28-day sync window by
+  // default, so synced snapshots are found without extra Google calls.
+  const { startDate: pfStart, endDate: pfEnd } = resolveRange(range ?? "28d");
+  const [pfGa4, pfSc, pfAds] = await Promise.all([
+    loadPortfolio(user, { provider: "GA4", source: "ga4", report: "overview", startDate: pfStart, endDate: pfEnd }),
+    loadPortfolio(user, {
+      provider: "SEARCH_CONSOLE",
+      source: "search-console",
+      report: "search-console",
+      startDate: pfStart,
+      endDate: pfEnd,
+    }),
+    loadPortfolio(user, {
+      provider: "ADSENSE",
+      source: "adsense",
+      report: "adsense",
+      startDate: pfStart,
+      endDate: pfEnd,
+    }),
+  ]);
+  const fmtNum = (v: number | null | undefined) =>
+    v === null || v === undefined ? "—" : Math.round(v).toLocaleString("en-US");
+  const fmtMoney = (v: number | null | undefined) =>
+    v === null || v === undefined ? "—" : `$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  const topBySessions = pfGa4.websites
+    .map((w) => ({
+      ...w,
+      sessions: ((w.payload as { summary?: Record<string, unknown> })?.summary?.sessions as number | null) ?? null,
+    }))
+    .sort((a, b) => (b.sessions ?? -1) - (a.sessions ?? -1))
+    .slice(0, 10);
   const pageHref = (p: number) => {
     const params = new URLSearchParams();
     if (range) params.set("range", range);
@@ -138,6 +172,66 @@ export default async function DashboardPage({
         <MetricCard label="Search Console" value={String(byProvider.get("SEARCH_CONSOLE") ?? 0)} />
         <MetricCard label="AdSense" value={String(byProvider.get("ADSENSE") ?? 0)} />
       </div>
+      <Card className="p-4">
+        <h2 className="font-semibold">Portfolio totals ({range ?? "28d"})</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          Summed from per-website snapshots — websites without a snapshot yet are excluded, never counted as zero.
+        </p>
+        {pfGa4.websites.length === 0 && pfSc.websites.length === 0 && pfAds.websites.length === 0 ? (
+          <EmptyState
+            title="No snapshots yet"
+            hint="Portfolio totals appear after the first sync or after a website's analytics are viewed once."
+          />
+        ) : (
+          <>
+            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <MetricCard
+                label="Sessions (GA4)"
+                value={fmtNum(pfGa4.totals?.sessions)}
+                sub={`${pfGa4.websites.length} websites included`}
+              />
+              <MetricCard label="Active users (GA4)" value={fmtNum(pfGa4.totals?.activeUsers)} />
+              <MetricCard label="Page views (GA4)" value={fmtNum(pfGa4.totals?.screenPageViews)} />
+              <MetricCard
+                label="Search clicks"
+                value={fmtNum(pfSc.totals?.clicks)}
+                sub={`${fmtNum(pfSc.totals?.impressions)} impressions`}
+              />
+              <MetricCard label="Est. earnings (AdSense)" value={fmtMoney(pfAds.totals?.ESTIMATED_EARNINGS)} />
+            </div>
+            {topBySessions.length > 0 && (
+              <table className="mt-4 w-full text-sm">
+                <thead>
+                  <tr className="text-left text-zinc-500">
+                    <th className="py-1 font-medium">Top websites by sessions</th>
+                    <th className="py-1 text-right font-medium">Sessions</th>
+                    <th className="py-1 text-right font-medium">Snapshot</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topBySessions.map((w) => (
+                    <tr key={w.websiteId} className="border-t border-zinc-200 dark:border-zinc-800">
+                      <td className="py-1">
+                        <Link href={`/websites/${w.websiteId}`} className="text-blue-600 hover:underline">
+                          {w.name}
+                        </Link>{" "}
+                        <span className="text-zinc-500">{w.domain}</span>
+                        {w.stale && (
+                          <Badge>
+                            <span>stale</span>
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="py-1 text-right">{fmtNum(w.sessions)}</td>
+                      <td className="py-1 text-right text-zinc-500">{w.snapshotUpdatedAt.slice(0, 10)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+      </Card>
       <Card className="p-4">
         <h2 className="font-semibold">Websites</h2>
         {totalWebsites === 0 ? (

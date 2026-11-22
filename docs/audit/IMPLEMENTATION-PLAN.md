@@ -77,6 +77,14 @@ Phase 7 features (portfolio/SEO/revenue intelligence, reporting, health
 monitoring, alerts, asset management, developer platform) each need a
 user story, permission model, data source, API contract, UI, tests and
 docs before implementation — and snapshot data (5.1) for most of them.
+**7.1 (2026-11-22): portfolio aggregation (DATA-6)** — org totals from
+per-website snapshots via `apps/web/src/lib/portfolio.ts` (GA4 overview,
+Search Console, AdSense; rates recomputed from summed totals,
+underivable metrics null, snapshot-less websites reported unavailable);
+the analytics handler's no-websiteId stub now serves real aggregates;
+dashboard gained a Portfolio totals section. Remaining Phase 7 slices
+(SEO/revenue intelligence, reporting, alerts, developer platform) on
+Gulzaib's priority choice.
 Phase 8 UX/a11y work builds on the existing Playwright+axe harness.
 Phase 9 release gates: full check suite + live-data verification per
 provider (GA4/AdSense still pending user-side confirmation) + worker

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@metricflock/auth";
-import { assertWebsiteAccess, listAccessibleWebsiteIds } from "@metricflock/auth";
+import { assertWebsiteAccess } from "@metricflock/auth";
 import { analyticsQuerySchema } from "@metricflock/shared";
 import { analyticsEnvelope, notConnectedEnvelope, missingDataEnvelope, resolveRange } from "./analytics-response";
 import {
@@ -88,23 +88,36 @@ export async function handleAnalyticsRequest(
   const { websiteId, range, startDate, endDate, format } = parsed.data;
   const { startDate: sd, endDate: ed } = resolveRange(range, startDate, endDate);
   if (!websiteId) {
-    // Org-wide aggregate: list accessible websites and report which are unavailable.
-    const ids = await listAccessibleWebsiteIds(auth.user);
-    const where =
-      ids === null
-        ? { organizationId: auth.user.organizationId }
-        : { organizationId: auth.user.organizationId, id: { in: ids } };
-    const { prisma } = await import("@metricflock/db");
-    const websites = await prisma.website.findMany({ where, select: { id: true } });
+    // Org-wide aggregate (Phase 7.1, DATA-6): totals are computed from
+    // per-website DB snapshots — no live Google fan-out, no invented
+    // numbers. Websites without a snapshot for the range are listed
+    // unavailable with the reason.
+    const { loadPortfolio } = await import("./portfolio");
+    const portfolio = await loadPortfolio(auth.user, {
+      provider: opts.provider,
+      source: opts.source,
+      report: opts.report,
+      startDate: sd,
+      endDate: ed,
+    });
     return analyticsEnvelope({
       data: {
-        note: "Aggregate across websites is computed per-website; call with ?websiteId= for live Google data. No metrics are invented for unconnected sites.",
-        websiteCount: websites.length,
+        totals: portfolio.totals,
+        totalsNote: portfolio.totalsNote,
+        websiteCount: portfolio.websiteCount,
+        truncated: portfolio.truncated,
+        websites: portfolio.websites.map((w) => ({
+          websiteId: w.websiteId,
+          name: w.name,
+          domain: w.domain,
+          snapshotUpdatedAt: w.snapshotUpdatedAt,
+          stale: w.stale,
+        })),
       },
-      includedWebsites: [],
-      unavailableWebsites: websites.map((w) => ({ websiteId: w.id, reason: "aggregate_requires_per_website_call" })),
+      includedWebsites: portfolio.websites.map((w) => w.websiteId),
+      unavailableWebsites: portfolio.unavailableWebsites,
       dataSource: opts.source,
-      freshness: "unavailable",
+      freshness: portfolio.websites.length ? "snapshot" : "unavailable",
       range: { startDate: sd, endDate: ed },
     });
   }
