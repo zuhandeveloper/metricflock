@@ -1,10 +1,13 @@
 import { prisma, Prisma } from "./client";
+import { redactSecrets } from "@metricflock/shared";
 
 const SENSITIVE_KEY = /token|secret|password|credential|api[-_]?key|authorization/i;
 
 /** DB-10: scrubbing is enforced here, not left to callers. Any detail key
  *  that looks like a credential is dropped (recursively) before storage. */
+// Phase 6 (F-6.7): string values are secret-redacted too (see redact.ts).
 export function scrubAuditDetails(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value);
   if (Array.isArray(value)) return value.map(scrubAuditDetails);
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};

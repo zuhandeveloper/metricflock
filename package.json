@@ -25,6 +25,7 @@
     "lint": "eslint . && bash scripts/check-boundaries.sh",
     "postinstall": "node scripts/copy-brand-assets.mjs && pnpm --filter @metricflock/db build",
     "prepare": "husky",
+    "sbom": "pnpm dlx @cyclonedx/cdxgen@12.9.3 -o sbom.cdx.json .",
     "smoke": "bash scripts/smoke-test.sh",
     "start": "pnpm --filter @metricflock/web start",
     "test": "turbo run test",

@@ -324,6 +324,9 @@ connection_scope_mismatch`); permission matrix documented in
     PATCH, transfer complete, disconnect, OAuth callback); website/org
     deletion cascades via FK. Tests: `snapshot-ttl.test.ts`. Verified:
     format/lint ✓, turbo 10/10 ✓. **Phase 5 complete locally.**
+    **Update 2026-11-22: pushed (79771777) — CI #188 SUCCESS (29
+    files/149 tests, smoke ALL CHECKS PASSED, e2e 4/4). Phase 5
+    closed.**
 
 ### F-6.8 CSP — CONFIRMED (documented tradeoff), Medium
 
@@ -333,3 +336,26 @@ connection_scope_mismatch`); permission matrix documented in
 ### F-6.9 Supply chain — ALREADY-RESOLVED on `main`
 
 All workflows SHA-pinned with least-privilege `permissions:`; gitleaks + `pnpm audit` gate + coverage in CI; CodeQL (consistent v3 SHAs, security-extended); Semgrep SAST; Dependabot npm+actions grouped weekly (incl. `codeql` group). Gaps (Low): no SBOM, no build provenance; `pip install semgrep` unpinned in security-audit workflow. (Local-tree staleness found in Phase 0 was fixed by re-syncing from `main`.)
+
+- **2026-11-22 — Phase 6 (F-6.7, F-6.8, F-6.9 notes) implemented locally,
+  pending push + CI verification.** F-6.7: new
+  `packages/shared/src/redact.ts` (`redactSecrets` for Google OAuth
+  tokens, JWTs, Bearer values, key=value secrets, secret URL params,
+  the `v1:` token envelope; `sanitizeProviderError` for
+  store/email/log paths). Applied at: `scrubAuditDetails` string
+  values (db gained a workspace dep on shared), `errMeta`, the
+  `recordHealth` storage boundary, worker `lastError` + failure-alert
+  emails, sync-engine health writes, and the analytics handler's
+  error log. Tests: `redact.test.ts` (6) + audit-scrub value test.
+  F-6.8: nonce-based CSP moved to `proxy.ts` (`script-src 'self'
+  'nonce-…' 'strict-dynamic'`, dev keeps `unsafe-eval`; `style-src`
+  keeps `unsafe-inline` for style attributes; `img-src` narrowed to
+  `'self' data:`); root layout reads `x-nonce` (dynamic rendering);
+  static CSP removed from `next.config.ts`. Verified locally against
+  a production server: nonce header present, framework script tags
+  carry the nonce. e2e extended (nonce assertions + zero CSP
+  violations on /login). F-6.9: semgrep pinned to `1.185.0` in
+  security-audit.yml (workflow file — uploaded by Gulzaib, not pushed
+  by Kai); `pnpm sbom` script added (CycloneDX via cdxgen 12.9.3,
+  output gitignored). Verified: format/lint ✓, turbo 10/10 ✓
+  (156 unit tests), `pnpm audit --prod` clean.

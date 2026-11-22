@@ -10,7 +10,15 @@
 // manual sync endpoint, with dedup jobIds — no per-website polling loops.
 import { createServer } from "node:http";
 import { Worker, type Job } from "bullmq";
-import { getRedis, bullConnectionOptions, createLogger, errMeta, incr, counterSnapshot } from "@metricflock/shared";
+import {
+  getRedis,
+  bullConnectionOptions,
+  createLogger,
+  errMeta,
+  incr,
+  counterSnapshot,
+  sanitizeProviderError,
+} from "@metricflock/shared";
 import { prisma } from "@metricflock/db";
 import {
   QUEUE_NAMES,
@@ -52,7 +60,7 @@ async function alertSyncFailure(websiteId: string, queue: string, error: string)
       text: [
         `The ${queue} sync for ${website.name} (${website.domain}) failed after all retries.`,
         ``,
-        `Error: ${error.slice(0, 300)}`,
+        `Error: ${sanitizeProviderError(error, 300)}`,
         ``,
         appUrl ? `Open the dashboard: ${appUrl}/websites/${websiteId}` : `Open the dashboard to investigate.`,
         `If the Google connection was revoked, reconnect it from Integrations.`,
@@ -161,7 +169,10 @@ for (const name of QUEUE_NAMES) {
           data: {
             status: "SUCCEEDED",
             lastRunAt: new Date(),
-            lastError: result.status === "ok" ? null : `${result.status}${result.detail ? `: ${result.detail}` : ""}`,
+            lastError:
+              result.status === "ok"
+                ? null
+                : sanitizeProviderError(`${result.status}${result.detail ? `: ${result.detail}` : ""}`),
             nextRunAt: Number.isFinite(intervalMs) ? new Date(Date.now() + intervalMs) : null,
           },
         });
@@ -180,7 +191,7 @@ for (const name of QUEUE_NAMES) {
           where: { id: row.id },
           data: {
             status: attemptsLeft > 0 ? "RETRYING" : "FAILED",
-            lastError: msg.slice(0, 500),
+            lastError: sanitizeProviderError(err),
             lastRunAt: new Date(),
           },
         });

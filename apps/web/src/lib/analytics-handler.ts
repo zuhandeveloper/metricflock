@@ -3,7 +3,15 @@ import { requireApiAuth } from "@metricflock/auth";
 import { assertWebsiteAccess, listAccessibleWebsiteIds } from "@metricflock/auth";
 import { analyticsQuerySchema } from "@metricflock/shared";
 import { analyticsEnvelope, notConnectedEnvelope, missingDataEnvelope, resolveRange } from "./analytics-response";
-import { buildCacheKey, cacheGet, cacheSet, getRedis, createLogger, incr } from "@metricflock/shared";
+import {
+  buildCacheKey,
+  cacheGet,
+  cacheSet,
+  getRedis,
+  createLogger,
+  incr,
+  sanitizeProviderError,
+} from "@metricflock/shared";
 import {
   getAuthorizedClientForIntegration,
   getPrimaryIntegration,
@@ -224,7 +232,6 @@ export async function handleAnalyticsRequest(
       range: { startDate: sd, endDate: ed },
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "google_api_error";
     const code = classifyAnalyticsError(e);
     const quota = code === "google_quota_exceeded";
     // API-9: provider error text stays server-side; clients get a stable
@@ -235,7 +242,7 @@ export async function handleAnalyticsRequest(
       report: opts.report,
       provider: opts.provider,
       quota,
-      error: msg,
+      error: sanitizeProviderError(e, 1000),
     });
     incr(quota ? "provider.quota_error" : "provider.error");
     // OPS-6 true stale-while-revalidate: on provider error, serve the stale

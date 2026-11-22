@@ -26,11 +26,27 @@ for (const path of PAGES) {
 test("login page carries the security headers", async ({ page }) => {
   const res = await page.goto("/login");
   const headers = res!.headers();
-  expect(headers["content-security-policy"]).toContain("default-src 'self'");
+  const csp = headers["content-security-policy"];
+  expect(csp).toContain("default-src 'self'");
+  // F-6.8: nonce-based script-src — no 'unsafe-inline' for scripts.
+  expect(csp).toMatch(/script-src[^;]*'nonce-[A-Za-z0-9+/=]+'/);
+  expect(csp).toMatch(/script-src[^;]*'strict-dynamic'/);
+  expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+  expect(csp).toContain("img-src 'self' data:");
   expect(headers["x-frame-options"]).toBe("DENY");
   expect(headers["x-content-type-options"]).toBe("nosniff");
   expect(headers["strict-transport-security"]).toContain("max-age=");
   expect(headers["x-request-id"]).toBeTruthy();
+});
+
+test("login page loads without CSP violations", async ({ page }) => {
+  const violations: string[] = [];
+  page.on("console", (msg) => {
+    if (/content security policy/i.test(msg.text())) violations.push(msg.text());
+  });
+  await page.goto("/login");
+  await page.waitForLoadState("networkidle");
+  expect(violations).toEqual([]);
 });
 
 test("signed-out /dashboard redirects to sign-in", async ({ page }) => {

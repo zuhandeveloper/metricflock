@@ -106,8 +106,10 @@ the visibility tier so assigned members can refresh data.
 
 ## Headers & cookies
 
-- CSP, HSTS, X-Frame-Options DENY, nosniff, Referrer-Policy,
-  Permissions-Policy on every response (`apps/web/next.config.ts`).
+- CSP (per-request nonce + `strict-dynamic` for scripts, set in
+  `apps/web/src/proxy.ts`), HSTS, X-Frame-Options DENY, nosniff,
+  Referrer-Policy, Permissions-Policy on every response (static
+  headers in `apps/web/next.config.ts`).
 - Session cookies are httpOnly via better-auth; state-changing auth
   calls pass better-auth's CSRF origin check.
 

@@ -1,5 +1,6 @@
 import { prisma } from "./client";
 import type { SyncJobType } from "./client";
+import { sanitizeProviderError } from "@metricflock/shared";
 /** Current-state health per (websiteId, provider) — upserted, not appended
  *  (OPS-3): one row always reflects the latest check. Rows without a
  *  websiteId (connection-level) still append, since the unique key cannot
@@ -16,7 +17,9 @@ export async function recordHealth(opts: {
     connectionId: opts.connectionId ?? null,
     status: opts.status,
     lastSuccessAt: opts.success ? new Date() : undefined,
-    lastError: opts.lastError ?? null,
+    // F-6.7: provider error text is secret-redacted at the storage
+    // boundary too, so no caller can persist a raw token by accident.
+    lastError: opts.lastError ? sanitizeProviderError(opts.lastError) : null,
     checkedAt: new Date(),
   };
   if (opts.websiteId) {

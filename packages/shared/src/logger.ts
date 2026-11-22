@@ -6,6 +6,7 @@
 // LOG_LEVEL env: debug|info|warn|error (default info).
 type Level = "debug" | "info" | "warn" | "error";
 const ORDER: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
+import { sanitizeProviderError } from "./redact";
 
 function minLevel(): number {
   const raw = (process.env.LOG_LEVEL ?? "info").toLowerCase() as Level;
@@ -43,7 +44,8 @@ export function createLogger(context: string, baseMeta: Record<string, unknown> 
   };
 }
 
-/** Normalize an unknown thrown value into log-safe meta. */
+/** Normalize an unknown thrown value into log-safe meta. The message
+ * is secret-redacted (F-6.7): provider errors can embed tokens/URLs. */
 export function errMeta(e: unknown): Record<string, unknown> {
-  return { error: e instanceof Error ? e.message : String(e) };
+  return { error: sanitizeProviderError(e, 1000) };
 }

@@ -18,4 +18,14 @@ describe("audit detail scrubbing (DB-10)", () => {
     expect(scrubAuditDetails(42)).toBe(42);
     expect(scrubAuditDetails({ note: "token count was 3" })).toEqual({ note: "token count was 3" });
   });
+  it("redacts secret-shaped VALUES under innocent keys (F-6.7)", () => {
+    const out = scrubAuditDetails({
+      note: "provider said: invalid token ya29.a0AfH6SMBx7fK9tokenValue",
+      error: "refresh 1//0gRefreshTokenValue1234567890 rejected",
+      clean: "property 560655306 synced ok",
+    }) as Record<string, string>;
+    expect(out.note).not.toContain("ya29.");
+    expect(out.error).not.toContain("1//0gRefreshTokenValue");
+    expect(out.clean).toBe("property 560655306 synced ok");
+  });
 });

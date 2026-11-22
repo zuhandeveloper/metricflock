@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import QueryProvider from "@/components/QueryProvider";
 // FE-6: canonical/OG URLs derive from the deployed app URL, not a
@@ -43,7 +44,11 @@ export const metadata: Metadata = {
 };
 // The app shell (sidebar/header) lives in (app)/layout.tsx so public pages
 // like /login render standalone, with no app chrome visible before sign-in.
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // F-6.8: reading the per-request CSP nonce opts every page into
+  // dynamic rendering, so Next can stamp the nonce onto the framework
+  // scripts/styles it injects (proxy.ts sets x-nonce + the CSP header).
+  await headers();
   return (
     <html lang="en" suppressHydrationWarning>
       {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject

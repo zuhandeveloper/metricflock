@@ -17,7 +17,7 @@
 import { prisma } from "@metricflock/db";
 import { recordHealth } from "@metricflock/db/health";
 import { snapshotTtlSeconds } from "@metricflock/jobs";
-import { buildCacheKey, cacheSet, rateLimit } from "@metricflock/shared";
+import { buildCacheKey, cacheSet, rateLimit, sanitizeProviderError } from "@metricflock/shared";
 import { getAuthorizedClientForWebsite, getAuthorizedClientForIntegration, getPrimaryIntegration } from "./client";
 import {
   getGa4Client,
@@ -229,7 +229,12 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
         detail: "No active Google connection for this website or its team.",
       };
     if (TOKEN_ERRORS.has(msg)) {
-      await deps.recordHealth({ websiteId, provider: spec.provider, status: "error", lastError: msg });
+      await deps.recordHealth({
+        websiteId,
+        provider: spec.provider,
+        status: "error",
+        lastError: sanitizeProviderError(e),
+      });
       return { status: "skipped", reports: [], detail: msg };
     }
     throw e;
@@ -263,7 +268,13 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    await deps.recordHealth({ websiteId, connectionId, provider: spec.provider, status: "error", lastError: msg });
+    await deps.recordHealth({
+      websiteId,
+      connectionId,
+      provider: spec.provider,
+      status: "error",
+      lastError: sanitizeProviderError(e),
+    });
     throw e; // real API error: worker records FAILED, BullMQ retries with backoff
   }
   await deps.recordHealth({ websiteId, connectionId, provider: spec.provider, status: "ok", success: true });
@@ -321,7 +332,7 @@ export async function healthCheckWebsite(websiteId: string, deps: SyncDeps = def
           reports: [],
           detail: "No active Google connection for this website or its team.",
         };
-      await deps.recordHealth({ websiteId, provider, status: "error", lastError: msg });
+      await deps.recordHealth({ websiteId, provider, status: "error", lastError: sanitizeProviderError(e) });
       if (TOKEN_ERRORS.has(msg)) return { status: "skipped", reports: checked, detail: msg };
       throw e;
     }
