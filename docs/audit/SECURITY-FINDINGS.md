@@ -348,7 +348,7 @@ All workflows SHA-pinned with least-privilege `permissions:`; gitleaks + `pnpm a
   emails, sync-engine health writes, and the analytics handler's
   error log. Tests: `redact.test.ts` (6) + audit-scrub value test.
   F-6.8: nonce-based CSP moved to `proxy.ts` (`script-src 'self'
-  'nonce-…' 'strict-dynamic'`, dev keeps `unsafe-eval`; `style-src`
+'nonce-…' 'strict-dynamic'`, dev keeps `unsafe-eval`; `style-src`
   keeps `unsafe-inline` for style attributes; `img-src` narrowed to
   `'self' data:`); root layout reads `x-nonce` (dynamic rendering);
   static CSP removed from `next.config.ts`. Verified locally against
