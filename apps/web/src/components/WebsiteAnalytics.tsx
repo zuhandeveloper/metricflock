@@ -60,6 +60,7 @@ function ErrorNote({ error, onRetry }: { error: unknown; onRetry: () => void }) 
     api_not_enabled: " — enable this Google API in Google Cloud Console (APIs & Services → Library), then retry",
     permission_denied: " — the connected Google account lacks access to this property",
     scope_missing: " — the Google connection is missing a required permission; reconnect it on the Integrations page",
+    temporarily_unavailable: " — token refresh is busy right now, try again in a moment",
     unauthorized: " — reconnect the Google account on the Integrations page",
     google_quota_exceeded: " — Google quota exceeded, try again later",
     invalid_request: " — Google rejected the report request (check server logs)",

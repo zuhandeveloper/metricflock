@@ -65,9 +65,19 @@ function fakeDeps(overrides: Record<string, unknown> = {}): {
       listAdManagerNetworks: vi.fn(async () => []),
     },
     discovery: {
-      listGa4Properties: vi.fn(async () => [{ propertyId: "111", displayName: "Site GA4", accountId: "9" }]),
-      listSearchConsoleSites: vi.fn(async () => [{ siteUrl: "https://example.com/", permissionLevel: "siteOwner" }]),
-      listAdSenseAccounts: vi.fn(async () => [{ accountId: "pub-1", displayName: "Pub" }]),
+      listGa4Properties: vi.fn(async () => ({
+        items: [{ propertyId: "111", displayName: "Site GA4", accountId: "9" }],
+        truncated: false,
+        errors: [],
+      })),
+      listSearchConsoleSites: vi.fn(async () => ({
+        items: [{ siteUrl: "https://example.com/", permissionLevel: "siteOwner" }],
+        truncated: false,
+      })),
+      listAdSenseAccounts: vi.fn(async () => ({
+        items: [{ accountId: "pub-1", displayName: "Pub" }],
+        truncated: false,
+      })),
     },
     tokens: { getValidAccessToken: vi.fn(async () => "access-token") },
     getConnectionAuth: vi.fn(async () => ({})),

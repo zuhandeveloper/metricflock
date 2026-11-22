@@ -175,7 +175,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
                     {c.adManagerNetworks.map((p) => (
                       <div key={p.id} className="flex flex-wrap items-center gap-2 text-sm">
                         <span>
-                          Ad Manager · {p.displayName ?? p.networkCode}{" "}
+                          Ad Manager (beta) · {p.displayName ?? p.networkCode}{" "}
                           <span className="text-xs text-zinc-500">({p.networkCode})</span>
                         </span>
                         <MapPropertyForm

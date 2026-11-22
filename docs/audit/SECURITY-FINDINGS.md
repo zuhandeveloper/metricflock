@@ -209,6 +209,31 @@ connection_scope_mismatch`); permission matrix documented in
   forged/expired/wrong-session/PKCE-presence/replay; org-mismatch and
   PKCE-verifier-mismatch cannot be exercised without a real Google
   exchange (verifier never leaves the server).
+  **Update 2026-11-21: pushed (fb061401), CI #184 SUCCESS — 115 unit
+  tests, smoke ALL CHECKS PASSED, e2e 4/4. Phase 2 closed.**
+- **2026-11-21 — Phase 3 (F-3.1, F-3.2, F-3.3, F-3.4) implemented
+  locally, pending push + CI.** Changes: `rateLimit` gained a
+  `failClosed` policy — Redis-configured-but-down now rejects sensitive
+  callers (login, OAuth connect/callback, invite creation) with
+  `ratelimit.*` counters on /api/metrics instead of silently degrading;
+  `clientIpFromHeaders` (x-real-ip → first XFF entry) replaces raw-header
+  keys; invite creation rate-limited (20/min/inviter). Refresh lock fails
+  closed (`TOKEN_REFRESH_LOCK_UNAVAILABLE`, classified
+  `temporarily_unavailable`) on Redis error or 15s contention; unlocked
+  only in explicit no-Redis mode (logged + counted); fencing check skips
+  the refresh-token overwrite when the lock was lost and the stored
+  token changed. Discovery paginates GA4 accounts/properties, AdSense
+  accounts and Ad Manager networks (10-page cap, token-loop guard,
+  `truncated` surfaced in the discover API); GA4 per-account failures
+  isolated (`partial.ga4Accounts`); GA4 historical reports flag
+  `truncated` when rowCount exceeds returned rows. Ad Manager: 15s
+  timeout + bounded retries (429/5xx/network, no retry on other 4xx),
+  strict date validation (`AD_MANAGER_INVALID_DATE`), total CTR
+  recomputed from clicks/impressions (was summed per-row), beta label in
+  README + Integrations UI + report note. Tests: client-ip,
+  rate-limit-failclosed (mocked ioredis), refresh-lock
+  (acquired/timeout/error), discovery-pagination (mocked googleapis),
+  ad-manager CTR/date/retry/pagination additions.
 
 ### F-6.8 CSP — CONFIRMED (documented tradeoff), Medium
 

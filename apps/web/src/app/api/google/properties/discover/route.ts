@@ -51,12 +51,16 @@ async function post(req: NextRequest) {
     client.setCredentials({ access_token: accessToken });
     const log = createLogger("discover");
     const connId = conn.id;
-    async function attempt<T>(provider: string, fn: () => Promise<T[]>): Promise<{ items: T[]; error?: string }> {
+    async function attempt<T>(
+      provider: string,
+      fn: () => Promise<{ items: T[]; truncated: boolean; errors?: string[] }>,
+    ): Promise<{ items: T[]; truncated: boolean; partialErrors?: string[]; error?: string }> {
       try {
-        return { items: await fn() };
+        const res = await fn();
+        return { items: res.items, truncated: res.truncated, partialErrors: res.errors };
       } catch (e) {
         log.error("provider discovery failed", { connectionId: connId, provider, ...errMeta(e) });
-        return { items: [], error: classifyProviderError(e) };
+        return { items: [], truncated: false, error: classifyProviderError(e) };
       }
     }
     const [ga4r, gscr, adsr] = await Promise.all([
@@ -89,7 +93,22 @@ async function post(req: NextRequest) {
     if (ga4r.error) errors.ga4 = ga4r.error;
     if (gscr.error) errors.searchConsole = gscr.error;
     if (adsr.error) errors.adsense = adsr.error;
-    return NextResponse.json({ ga4, searchConsole: gsc, adsense, ...(Object.keys(errors).length ? { errors } : {}) });
+    // F-3.3: surface truncation / partial failures instead of presenting
+    // a partial list as complete.
+    const truncated: Record<string, boolean> = {};
+    if (ga4r.truncated) truncated.ga4 = true;
+    if (gscr.truncated) truncated.searchConsole = true;
+    if (adsr.truncated) truncated.adsense = true;
+    const partial: Record<string, string[]> = {};
+    if (ga4r.partialErrors?.length) partial.ga4Accounts = ga4r.partialErrors;
+    return NextResponse.json({
+      ga4,
+      searchConsole: gsc,
+      adsense,
+      ...(Object.keys(errors).length ? { errors } : {}),
+      ...(Object.keys(truncated).length ? { truncated } : {}),
+      ...(Object.keys(partial).length ? { partial } : {}),
+    });
   } catch (e) {
     // Stable error code to the client; detail stays server-side (OAUTH-12).
     createLogger("discover").error("property discovery failed", { connectionId: conn.id, ...errMeta(e) });

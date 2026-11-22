@@ -340,7 +340,7 @@ export async function discoverConnectionProperties(
   // DB-11: upserts run in bounded parallel chunks instead of one sequential
   // round trip per property (a large account can discover hundreds).
   const CHUNK = 10;
-  const ga4Props = (await deps.discovery.listGa4Properties(auth)).filter((p) => p.propertyId);
+  const ga4Props = (await deps.discovery.listGa4Properties(auth)).items.filter((p) => p.propertyId);
   for (let i = 0; i < ga4Props.length; i += CHUNK) {
     await Promise.all(
       ga4Props.slice(i, i + CHUNK).map((p) =>
@@ -358,7 +358,7 @@ export async function discoverConnectionProperties(
     );
     counts.ga4 += Math.min(CHUNK, ga4Props.length - i);
   }
-  const scSites = (await deps.discovery.listSearchConsoleSites(auth)).filter((s) => s.siteUrl);
+  const scSites = (await deps.discovery.listSearchConsoleSites(auth)).items.filter((s) => s.siteUrl);
   for (let i = 0; i < scSites.length; i += CHUNK) {
     await Promise.all(
       scSites.slice(i, i + CHUNK).map((s) =>
@@ -371,7 +371,7 @@ export async function discoverConnectionProperties(
     );
     counts.searchConsole += Math.min(CHUNK, scSites.length - i);
   }
-  const adsAccounts = (await deps.discovery.listAdSenseAccounts(auth)).filter((a) => a.accountId);
+  const adsAccounts = (await deps.discovery.listAdSenseAccounts(auth)).items.filter((a) => a.accountId);
   for (let i = 0; i < adsAccounts.length; i += CHUNK) {
     await Promise.all(
       adsAccounts.slice(i, i + CHUNK).map((a) =>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@metricflock/db";
 import { assertConnectionOwnerAccess, getSessionUser } from "@metricflock/auth";
 import { parseState, consumeOAuthState, getOAuthClient, getGoogleAccountProfile } from "@metricflock/google/oauth";
-import { encryptToken, connectionAad, rateLimit } from "@metricflock/shared";
+import { encryptToken, connectionAad, rateLimit, clientIpFromHeaders } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateOrgCache } from "@metricflock/shared";
 export async function GET(req: NextRequest) {
@@ -12,9 +12,9 @@ export async function GET(req: NextRequest) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   if (error) return NextResponse.redirect(`${appUrl}/integrations?oauth=denied`);
   if (!code || !state) return NextResponse.redirect(`${appUrl}/integrations?oauth=invalid`);
-  // Bound callback attempts per IP (OAUTH-12).
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (!(await rateLimit(`oauth-callback:${ip}`, 20, 60_000)).allowed) {
+  // Bound callback attempts per IP (OAUTH-12), fail-closed (F-3.1).
+  const ip = clientIpFromHeaders(req.headers);
+  if (!(await rateLimit(`oauth-callback:${ip}`, 20, 60_000, { failClosed: true })).allowed) {
     return NextResponse.redirect(`${appUrl}/integrations?oauth=rate_limited`);
   }
   let nonce: string;

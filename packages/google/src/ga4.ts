@@ -192,13 +192,20 @@ export async function runHistoricalReport(
   });
   const data = res.data;
   const totals = (data.totals ?? [])[0] as RowLike | undefined;
+  const rows = parseReportRows((data.rows ?? []) as RowLike[], metrics);
+  const rowCount = data.rowCount ? Number(data.rowCount) : 0;
   return {
     propertyId,
     startDate,
     endDate,
     summary: parseHistoricalSummary(totals, metrics),
-    rows: parseReportRows((data.rows ?? []) as RowLike[], metrics),
-    rowCount: data.rowCount ? Number(data.rowCount) : 0,
+    rows,
+    rowCount,
+    // F-3.3: GA4 caps detail rows (10k default); flag when the returned
+    // rows are a prefix of the full result so callers never treat a
+    // truncated detail set as complete. Totals come from the TOTAL
+    // aggregation above and are unaffected.
+    truncated: rowCount > rows.length,
     sampling: parseSamplingMetadata(data.metadata),
   };
 }

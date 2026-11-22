@@ -5,13 +5,18 @@ import { requireApiAuth } from "@metricflock/auth";
 import { sendMail } from "@metricflock/auth/mailer";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
-import { hashToken, inviteCreateSchema } from "@metricflock/shared";
+import { hashToken, inviteCreateSchema, rateLimit } from "@metricflock/shared";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function post(req: NextRequest) {
   const auth = await requireApiAuth("member.manage");
   if ("error" in auth) return auth.error;
+  // Invite creation sends email + mints credentials-equivalent links:
+  // rate-limit per inviter, fail-closed (F-3.1).
+  if (!(await rateLimit(`invite:${auth.user.id}`, 20, 60_000, { failClosed: true })).allowed) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
   const body = inviteCreateSchema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
   const email = body.data.email.trim().toLowerCase();

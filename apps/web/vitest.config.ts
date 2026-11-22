@@ -1,7 +1,15 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
 export default defineConfig({
-  resolve: { alias: { "@": path.resolve(__dirname, "src") } },
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "src"),
+      // googleapis is a dependency of @metricflock/google, not of the web
+      // app — alias it so test files and package sources resolve the same
+      // module instance (required for vi.mock("googleapis") to intercept).
+      googleapis: path.resolve(__dirname, "../../packages/google/node_modules/googleapis"),
+    },
+  },
   test: {
     environment: "node",
     include: ["tests/unit/**/*.test.ts"],

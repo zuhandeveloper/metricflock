@@ -75,7 +75,7 @@ team and website.
 | **GA4**              | Realtime totals + platform breakdown, historical summary, top pages, sampling flags surfaced in the UI   |
 | **Search Console**   | Clicks, impressions, CTR, impression-weighted average position, top queries & pages (paginated)          |
 | **AdSense**          | Estimated earnings, page views, impressions, clicks, CTR, CPC, page RPM, impression RPM                  |
-| **Ad Manager**       | Optional integration for ad reporting                                                                    |
+| **Ad Manager**       | Optional integration for ad reporting (**beta** — not yet verified against a live network)               |
 | **Discovery**        | One click lists every GA4 property, Search Console site and AdSense account a connection can see         |
 | **Property mapping** | Map discovered properties to websites; first mapping flips a website from `PENDING_SETUP` to `ACTIVE`    |
 | **Teams & members**  | Invite flow (email invites join the inviter's org with the invited role), role changes, last-admin guard |
