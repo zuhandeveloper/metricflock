@@ -1,5 +1,20 @@
-import { describe, expect, it } from "vitest";
-import { aggregatePayloads } from "@/lib/portfolio";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { aggregatePayloads, loadPortfolio } from "@/lib/portfolio";
+
+const mocks = vi.hoisted(() => ({
+  count: vi.fn(),
+  findMany: vi.fn(),
+  readSnapshot: vi.fn(),
+  listAccessibleWebsiteIds: vi.fn(),
+  getPrimaryIntegration: vi.fn(),
+}));
+
+vi.mock("@metricflock/db", () => ({
+  prisma: { website: { count: mocks.count, findMany: mocks.findMany } },
+}));
+vi.mock("@metricflock/db/snapshots", () => ({ readSnapshot: mocks.readSnapshot }));
+vi.mock("@metricflock/auth", () => ({ listAccessibleWebsiteIds: mocks.listAccessibleWebsiteIds }));
+vi.mock("@metricflock/google/client", () => ({ getPrimaryIntegration: mocks.getPrimaryIntegration }));
 
 // Phase 7.1 (DATA-6): portfolio aggregation math — sums are honest,
 // rates are recomputed from summed totals, underivable metrics stay null.
@@ -90,5 +105,71 @@ describe("aggregatePayloads — unsupported reports", () => {
     const { totals, note } = aggregatePayloads("realtime", [{ activeUsers: 3 }]);
     expect(totals).toBeNull();
     expect(note).toBe("aggregation_not_supported_for_report");
+  });
+});
+
+describe("loadPortfolio", () => {
+  const user = { id: "u1", organizationId: "org1", role: "SUPER_ADMIN" };
+  const opts = {
+    provider: "GA4" as const,
+    source: "ga4",
+    report: "overview",
+    startDate: "2026-10-26",
+    endDate: "2026-11-22",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.listAccessibleWebsiteIds.mockResolvedValue(null);
+    mocks.count.mockResolvedValue(3);
+    mocks.findMany.mockResolvedValue([
+      { id: "w1", name: "Site One", domain: "one.example" },
+      { id: "w2", name: "Site Two", domain: "two.example" },
+      { id: "w3", name: "Site Three", domain: "three.example" },
+    ]);
+    mocks.getPrimaryIntegration.mockImplementation(async (websiteId: string) =>
+      websiteId === "w3" ? null : { externalId: `properties/${websiteId}` },
+    );
+    mocks.readSnapshot.mockImplementation(async (key: string) =>
+      key.includes("w1")
+        ? {
+            payload: { summary: { sessions: 42, engagedSessions: 21, keyEvents: 2 } },
+            expiresAt: new Date(Date.now() + 60_000),
+            updatedAt: new Date("2026-11-22T00:00:00Z"),
+          }
+        : null,
+    );
+  });
+
+  it("includes snapshotted websites and reports the rest unavailable with reasons", async () => {
+    const result = await loadPortfolio(user, opts);
+    expect(result.websites).toHaveLength(1);
+    expect(result.websites[0]).toMatchObject({ websiteId: "w1", name: "Site One", stale: false });
+    expect(result.totals?.sessions).toBe(42);
+    expect(result.unavailableWebsites).toEqual(
+      expect.arrayContaining([
+        { websiteId: "w2", reason: "no_snapshot_yet" },
+        { websiteId: "w3", reason: "no_property_mapped" },
+      ]),
+    );
+    expect(result.websiteCount).toBe(3);
+    expect(result.truncated).toBe(false);
+  });
+
+  it("scopes the query to accessible websites for restricted users", async () => {
+    mocks.listAccessibleWebsiteIds.mockResolvedValue(["w1"]);
+    mocks.count.mockResolvedValue(1);
+    mocks.findMany.mockResolvedValue([{ id: "w1", name: "Site One", domain: "one.example" }]);
+    await loadPortfolio({ ...user, role: "TEAM_MEMBER" }, opts);
+    expect(mocks.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { organizationId: "org1", id: { in: ["w1"] } } }),
+    );
+  });
+
+  it("flags truncation when more websites exist than the limit returns", async () => {
+    mocks.count.mockResolvedValue(500);
+    const result = await loadPortfolio(user, { ...opts, limit: 2 });
+    expect(result.truncated).toBe(true);
+    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 2 }));
   });
 });
