@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: RepoNyx documentation
+  - name: MetricFlock documentation
     url: https://github.com/zuhandeveloper/metricflock#readme
     about: Start with the README — setup, first sync, and the project status.
   - name: Project status
-    url: https://github.com/muhammaddomains/reponyx/blob/main/docs/memory/PROJECT_STATUS.md
+    url: https://github.com/zuhandeveloper/metricflock/blob/main/docs/memory/PROJECT_STATUS.md
     about: What is done, what is in progress, and the known gaps.
