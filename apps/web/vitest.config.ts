@@ -8,6 +8,10 @@ export default defineConfig({
       // app — alias it so test files and package sources resolve the same
       // module instance (required for vi.mock("googleapis") to intercept).
       googleapis: path.resolve(__dirname, "../../packages/google/node_modules/googleapis"),
+      // Same for ioredis (@metricflock/shared's dependency): without the
+      // alias, vi.mock("ioredis") silently misses and tests hit a real
+      // Redis when one is listening (CI service container).
+      ioredis: path.resolve(__dirname, "../../packages/shared/node_modules/ioredis"),
     },
   },
   test: {
