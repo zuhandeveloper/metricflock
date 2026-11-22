@@ -1,0 +1,28 @@
+# This workflow triages pull requests and applies a label based on the
+# paths that are modified in the pull request.
+#
+# Configuration lives in .github/labeler.yml
+# (https://github.com/actions/labeler).
+#
+# NOTE: every label named in labeler.yml must already exist in the repo
+# (Settings -> Labels), otherwise this workflow fails. The defaults
+# `bug` and `enhancement` already exist (used by the issue templates);
+# create `frontend`, `backend`, `workflows`, `documentation` and
+# `tests` first.
+
+name: Labeler
+on: [pull_request_target]
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/labeler@v7
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          # Remove a label when the PR no longer touches its paths.
+          sync-labels: true
