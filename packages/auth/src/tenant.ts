@@ -13,6 +13,42 @@ export async function assertTeamAccess(user: User, teamId: string) {
   if (user.role === "TEAM_ADMIN" && !membership.isAdmin) throw new Error("FORBIDDEN");
   return membership.team;
 }
+// Manage-level team access: SUPER_ADMIN (org-scoped) or an isAdmin member
+// of the team. Used wherever a caller must be able to administer the team
+// itself (e.g. creating a website in it, or moving a website into it) —
+// mere membership is not enough, regardless of the caller's global role.
+export async function assertTeamManageAccess(user: User, teamId: string) {
+  const team = await prisma.team.findFirst({ where: { id: teamId, organizationId: user.organizationId } });
+  if (!team) throw new Error("NOT_FOUND_OR_FORBIDDEN");
+  if (user.role === "SUPER_ADMIN") return team;
+  const membership = await prisma.teamMember.findFirst({ where: { teamId, userId: user.id } });
+  if (membership?.isAdmin) return team;
+  throw new Error("NOT_FOUND_OR_FORBIDDEN");
+}
+// Connection↔website ownership scope: a connection may only serve websites
+// inside its own ownership scope — a team connection serves websites of
+// that team; a website connection serves that website. Enforced when a
+// property is mapped (the write that binds a connection to a website), so
+// one team's Google credentials can never be bound to another team's
+// website, even by an org admin. Throws NOT_FOUND_OR_FORBIDDEN.
+export function assertConnectionScopeForWebsite(
+  conn: { teamId: string | null; websiteId: string | null; ownerType: string; ownerId: string },
+  website: { id: string; teamId: string | null },
+) {
+  // Typed FKs are authoritative; the legacy polymorphic columns are only
+  // consulted for rows written before the Stage 2 backfill.
+  const connTeamId = conn.teamId ?? (conn.ownerType === "TEAM" ? conn.ownerId : null);
+  const connWebsiteId = conn.websiteId ?? (conn.ownerType === "WEBSITE" ? conn.ownerId : null);
+  if (connTeamId) {
+    if (website.teamId === connTeamId) return;
+    throw new Error("NOT_FOUND_OR_FORBIDDEN");
+  }
+  if (connWebsiteId) {
+    if (website.id === connWebsiteId) return;
+    throw new Error("NOT_FOUND_OR_FORBIDDEN");
+  }
+  throw new Error("NOT_FOUND_OR_FORBIDDEN");
+}
 export async function assertWebsiteAccess(user: User, websiteId: string) {
   const website = await prisma.website.findFirst({ where: { id: websiteId, organizationId: user.organizationId } });
   if (!website) throw new Error("NOT_FOUND_OR_FORBIDDEN");

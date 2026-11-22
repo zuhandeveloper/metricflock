@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
-import { listAccessibleWebsiteIds } from "@metricflock/auth";
+import { listAccessibleWebsiteIds, assertTeamManageAccess } from "@metricflock/auth";
 import { websiteCreateSchema } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 import { parsePagination } from "@/lib/pagination";
@@ -42,14 +42,11 @@ async function post(req: NextRequest) {
   const body = websiteCreateSchema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
   const d = body.data;
-  // The team must belong to the caller's organization. Without this check a
-  // client could attach a website to another organization's team (and its
-  // Google connection would then resolve across tenants).
+  // The caller must be able to MANAGE the destination team (F-1.2):
+  // SUPER_ADMIN, or an isAdmin member of that team. Same-org membership
+  // alone must not let a team admin create websites in other teams.
   if (d.teamId) {
-    const team = await prisma.team.findFirst({
-      where: { id: d.teamId, organizationId: auth.user.organizationId },
-      select: { id: true },
-    });
+    const team = await assertTeamManageAccess(auth.user, d.teamId).catch(() => null);
     if (!team) return NextResponse.json({ error: "team_not_found" }, { status: 404 });
   }
   let website;

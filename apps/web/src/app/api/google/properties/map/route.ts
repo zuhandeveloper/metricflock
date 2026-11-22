@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors } from "@/lib/api-error";
-import { requireApiAuth, assertWebsiteManageAccess } from "@metricflock/auth";
+import {
+  requireApiAuth,
+  assertWebsiteManageAccess,
+  assertConnectionVisible,
+  assertConnectionScopeForWebsite,
+} from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { mapPropertySchema } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
@@ -67,6 +72,26 @@ async function post(req: NextRequest) {
     body.data.connectionId,
   );
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+  // The resolved connection must be one the caller may use (F-1.3):
+  // visibility first (foreign-team connections are indistinguishable from
+  // missing ones), then the ownership-scope invariant — a team connection
+  // may only serve that team's websites, a website connection only that
+  // website. This blocks cross-team credential binding inside an org.
+  const conn = await prisma.googleConnection.findFirst({
+    where: { id: resolved.connectionId, organizationId: auth.user.organizationId },
+    select: { teamId: true, websiteId: true, ownerType: true, ownerId: true },
+  });
+  if (!conn) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
+  const visible = await assertConnectionVisible(auth.user, conn).then(
+    () => true,
+    () => false,
+  );
+  if (!visible) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
+  try {
+    assertConnectionScopeForWebsite(conn, website);
+  } catch {
+    return NextResponse.json({ error: "connection_scope_mismatch" }, { status: 400 });
+  }
   const isPrimary = body.data.isPrimary ?? false;
   // One transaction: demote the previous primary (if any) and upsert the
   // mapping with its connection/property FKs. The partial unique index

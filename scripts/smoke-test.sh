@@ -517,4 +517,70 @@ code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" "$BASE_URL/api/we
 [ "$code" = "404" ] || fail "deleted website still readable ($code)"
 ok "website delete: deleted; foreign org 404"
 
+# Phase 1 (2026-11-21 hardening brief): P0 tenant isolation.
+# TEAMADMIN administers team-a only (stage2 fixture). A website in team-b
+# with TEAMADMIN merely ASSIGNED (view-level) must reject PATCH, DELETE
+# and assign (F-1.1); creating or moving a website into team-b must
+# reject (F-1.2); mapping team-b's connection property onto a team-a
+# website must reject (F-1.3). Legitimate own-team operations still work.
+echo "smoke: phase1 — P0 tenant isolation (manage-level checks)"
+code="$(auth_post "$TMP/p1-teamadmin-signin.json" "$TEAMADMIN_JAR" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$TEAMADMIN_EMAIL\",\"password\":\"$TEAMADMIN_PASSWORD\"}")"
+[ "$code" = "200" ] || fail "phase1 teamadmin sign-in returned $code"
+code="$(curl -s -o "$TMP/p1a.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"P1 A\",\"domain\":\"p1a-$$.example.com\",\"url\":\"https://p1a.example.com\",\"teamId\":\"$TEAM_A_ID\"}")"
+[ "$code" = "201" ] || { cat "$TMP/p1a.json"; fail "phase1 create team-a website returned $code"; }
+P1A_ID="$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(d.website.id)' "$TMP/p1a.json")"
+code="$(curl -s -o "$TMP/p1b.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"P1 B\",\"domain\":\"p1b-$$.example.com\",\"url\":\"https://p1b.example.com\",\"teamId\":\"$TEAM_B_ID\"}")"
+[ "$code" = "201" ] || { cat "$TMP/p1b.json"; fail "phase1 create team-b website returned $code"; }
+P1B_ID="$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(d.website.id)' "$TMP/p1b.json")"
+# TEAMADMIN gets view-level assignment on the team-b website.
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites/$P1B_ID/assign" -H "Content-Type: application/json" -d "{\"userId\":\"$TEAMADMIN_USER_ID\",\"action\":\"assign\"}")"
+[ "$code" = "200" ] || fail "phase1 assign returned $code"
+# View still works for the assignee...
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" "$BASE_URL/api/websites/$P1B_ID")"
+[ "$code" = "200" ] || fail "phase1 assignee GET returned $code, expected 200"
+# ...but manage operations must not (F-1.1).
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X PATCH "$BASE_URL/api/websites/$P1B_ID" -H "Content-Type: application/json" -d '{"name":"pwned"}')"
+[ "$code" = "404" ] || fail "phase1 assignee PATCH returned $code, expected 404"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X DELETE "$BASE_URL/api/websites/$P1B_ID")"
+[ "$code" = "404" ] || fail "phase1 assignee DELETE returned $code, expected 404"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BASE_URL/api/websites/$P1B_ID/assign" -H "Content-Type: application/json" -d "{\"userId\":\"$ADMIN_USER_ID\",\"action\":\"assign\"}")"
+[ "$code" = "404" ] || fail "phase1 assignee assign returned $code, expected 404"
+# Legitimate own-team manage still works.
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X PATCH "$BASE_URL/api/websites/$P1A_ID" -H "Content-Type: application/json" -d '{"name":"P1 A renamed"}')"
+[ "$code" = "200" ] || fail "phase1 own-team PATCH returned $code"
+# F-1.2: create into a team the caller does not administer -> 404.
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"P1 Bad\",\"domain\":\"p1bad-$$.example.com\",\"url\":\"https://p1bad.example.com\",\"teamId\":\"$TEAM_B_ID\"}")"
+[ "$code" = "404" ] || fail "phase1 cross-team create returned $code, expected 404"
+# Create into own team works, and own-team delete works.
+code="$(curl -s -o "$TMP/p1c.json" -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"P1 C\",\"domain\":\"p1c-$$.example.com\",\"url\":\"https://p1c.example.com\",\"teamId\":\"$TEAM_A_ID\"}")"
+[ "$code" = "201" ] || { cat "$TMP/p1c.json"; fail "phase1 own-team create returned $code"; }
+P1C_ID="$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(d.website.id)' "$TMP/p1c.json")"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X DELETE "$BASE_URL/api/websites/$P1C_ID")"
+[ "$code" = "200" ] || fail "phase1 own-team DELETE returned $code"
+# F-1.2: moving a website into a team the caller does not administer -> 404,
+# and the website must stay in its original team.
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X PATCH "$BASE_URL/api/websites/$P1A_ID" -H "Content-Type: application/json" -d "{\"teamId\":\"$TEAM_B_ID\"}")"
+[ "$code" = "404" ] || fail "phase1 cross-team move returned $code, expected 404"
+curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites/$P1A_ID" | grep -q "\"teamId\":\"$TEAM_A_ID\"" || fail "phase1 website moved despite rejected PATCH"
+# A TEAM_MEMBER (no website.manage permission) cannot PATCH at all.
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$MEMBER_JAR" -X PATCH "$BASE_URL/api/websites/$P1A_ID" -H "Content-Type: application/json" -d '{"name":"pwned"}')"
+[ "$code" = "403" ] || fail "phase1 member PATCH returned $code, expected 403"
+# F-1.3: team-b's connection property cannot be mapped onto a team-a website.
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BASE_URL/api/google/properties/map" -H "Content-Type: application/json" -d "{\"websiteId\":\"$P1A_ID\",\"provider\":\"GA4\",\"externalId\":\"properties/555000111\",\"isPrimary\":true}")"
+[ "$code" = "404" ] || fail "phase1 cross-team mapping (teamadmin) returned $code, expected 404"
+code="$(curl -s -o "$TMP/p1scope.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/google/properties/map" -H "Content-Type: application/json" -d "{\"websiteId\":\"$P1A_ID\",\"provider\":\"GA4\",\"externalId\":\"properties/555000111\",\"isPrimary\":true}")"
+[ "$code" = "400" ] || { cat "$TMP/p1scope.json"; fail "phase1 cross-team mapping (admin) returned $code, expected 400"; }
+grep -q '"connection_scope_mismatch"' "$TMP/p1scope.json" || { cat "$TMP/p1scope.json"; fail "phase1 expected connection_scope_mismatch"; }
+# Same-team mapping still works both ways.
+code="$(curl -s -o "$TMP/p1map.json" -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BASE_URL/api/google/properties/map" -H "Content-Type: application/json" -d "{\"websiteId\":\"$P1A_ID\",\"provider\":\"GA4\",\"externalId\":\"properties/123456789\",\"isPrimary\":true}")"
+[ "$code" = "200" ] || { cat "$TMP/p1map.json"; fail "phase1 same-team mapping (teamadmin) returned $code"; }
+code="$(curl -s -o "$TMP/p1map2.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/google/properties/map" -H "Content-Type: application/json" -d "{\"websiteId\":\"$P1B_ID\",\"provider\":\"GA4\",\"externalId\":\"properties/555000111\",\"isPrimary\":true}")"
+[ "$code" = "200" ] || { cat "$TMP/p1map2.json"; fail "phase1 same-team mapping (admin) returned $code"; }
+# Cleanup.
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/websites/$P1A_ID")"
+[ "$code" = "200" ] || fail "phase1 cleanup delete P1A returned $code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/websites/$P1B_ID")"
+[ "$code" = "200" ] || fail "phase1 cleanup delete P1B returned $code"
+ok "phase1: assignee cannot manage; cross-team create/move/map rejected; own-team flows work"
+
 echo "smoke: ALL CHECKS PASSED"

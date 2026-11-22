@@ -85,6 +85,13 @@ async function main() {
       create: { connectionId: connA.id, propertyId, displayName: `Smoke ${propertyId}` },
     });
   }
+  // Phase 1 (F-1.3): a discovered property under team-b's connection, so the
+  // smoke test can prove cross-team mapping is rejected.
+  await prisma.googleProperty.upsert({
+    where: { connectionId_propertyId: { connectionId: connB.id, propertyId: "properties/555000111" } },
+    update: {},
+    create: { connectionId: connB.id, propertyId: "properties/555000111", displayName: "Smoke properties/555000111" },
+  });
 
   console.log(`ADMIN_USER_ID=${admin.id}`);
   console.log(`TEAMADMIN_USER_ID=${teamAdmin.id}`);

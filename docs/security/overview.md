@@ -39,12 +39,40 @@ flowchart TD
   matrix (`packages/auth/src/permissions.ts`); team admins are
   `TeamMember.isAdmin` within their team; website assignments narrow
   member visibility further.
-- Google connections are visible to org admins and to members of the
-  owning team (or assignees of the owning website) — enforced in
+- Google connections are visible to org admins and to admins of the
+  owning team (or of the owning website's team) — enforced in
   `tenant.ts` (`connectionVisibilityWhere` / `assertConnectionVisible`).
 - The last SUPER_ADMIN of an org cannot be demoted/removed.
 - Cross-tenant isolation is regression-tested in CI
-  (`scripts/smoke-test.sh` IDOR matrix: 9 probes + list scoping).
+  (`scripts/smoke-test.sh` IDOR matrix: 9 probes + list scoping;
+  Phase 1 P0 section: manage-level checks below).
+
+### Permission matrix (who can do what)
+
+Two access tiers are enforced server-side in `packages/auth/src/tenant.ts`.
+**Visibility** (`assertWebsiteAccess`) decides who may _see_ a website;
+**management** (`assertWebsiteManageAccess`, `assertTeamManageAccess`)
+decides who may _change_ one. A per-website assignment grants visibility
+only — never management.
+
+| Actor                                             | See website   | Edit/delete website      | Create website in a team | Move website between teams            | Map properties                  | Assign users |
+| ------------------------------------------------- | ------------- | ------------------------ | ------------------------ | ------------------------------------- | ------------------------------- | ------------ |
+| SUPER_ADMIN                                       | All in org    | ✅                       | ✅ any team              | ✅ any team                           | ✅ (scope rule applies)         | ✅           |
+| TEAM_ADMIN role + `isAdmin` of the website's team | ✅            | ✅                       | ✅ own team only         | ✅ only between teams they administer | ✅ own-team/website connections | ✅           |
+| TEAM_ADMIN role, assigned only (not team admin)   | ✅ (assigned) | ❌                       | ❌                       | ❌                                    | ❌                              | ❌           |
+| TEAM_MEMBER, assigned                             | ✅ (assigned) | ❌ (no `website.manage`) | ❌                       | ❌                                    | ❌                              | ❌           |
+| Anyone in another org                             | ❌ 404        | ❌ 404                   | ❌ 404                   | ❌ 404                                | ❌ 404                          | ❌ 404       |
+
+Connection scope rule (mapping): a **team connection** may only serve
+websites of that team; a **website connection** may only serve that
+website — for every role, including SUPER_ADMIN
+(`assertConnectionScopeForWebsite`). The caller must also be able to
+see the connection (`assertConnectionVisible`).
+
+Route rules: every mutating route combines a role-level permission
+(`requireApiAuth`) with a management-tier assertion; read routes use
+the visibility tier. Manual sync (`POST /api/sync`) intentionally uses
+the visibility tier so assigned members can refresh data.
 
 ## Google OAuth & tokens
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
-import { assertWebsiteAccess } from "@metricflock/auth";
+import { assertWebsiteManageAccess } from "@metricflock/auth";
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateWebsiteCache } from "@metricflock/shared";
 import { z } from "zod";
@@ -11,7 +11,8 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   const auth = await requireApiAuth("website.assign");
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
-  const website = await assertWebsiteAccess(auth.user, id).catch(() => null);
+  // Manage-level access: an assigned viewer must not grant/revoke access.
+  const website = await assertWebsiteManageAccess(auth.user, id).catch(() => null);
   if (!website) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
   const body = schema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
