@@ -1,4 +1,5 @@
 import Redis from "ioredis";
+import { incr } from "./metrics";
 // Lazy Redis client: app builds and runs without Redis; caching degrades to no-op.
 let redis: Redis | null = null;
 let redisTried = false;
@@ -15,6 +16,36 @@ export function getRedis(): Redis | null {
     redis = null;
   }
   return redis;
+}
+
+/** Connection OPTIONS for BullMQ (OPS-10): BullMQ must own dedicated
+ *  connections (its blocking commands serialize on a shared socket) and
+ *  requires maxRetriesPerRequest: null. Passing options instead of the
+ *  shared cache client lets BullMQ create one connection per Queue/Worker.
+ *  Returns null when REDIS_URL is unset (queues disabled, as before). */
+export function bullConnectionOptions(): {
+  host: string;
+  port: number;
+  password?: string;
+  username?: string;
+  tls?: object;
+  maxRetriesPerRequest: null;
+} | null {
+  const url = process.env.REDIS_URL;
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return {
+      host: u.hostname,
+      port: Number(u.port || 6379),
+      ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
+      ...(u.username ? { username: decodeURIComponent(u.username) } : {}),
+      ...(u.protocol === "rediss:" ? { tls: {} } : {}),
+      maxRetriesPerRequest: null,
+    };
+  } catch {
+    return null;
+  }
 }
 export function buildCacheKey(parts: {
   organizationId: string;
@@ -41,10 +72,16 @@ export async function cacheGet<T>(key: string): Promise<{ value: T; stale: boole
   if (!r) return null;
   try {
     const raw = await r.get(key);
-    if (!raw) return null;
+    if (!raw) {
+      incr("cache.miss");
+      return null;
+    }
     const parsed = JSON.parse(raw) as { value: T; expiresAt: number };
-    return { value: parsed.value, stale: Date.now() > parsed.expiresAt };
+    const stale = Date.now() > parsed.expiresAt;
+    incr(stale ? "cache.stale_hit" : "cache.hit");
+    return { value: parsed.value, stale };
   } catch {
+    incr("cache.error");
     return null;
   }
 }
@@ -57,12 +94,22 @@ export async function cacheSet(key: string, value: unknown, ttlSeconds: number):
     /* best-effort */
   }
 }
+/** Delete keys matching a pattern via SCAN (OPS-6): KEYS is O(N) and blocks
+ *  the shared Redis; SCAN iterates in bounded cursor batches. */
+async function scanDelete(r: Redis, pattern: string): Promise<void> {
+  let cursor = "0";
+  do {
+    const [next, keys] = await r.scan(cursor, "MATCH", pattern, "COUNT", 200);
+    cursor = next;
+    if (keys.length) await r.del(...keys);
+  } while (cursor !== "0");
+}
+
 export async function invalidateWebsiteCache(organizationId: string, websiteId: string): Promise<void> {
   const r = getRedis();
   if (!r) return;
   try {
-    const keys = await r.keys(`analytics:${organizationId}:${websiteId}:*`);
-    if (keys.length) await r.del(...keys);
+    await scanDelete(r, `analytics:${organizationId}:${websiteId}:*`);
   } catch {
     /* best-effort */
   }
@@ -71,8 +118,7 @@ export async function invalidateOrgCache(organizationId: string): Promise<void> 
   const r = getRedis();
   if (!r) return;
   try {
-    const keys = await r.keys(`analytics:${organizationId}:*`);
-    if (keys.length) await r.del(...keys);
+    await scanDelete(r, `analytics:${organizationId}:*`);
   } catch {
     /* best-effort */
   }

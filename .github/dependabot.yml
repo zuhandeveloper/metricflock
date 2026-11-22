@@ -1,0 +1,22 @@
+# Dependabot (CI-4): weekly grouped updates for npm deps and GitHub
+# Actions. Grouping keeps PR noise low; security updates still arrive
+# individually and immediately.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        dependency-type: "production"
+      development:
+        dependency-type: "development"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3

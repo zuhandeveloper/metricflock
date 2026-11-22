@@ -13,6 +13,21 @@ export function parseAdSenseRows(rows: { cells?: { value?: string }[] }[] | unde
     return out;
   });
 }
+/** Provider totals keyed by header name (DATA-9): the raw totals array is
+ *  positional and unusable by the UI without the header mapping. Numeric
+ *  cells are coerced to numbers; anything else stays a string. */
+export function parseAdSenseTotals(
+  totals: { cells?: { value?: string }[] } | null | undefined,
+  headers: string[],
+): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  headers.forEach((h, i) => {
+    const v = totals?.cells?.[i]?.value ?? "";
+    const n = Number(v);
+    out[h] = v !== "" && !Number.isNaN(n) ? n : v;
+  });
+  return out;
+}
 function dateParts(d: string) {
   return { year: Number(d.slice(0, 4)), month: Number(d.slice(5, 7)), day: Number(d.slice(8, 10)) };
 }
@@ -52,5 +67,6 @@ export async function runAdSenseReport(
   const rows = parseAdSenseRows(res.data.rows as { cells?: { value?: string }[] }[] | undefined, headers);
   const totals =
     (res.data.totals as { cells?: { value?: string }[] } | undefined)?.cells?.map((c) => c.value ?? "") ?? [];
-  return { accountId, startDate, endDate, headers, rows, totals, note: ADSENSE_ESTIMATED_NOTE };
+  const totalsByMetric = parseAdSenseTotals(res.data.totals as { cells?: { value?: string }[] } | undefined, headers);
+  return { accountId, startDate, endDate, headers, rows, totals, totalsByMetric, note: ADSENSE_ESTIMATED_NOTE };
 }

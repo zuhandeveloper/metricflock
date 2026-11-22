@@ -45,11 +45,13 @@ enum MappingStatus {
 }
 enum TransferStatus {
   INITIATED
+  PENDING_ACCEPTANCE
   PENDING_CONNECTION
   TRANSFERRED
   COMPLETED
   CANCELLED
   FAILED
+  EXPIRED
 }
 enum SyncJobStatus {
   PENDING
@@ -81,7 +83,7 @@ model Organization {
   websites  Website[]
   connections GoogleConnection[]
   auditLogs AuditLog[]
-  @@index([slug])
+  invites   OrganizationInvite[]
 }
 
 model User {
@@ -94,16 +96,43 @@ model User {
   emailVerified Boolean @default(false)
   image        String?
   role         Role     @default(TEAM_MEMBER)
+  // better-auth two-factor plugin flag (Stage 7, AUTH-11/MFA).
+  twoFactorEnabled Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   sessions     Session[]
   accounts     Account[]
+  twoFactors   TwoFactor[]
   teamMemberships TeamMember[]
   websiteAssignments WebsiteAssignment[]
   createdConnections GoogleConnection[] @relation("ConnectionCreatedBy")
+  oauthStates   OAuthState[]
   initiatedTransfers WebsiteTransfer[] @relation("TransferInitiatedBy")
+  acceptedTransfers  WebsiteTransfer[] @relation("TransferAcceptedBy")
   auditLogs    AuditLog[] @relation("AuditActor")
+  sentInvites  OrganizationInvite[] @relation("InviteSentBy")
   @@index([organizationId, role])
+}
+
+// Organization invite (invite-flow pass): an org admin invites an email
+// with a role. When that email signs up (or an existing account accepts),
+// the user joins THIS organization with the invite's role instead of
+// getting a fresh organization. Only the SHA-256 hash of the token is
+// stored; the raw token travels in the invite link.
+model OrganizationInvite {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           Role         @default(TEAM_MEMBER)
+  tokenHash      String       @unique
+  invitedById    String
+  invitedBy      User         @relation("InviteSentBy", fields: [invitedById], references: [id], onDelete: Cascade)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  @@index([organizationId, email])
+  @@index([email, acceptedAt])
 }
 
 // better-auth session (replaces the old custom tokenHash session)
@@ -161,9 +190,13 @@ model Team {
   updatedAt      DateTime @updatedAt
   members        TeamMember[]
   websites       Website[]
+  connections    GoogleConnection[]
   transfersFrom  WebsiteTransfer[] @relation("TransferFromTeam")
   transfersTo    WebsiteTransfer[] @relation("TransferToTeam")
   @@unique([organizationId, slug])
+  // Composite-FK target: lets other tables enforce same-organization
+  // relations at the database level (Stage 2, DB-2).
+  @@unique([id, organizationId])
   @@index([organizationId])
 }
 
@@ -184,7 +217,10 @@ model Website {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   teamId         String?
-  team           Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  // Composite FK: a website's team must belong to the same organization
+  // (Stage 2, DB-2). Restrict: a team with websites cannot be deleted
+  // until its websites are moved or deleted.
+  team           Team?    @relation(fields: [teamId, organizationId], references: [id, organizationId], onDelete: Restrict)
   name           String
   domain         String
   url            String
@@ -199,11 +235,14 @@ model Website {
   updatedAt      DateTime @updatedAt
   assignments    WebsiteAssignment[]
   integrations   WebsiteIntegration[]
+  connections    GoogleConnection[]
   transfers      WebsiteTransfer[]
   syncJobs       AnalyticsSyncJob[]
   health         IntegrationHealth[]
   cacheEntries   AnalyticsCache[]
   @@unique([organizationId, domain])
+  // Composite-FK target (Stage 2, DB-2).
+  @@unique([id, organizationId])
   @@index([organizationId, teamId, status])
 }
 
@@ -228,6 +267,12 @@ model WebsiteTransfer {
   toTeam        Team     @relation("TransferToTeam", fields: [toTeamId], references: [id], onDelete: Restrict)
   initiatedById String
   initiatedBy   User     @relation("TransferInitiatedBy", fields: [initiatedById], references: [id], onDelete: Restrict)
+  // Two-sided acceptance (Stage 7, API-4/DB-4): the destination team's
+  // admin accepts before anything moves; open transfers expire.
+  acceptedById  String?
+  acceptedBy    User?    @relation("TransferAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+  acceptedAt    DateTime?
+  expiresAt     DateTime?
   status        TransferStatus @default(INITIATED)
   reason        String?
   connectionHealthChecked Boolean @default(false)
@@ -242,8 +287,19 @@ model GoogleConnection {
   id                   String   @id @default(cuid())
   organizationId       String
   organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // Legacy polymorphic owner (Stage 2, DB-1): kept during the transition
+  // to typed FKs below; dropped in a later release once all reads/writes
+  // use teamId/websiteId. New code must always write the typed columns.
   ownerType            ConnectionOwnerType
   ownerId              String
+  // Typed owner FKs (exactly one is set; enforced by a CHECK constraint
+  // in the Stage 2 migration). Composite FKs also enforce that the owner
+  // belongs to the same organization. Cascade: deleting a team/website
+  // deletes its connections instead of orphaning encrypted tokens.
+  teamId               String?
+  team                 Team?    @relation(fields: [teamId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  websiteId            String?
+  website              Website? @relation(fields: [websiteId, organizationId], references: [id, organizationId], onDelete: Cascade)
   googleAccountEmail   String
   googleAccountId      String?
   encryptedRefreshToken String
@@ -265,6 +321,28 @@ model GoogleConnection {
   health               IntegrationHealth[]
   @@unique([organizationId, ownerType, ownerId, googleAccountEmail])
   @@index([organizationId, ownerType, ownerId, status])
+  @@index([organizationId, teamId, status])
+  @@index([organizationId, websiteId, status])
+  @@index([status, tokenExpiresAt])
+}
+
+// Persisted OAuth flow state (Stage 3, OAUTH-1/2/5): one row per connect
+// attempt, consumed atomically at callback so a state value can never be
+// replayed. The raw nonce only travels in the `state` query parameter;
+// only its SHA-256 hash is stored. codeVerifier is the PKCE verifier.
+model OAuthState {
+  id             String   @id @default(cuid())
+  nonceHash      String   @unique
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  ownerType      ConnectionOwnerType
+  ownerId        String
+  codeVerifier   String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime @default(now())
+  @@index([expiresAt])
 }
 
 model GoogleProperty {
@@ -277,7 +355,6 @@ model GoogleProperty {
   createdAt      DateTime @default(now())
   integrations   WebsiteIntegration[]
   @@unique([connectionId, propertyId])
-  @@index([connectionId])
 }
 
 model SearchConsoleProperty {
@@ -356,14 +433,15 @@ model AnalyticsSyncJob {
   website     Website? @relation(fields: [websiteId], references: [id], onDelete: Cascade)
   type        SyncJobType
   status      SyncJobStatus @default(PENDING)
-  externalId  String?
+  externalId  String?  @unique
+  payload     Json?
   attempts    Int      @default(0)
   lastError   String?
   lastRunAt   DateTime?
   nextRunAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  @@index([websiteId, type, status])
+  @@index([websiteId, type, status, updatedAt])
 }
 
 model IntegrationHealth {
@@ -377,14 +455,34 @@ model IntegrationHealth {
   lastSuccessAt  DateTime?
   lastError      String?
   checkedAt      DateTime @default(now())
+  @@unique([websiteId, provider])
   @@index([websiteId, provider, checkedAt])
   @@index([connectionId, provider])
+}
+
+// better-auth two-factor plugin (TOTP). `secret` and `backupCodes` are
+// encrypted by better-auth with the auth secret before storage.
+model TwoFactor {
+  id                      String    @id @default(cuid())
+  secret                  String
+  backupCodes             String
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verified                Boolean   @default(true)
+  failedVerificationCount Int       @default(0)
+  lockedUntil             DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  @@index([userId])
+  @@index([secret])
 }
 
 model AuditLog {
   id             String   @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // Restrict (Stage 7, DB-10): deleting an organization must not silently
+  // destroy its audit trail — archive first, then delete.
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   actorId        String?
   actor          User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
   action         String
@@ -392,6 +490,7 @@ model AuditLog {
   entityId       String?
   details        Json?
   ipAddress      String?
+  requestId      String?
   createdAt      DateTime @default(now())
   @@index([organizationId, createdAt])
   @@index([actorId, createdAt])

@@ -27,6 +27,51 @@ export async function listAdManagerNetworks(auth: OAuth2Client) {
   const networks = (data.networks ?? []) as { networkCode?: string; displayName?: string }[];
   return networks.map((n) => ({ networkCode: n.networkCode ?? "", displayName: n.displayName ?? undefined }));
 }
+export const AD_MANAGER_DIMENSIONS = ["DATE", "AD_UNIT_NAME"] as const;
+export const AD_MANAGER_METRICS = [
+  "AD_SERVER_IMPRESSIONS",
+  "AD_SERVER_CLICKS",
+  "AD_SERVER_CTR",
+  "TOTAL_REVENUE",
+] as const;
+
+export type AdManagerRow = { dimensions: string[]; metrics: number[] };
+
+/** Typed parser for the Ad Manager REST report response (DATA-9). The REST
+ *  v1 `reports:run` response carries rows of dimensionValues/metricValues;
+ *  this parser extracts them defensively and computes per-metric totals
+ *  from the rows. An unrecognized shape yields `parsed: false` with empty
+ *  rows — numbers are never invented. NOTE: not yet verified against a
+ *  real Ad Manager network (no live account connected); verify the shape
+ *  against your network before claiming support. */
+export function parseAdManagerReport(report: unknown): {
+  parsed: boolean;
+  rows: AdManagerRow[];
+  totals: Record<string, number>;
+} {
+  const raw = (report ?? {}) as Record<string, unknown>;
+  const candidateRows =
+    (raw.rows as unknown[] | undefined) ??
+    ((raw.result as Record<string, unknown> | undefined)?.rows as unknown[] | undefined) ??
+    ((raw.report as Record<string, unknown> | undefined)?.rows as unknown[] | undefined);
+  if (!Array.isArray(candidateRows)) return { parsed: false, rows: [], totals: {} };
+  const rows: AdManagerRow[] = candidateRows.map((r) => {
+    const row = (r ?? {}) as {
+      dimensionValues?: { value?: string | null }[];
+      metricValues?: { value?: string | number | null }[];
+    };
+    return {
+      dimensions: (row.dimensionValues ?? []).map((d) => d.value ?? ""),
+      metrics: (row.metricValues ?? []).map((m) => Number(m.value ?? 0)),
+    };
+  });
+  const totals: Record<string, number> = {};
+  AD_MANAGER_METRICS.forEach((name, i) => {
+    totals[name] = rows.reduce((s, r) => s + (r.metrics[i] ?? 0), 0);
+  });
+  return { parsed: true, rows, totals };
+}
+
 export async function runAdManagerReport(auth: OAuth2Client, networkCode: string, startDate: string, endDate: string) {
   if (!adManagerEnabled()) throw new Error("AD_MANAGER_DISABLED");
   const toParts = (d: string) => ({
@@ -38,17 +83,24 @@ export async function runAdManagerReport(auth: OAuth2Client, networkCode: string
     method: "POST",
     body: JSON.stringify({
       report: {
-        dimensions: ["DATE", "AD_UNIT_NAME"],
-        metrics: ["AD_SERVER_IMPRESSIONS", "AD_SERVER_CLICKS", "AD_SERVER_CTR", "TOTAL_REVENUE"],
+        dimensions: [...AD_MANAGER_DIMENSIONS],
+        metrics: [...AD_MANAGER_METRICS],
         dateRange: { startDate: toParts(startDate), endDate: toParts(endDate) },
       },
     }),
   });
+  const { parsed, rows, totals } = parseAdManagerReport(report);
   return {
     networkCode,
     startDate,
     endDate,
-    report,
-    note: "Ad Manager reporting via the Ad Manager REST API v1; verify the report shape against your network's API version.",
+    dimensions: [...AD_MANAGER_DIMENSIONS],
+    metrics: [...AD_MANAGER_METRICS],
+    parsed,
+    rows,
+    totals,
+    note: parsed
+      ? "Ad Manager reporting via the Ad Manager REST API v1; totals are summed from the returned rows."
+      : "Ad Manager returned a report shape this parser does not recognize; no metrics were derived from it. Verify the shape against your network's API version.",
   };
 }

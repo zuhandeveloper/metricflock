@@ -1,5 +1,11 @@
 # Implementation Plan
 
+> **Historical document (2026-11-18).** This plan describes the original
+> greenfield build before the monorepo migration. Current layout:
+> `apps/web`, `apps/worker`, `packages/{db,auth,google,jobs,shared}`
+> (see README "Repo layout"). Kept for provenance; do not follow its
+> file paths.
+
 ## Audit finding
 
 There is **no existing Next.js CMS** in this workspace — only the Astro cottage-food starter

@@ -1,0 +1,13 @@
+# Gitleaks allowlist — documented CI-only dummy values (NOT real
+# credentials). These appear in .github/workflows/ci.yml as test env
+# for the smoke suite; the session secret is literally named
+# "please-change-in-production" and the encryption key is base64 of
+# the byte sequence 0..31. Real secrets never enter this repo.
+title = "MetricFlock gitleaks config"
+
+[allowlist]
+description = "CI-only dummy secrets used by the smoke test workflow"
+regexes = [
+  '''ci-test-session-secret-please-change-in-production''',
+  '''AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=''',
+]

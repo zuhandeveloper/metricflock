@@ -17,7 +17,7 @@ function forwardCookies(from: Response, to: NextResponse) {
 // the scrypt password hash in its Account model and sets the session cookie.
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
-  const rl = rateLimit(`login:${ip}`, 10, 60_000);
+  const rl = await rateLimit(`login:${ip}`, 10, 60_000);
   if (!rl.allowed) return NextResponse.json({ error: "too_many_requests" }, { status: 429 });
   const body = schema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
@@ -29,7 +29,16 @@ export async function POST(req: NextRequest) {
   if (!res.ok) return NextResponse.json({ error: "invalid_credentials" }, { status: 401 });
   const data = (await res.json().catch(() => null)) as {
     user?: { id: string; email: string; name: string; role?: string };
+    twoFactorRedirect?: boolean;
   } | null;
+  // 2FA: better-auth returns twoFactorRedirect (and sets the pending-2FA
+  // cookie) instead of a session. The login form then collects the TOTP
+  // code and posts it to /api/auth/two-factor/verify-totp.
+  if (data?.twoFactorRedirect) {
+    const out = NextResponse.json({ status: "two_factor_required" });
+    forwardCookies(res, out);
+    return out;
+  }
   const out = NextResponse.json({
     status: "ok",
     user: data?.user

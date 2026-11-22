@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { getSessionUser } from "@metricflock/auth";
 import { hasPermission } from "@metricflock/auth";
 import { assertWebsiteAccess } from "@metricflock/auth";
@@ -16,7 +17,7 @@ const schema = z.object({
     "integration-health-check",
   ]),
 });
-export async function POST(req: NextRequest) {
+async function post(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   if (!hasPermission(user.role, "analytics.view")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -24,22 +25,33 @@ export async function POST(req: NextRequest) {
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
   const website = await assertWebsiteAccess(user, body.data.websiteId).catch(() => null);
   if (!website) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
-  const job = await enqueue(
-    body.data.type,
-    { websiteId: website.id },
-    { jobId: `${body.data.type}:${website.id}:${new Date().toISOString().slice(0, 13)}` },
-  );
-  await prisma.analyticsSyncJob.create({
+  // OPS-3: create the bookkeeping row first and pass its id to the worker,
+  // which updates THIS row (externalId = BullMQ jobId) instead of creating
+  // a second one — no permanent PENDING orphans. OPS-12: when Redis is
+  // unavailable the enqueue is an explicit failure, not a silent "DB only"
+  // queue that nothing polls.
+  const jobId = `${body.data.type}:${website.id}:${new Date().toISOString().slice(0, 13)}`;
+  const row = await prisma.analyticsSyncJob.create({
     data: {
       websiteId: website.id,
       type: SYNC_TYPE_BY_QUEUE[body.data.type],
-      status: job ? "PENDING" : "FAILED",
-      lastError: job ? null : "Redis unavailable — sync queued in DB only",
+      status: "PENDING",
+      externalId: jobId,
+      payload: { websiteId: website.id, manual: true },
     },
   });
+  const job = await enqueue(body.data.type, { websiteId: website.id, syncJobRowId: row.id }, { jobId });
+  if (!job) {
+    await prisma.analyticsSyncJob.update({
+      where: { id: row.id },
+      data: { status: "FAILED", lastError: "Redis unavailable — sync could not be queued" },
+    });
+    return NextResponse.json({ error: "queue_unavailable" }, { status: 503 });
+  }
   await writeAudit({
     organizationId: user.organizationId,
     actorId: user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
     action: "sync.triggered",
     entityType: "Website",
     entityId: website.id,
@@ -47,3 +59,5 @@ export async function POST(req: NextRequest) {
   });
   return NextResponse.json({ status: "ok", queued: !!job });
 }
+
+export const POST = withApiErrors("sync", post);

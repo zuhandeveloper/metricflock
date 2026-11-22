@@ -7,3 +7,5 @@ export * from "./cache";
 export * from "./crypto";
 export * from "./validation";
 export * from "./rate-limit";
+export * from "./logger";
+export * from "./metrics";

@@ -1,7 +1,7 @@
 {
   "name": "@metricflock/google",
   "version": "0.1.0",
-  "description": "MetricFlock Google integrations — OAuth, GA4, Search Console, AdSense and Ad Manager clients, plus the sync engine.",
+  "description": "MetricFlock Google integrations \u2014 OAuth, GA4, Search Console, AdSense and Ad Manager clients, plus the sync engine.",
   "private": true,
   "exports": {
     "./ad-manager": "./src/ad-manager.ts",
@@ -19,10 +19,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@google-analytics/data": "^7.3.0",
     "@metricflock/db": "workspace:*",
     "@metricflock/shared": "workspace:*",
-    "google-gax": "^6.17.0",
+    "google-auth-library": "11.3.4",
     "googleapis": "^190.0.0"
   },
   "devDependencies": {

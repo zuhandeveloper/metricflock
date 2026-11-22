@@ -4,7 +4,75 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, 
 import { Card, EmptyState } from "@/components/ui";
 async function fetchJson(url: string) {
   const r = await fetch(url);
-  return r.json();
+  const body = await r.json().catch(() => null);
+  // FE-2: non-2xx is an error state, not data — previously a 502 rendered
+  // as "Source: undefined · Freshness: undefined".
+  if (!r.ok) {
+    const code = (body as { error?: string } | null)?.error ?? `http_${r.status}`;
+    throw new Error(code);
+  }
+  return body;
+}
+
+const METRIC_LABELS: Record<string, string> = {
+  totalUsers: "Total users",
+  activeUsers: "Active users",
+  newUsers: "New users",
+  sessions: "Sessions",
+  screenPageViews: "Page views",
+  engagedSessions: "Engaged sessions",
+  engagementRate: "Engagement rate",
+  averageEngagementTime: "Avg. engagement time",
+  bounceRate: "Bounce rate",
+  eventCount: "Events",
+  keyEvents: "Key events",
+  sessionConversionRate: "Session conversion rate",
+  clicks: "Clicks",
+  impressions: "Impressions",
+  avgCtr: "Avg. CTR",
+  avgPosition: "Avg. position",
+  ESTIMATED_EARNINGS: "Estimated earnings",
+  PAGE_VIEWS: "Page views",
+  IMPRESSIONS: "Impressions",
+  CLICKS: "Clicks",
+  CTR: "CTR",
+  CPC: "CPC",
+  PAGE_RPM: "Page RPM",
+  IMPRESSION_RPM: "Impression RPM",
+};
+const PERCENT_METRICS = new Set(["engagementRate", "bounceRate", "sessionConversionRate", "avgCtr", "CTR"]);
+
+function formatMetric(key: string, v: unknown): string {
+  if (v === null || v === undefined || v === "") return "—";
+  if (typeof v !== "number") return String(v);
+  if (PERCENT_METRICS.has(key)) return `${(v * 100).toFixed(1)}%`;
+  if (key === "averageEngagementTime") {
+    const m = Math.floor(v / 60);
+    const s = Math.round(v % 60);
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
+  return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function ErrorNote({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const code = error instanceof Error ? error.message : "unknown_error";
+  const hints: Record<string, string> = {
+    api_not_enabled: " — enable this Google API in Google Cloud Console (APIs & Services → Library), then retry",
+    permission_denied: " — the connected Google account lacks access to this property",
+    unauthorized: " — reconnect the Google account on the Integrations page",
+    google_quota_exceeded: " — Google quota exceeded, try again later",
+    invalid_request: " — Google rejected the report request (check server logs)",
+  };
+  return (
+    <div role="alert" className="mt-2 text-sm">
+      <p className="text-red-600">
+        Couldn&apos;t load this data ({code}){hints[code] ?? ""}.
+      </p>
+      <button type="button" onClick={onRetry} className="mt-1 text-blue-600 hover:underline">
+        Retry
+      </button>
+    </div>
+  );
 }
 function StatusNote({
   data,
@@ -34,11 +102,12 @@ function StatusNote({
         hint={data.unavailableWebsites?.[0]?.reason ?? "Map a Google property to this website first."}
       />
     );
-  return (
-    <p className="text-xs text-zinc-500">
-      Source: {data.dataSource} · Freshness: {data.freshness} · Last synced: {data.lastSyncedAt ?? "never"}
-    </p>
-  );
+  // FE-4: render only the parts that exist — never "undefined".
+  const parts: string[] = [];
+  if (data.dataSource) parts.push(`Source: ${data.dataSource}`);
+  if (data.freshness) parts.push(`Freshness: ${data.freshness}`);
+  parts.push(`Last synced: ${data.lastSyncedAt ?? "never"}`);
+  return <p className="text-xs text-zinc-500">{parts.join(" · ")}</p>;
 }
 export default function WebsiteAnalytics({ websiteId, range }: { websiteId: string; range: string }) {
   const rt = useQuery({
@@ -73,25 +142,30 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
         <h2 className="font-semibold">Realtime — active users (last 30 min, approximate)</h2>
         {rt.isLoading ? (
           <p className="text-sm text-zinc-500">Loading…</p>
+        ) : rt.isError ? (
+          <ErrorNote error={rt.error} onRetry={() => rt.refetch()} />
         ) : rt.data?.status === "ok" ? (
-          <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
-            <div>
-              <p className="text-2xl font-bold">{rt.data.data.activeUsers}</p>
-              <p className="text-xs text-zinc-500">Active users</p>
+          <>
+            <StatusNote data={rt.data} />
+            <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div>
+                <p className="text-2xl font-bold">{rt.data.data.activeUsers}</p>
+                <p className="text-xs text-zinc-500">Active users</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{rt.data.data.eventCount}</p>
+                <p className="text-xs text-zinc-500">Events</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-xs text-zinc-500">Top countries</p>
+                {(rt.data.data.byCountry ?? []).slice(0, 5).map((c: { name: string; activeUsers: number }) => (
+                  <p key={c.name} className="text-sm">
+                    {c.name}: {c.activeUsers}
+                  </p>
+                ))}
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-bold">{rt.data.data.eventCount}</p>
-              <p className="text-xs text-zinc-500">Events</p>
-            </div>
-            <div className="col-span-2">
-              <p className="text-xs text-zinc-500">Top countries</p>
-              {(rt.data.data.byCountry ?? []).slice(0, 5).map((c: { name: string; activeUsers: number }) => (
-                <p key={c.name} className="text-sm">
-                  {c.name}: {c.activeUsers}
-                </p>
-              ))}
-            </div>
-          </div>
+          </>
         ) : (
           <StatusNote data={rt.data} />
         )}
@@ -100,21 +174,34 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
         <h2 className="font-semibold">Historical overview</h2>
         {ov.isLoading ? (
           <p className="text-sm text-zinc-500">Loading…</p>
+        ) : ov.isError ? (
+          <ErrorNote error={ov.error} onRetry={() => ov.refetch()} />
         ) : ov.data?.status === "ok" ? (
           <>
             <StatusNote data={ov.data} />
+            {ov.data.data.sampling?.sampled && (
+              <p className="mt-1 text-xs text-amber-600">
+                Sampled data: GA4 read {ov.data.data.sampling.samplesReadCount?.toLocaleString()} of{" "}
+                {ov.data.data.sampling.samplingSpaceSize?.toLocaleString()} sessions — figures are estimates.
+              </p>
+            )}
+            {ov.data.data.sampling?.subjectToThresholding && (
+              <p className="mt-1 text-xs text-amber-600">
+                Some data was withheld by GA4 thresholding (low-volume segments).
+              </p>
+            )}
             <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
               {Object.entries(ov.data.data.summary ?? {})
                 .slice(0, 8)
                 .map(([k, v]) => (
                   <div key={k}>
-                    <p className="text-lg font-bold">{typeof v === "number" ? v.toLocaleString() : String(v)}</p>
-                    <p className="text-xs text-zinc-500">{k}</p>
+                    <p className="text-lg font-bold">{formatMetric(k, v)}</p>
+                    <p className="text-xs text-zinc-500">{METRIC_LABELS[k] ?? k}</p>
                   </div>
                 ))}
             </div>
             {chartRows.length > 0 && (
-              <div className="mt-4 h-64">
+              <div className="mt-4 h-64" role="img" aria-label="Line chart of daily active users and page views">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartRows}>
                     <XAxis dataKey="date" />
@@ -136,8 +223,10 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
           <h2 className="font-semibold">Top pages</h2>
           {pages.isLoading ? (
             <p className="text-sm text-zinc-500">Loading…</p>
+          ) : pages.isError ? (
+            <ErrorNote error={pages.error} onRetry={() => pages.refetch()} />
           ) : pages.data?.status === "ok" ? (
-            <div className="mt-2 h-56">
+            <div className="mt-2 h-56" role="img" aria-label="Bar chart of top pages by views">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={(pages.data.data.rows ?? []).slice(0, 8).map((r: Record<string, string | number>) => ({
@@ -160,17 +249,20 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
           <h2 className="font-semibold">Search Console (delayed 2–3 days, not real-time)</h2>
           {gsc.isLoading ? (
             <p className="text-sm text-zinc-500">Loading…</p>
+          ) : gsc.isError ? (
+            <ErrorNote error={gsc.error} onRetry={() => gsc.refetch()} />
           ) : gsc.data?.status === "ok" ? (
-            <div className="mt-2 grid grid-cols-2 gap-3">
-              {Object.entries(gsc.data.data.totals ?? {}).map(([k, v]) => (
-                <div key={k}>
-                  <p className="text-lg font-bold">
-                    {typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(v)}
-                  </p>
-                  <p className="text-xs text-zinc-500">{k}</p>
-                </div>
-              ))}
-            </div>
+            <>
+              <StatusNote data={gsc.data} />
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                {Object.entries(gsc.data.data.totals ?? {}).map(([k, v]) => (
+                  <div key={k}>
+                    <p className="text-lg font-bold">{formatMetric(k, v)}</p>
+                    <p className="text-xs text-zinc-500">{METRIC_LABELS[k] ?? k}</p>
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
             <StatusNote data={gsc.data} />
           )}
@@ -180,10 +272,23 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
         <h2 className="font-semibold">AdSense — estimated earnings (not finalized payments)</h2>
         {ads.isLoading ? (
           <p className="text-sm text-zinc-500">Loading…</p>
+        ) : ads.isError ? (
+          <ErrorNote error={ads.error} onRetry={() => ads.refetch()} />
         ) : ads.data?.status === "ok" ? (
-          <p className="mt-2 text-sm">
-            {ads.data.data.note} · {(ads.data.data.rows ?? []).length} rows returned.
-          </p>
+          <>
+            <StatusNote data={ads.data} />
+            <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
+              {Object.entries(ads.data.data.totalsByMetric ?? {}).map(([k, v]) => (
+                <div key={k}>
+                  <p className="text-lg font-bold">{formatMetric(k, v)}</p>
+                  <p className="text-xs text-zinc-500">{METRIC_LABELS[k] ?? k}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-sm text-zinc-500">
+              {ads.data.data.note} · {(ads.data.data.rows ?? []).length} daily rows returned.
+            </p>
+          </>
         ) : (
           <StatusNote data={ads.data} />
         )}

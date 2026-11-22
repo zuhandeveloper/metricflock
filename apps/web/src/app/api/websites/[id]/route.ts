@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertWebsiteAccess } from "@metricflock/auth";
-import { websiteCreateSchema } from "@metricflock/shared";
+import { websiteCreateSchema, invalidateWebsiteCache } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("website.view");
@@ -21,7 +22,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   });
   return NextResponse.json({ website: full });
 }
-export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("website.manage");
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
@@ -30,25 +31,43 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const body = websiteCreateSchema.partial().safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
   const d = body.data;
-  const updated = await prisma.website.update({
-    where: { id },
-    data: {
-      name: d.name,
-      domain: d.domain,
-      url: d.url,
-      description: d.description,
-      teamId: d.teamId,
-      status: d.status,
-      purchaseDate: d.purchaseDate ? new Date(d.purchaseDate) : undefined,
-      saleDate: d.saleDate ? new Date(d.saleDate) : undefined,
-      purchasePrice: d.purchasePrice,
-      salePrice: d.salePrice,
-      notes: d.notes,
-    },
-  });
+  // Same org check as create: a website can only move to a team in its own
+  // organization. `teamId: null` (unassign) is allowed.
+  if (d.teamId) {
+    const team = await prisma.team.findFirst({
+      where: { id: d.teamId, organizationId: auth.user.organizationId },
+      select: { id: true },
+    });
+    if (!team) return NextResponse.json({ error: "team_not_found" }, { status: 404 });
+  }
+  let updated;
+  try {
+    updated = await prisma.website.update({
+      where: { id },
+      data: {
+        name: d.name,
+        domain: d.domain,
+        url: d.url,
+        description: d.description,
+        teamId: d.teamId,
+        status: d.status,
+        purchaseDate: d.purchaseDate ? new Date(d.purchaseDate) : undefined,
+        saleDate: d.saleDate ? new Date(d.saleDate) : undefined,
+        purchasePrice: d.purchasePrice,
+        salePrice: d.salePrice,
+        notes: d.notes,
+      },
+    });
+  } catch (e) {
+    if ((e as { code?: string }).code === "P2002") {
+      return NextResponse.json({ error: "domain_taken" }, { status: 409 });
+    }
+    throw e;
+  }
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
     action: "website.updated",
     entityType: "Website",
     entityId: id,
@@ -56,3 +75,29 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   });
   return NextResponse.json({ website: updated });
 }
+
+export const PATCH = withApiErrors("websites/[id]", patch);
+
+async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await requireApiAuth("website.manage");
+  if ("error" in auth) return auth.error;
+  const { id } = await ctx.params;
+  const website = await assertWebsiteAccess(auth.user, id).catch(() => null);
+  if (!website) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
+  // Integrations, assignments, transfers, sync jobs and website-level
+  // Google connections cascade with the website (schema onDelete).
+  await prisma.website.delete({ where: { id } });
+  await writeAudit({
+    organizationId: auth.user.organizationId,
+    actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    action: "website.deleted",
+    entityType: "Website",
+    entityId: id,
+    details: { domain: website.domain },
+  });
+  await invalidateWebsiteCache(auth.user.organizationId, id);
+  return NextResponse.json({ status: "ok" });
+}
+
+export const DELETE = withApiErrors("websites/[id]", del);

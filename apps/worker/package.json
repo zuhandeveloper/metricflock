@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@metricflock/auth": "workspace:*",
     "@metricflock/db": "workspace:*",
     "@metricflock/google": "workspace:*",
     "@metricflock/jobs": "workspace:*",

@@ -1,8 +1,15 @@
 # MetricFlock — Multi-Website Google Analytics & Publisher Management
 
-Production-ready multi-tenant Next.js app: organizations, teams, websites, team/website-level
+Multi-tenant Next.js app for managing Google analytics & publisher data across
+100+ websites: organizations, teams, websites, team/website-level
 Google OAuth (AES-256-GCM encrypted tokens), GA4, Search Console, AdSense and optional Ad Manager
 reporting, background sync via BullMQ/Redis, ownership transfers, and full audit logging.
+
+Status: Google sign-in is verified in production; live GA4/Search Console data
+verification against a real connected account is the remaining launch step (see
+"What is real vs. not yet verified" below). The production-hardening program
+(`docs/audits/PRODUCTION_READINESS_AUDIT.md`, Stages 1–9) is tracked on the
+`security-hardening/production-readiness` branch.
 
 Auth is [better-auth](https://www.better-auth.com/) with the Prisma adapter
 (email + password; scrypt hashes in better-auth's `Account` model). Sessions are
@@ -46,32 +53,38 @@ pnpm worker            # separate process, needs Redis
 
 Useful scripts: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`,
 `pnpm db:status`, `pnpm db:reset` (dev only), `pnpm format`, `pnpm smoke`
-(end-to-end check against real Postgres + Redis; needs a built app).
-Cloudflare: `pnpm --filter @metricflock/web build:cf` / `preview:cf` /
-`deploy:cf` (OpenNext; `apps/web/wrangler.jsonc` is minimal Phase 1
-scaffolding — see docs/deployment.md).
+(end-to-end check against real Postgres + Redis; needs a built app),
+`pnpm --filter @metricflock/web test:e2e` (Playwright + axe, needs a built app).
+Deployment: Vercel for the web app (see `docs/deployment.md`); the worker
+runs anywhere Docker runs (`apps/worker/Dockerfile`).
 
 ## What is real vs. not yet verified
 
 - Real Google clients (`googleapis`, `@google-analytics/data`) are used everywhere; endpoints return
   `status: "not_connected"` / `"missing_data"` explicitly when no connection/property exists.
-- **No live Google account has been connected in this environment**, so no GA4/Search Console/AdSense
-  data has been verified against a real account. See `apps/web/tests/integration/README.md` for the manual
+- Google **sign-in** is verified working in production (2026-11-21).
+- **Live GA4/Search Console/AdSense data has not yet been verified against a real
+  connected account.** See `apps/web/tests/integration/README.md` for the manual
   real-account test procedure.
-- Unit tests use mocked Google clients and are labelled as such.
+- Unit tests use mocked Google clients and are labelled as such; route-level
+  authorization is proven by the CI smoke suite against real Postgres + Redis
+  (`docs/testing/README.md`).
 
 ## Docs
 
-See `docs/` (Google Cloud setup, OAuth, API enablement, redirect URI, property mapping, teams,
-websites, transfers, troubleshooting, env config, deployment) and `IMPLEMENTATION_PLAN.md`.
+See `docs/` — start with `docs/product/overview.md`,
+`docs/security/overview.md`, `docs/operations/observability.md`,
+`docs/operations/backup-restore.md`, `docs/testing/README.md`, plus Google Cloud
+setup, OAuth, API enablement, redirect URI, property mapping, teams,
+websites, transfers, troubleshooting, env config, deployment.
+`IMPLEMENTATION_PLAN.md` is the historical build plan (pre-monorepo).
 
 ## Build notes (sandbox)
 
 - pnpm 12 blocks postinstall scripts by default: `pnpm approve-builds --all`
-  records the allowlist in `pnpm-workspace.yaml` (`allowBuilds`). pnpm 12 also
-  defaults `minimumReleaseAge` to 1440 minutes, which rejects deps published
-  <24h ago (wrangler/miniflare); it is set to `0` in `pnpm-workspace.yaml`
-  with the reason documented there.
+  records the allowlist in `pnpm-workspace.yaml` (`allowBuilds`).
+  `minimumReleaseAge: 1440` in `pnpm-workspace.yaml` refuses package versions
+  published <24h ago (supply-chain age gate; lockfile installs unaffected).
 - If `prisma generate/validate` fails with `ECONNRESET` from `binaries.prisma.sh`
   behind a proxy, pre-seed the schema-engine via curl (see
   `docs/troubleshooting.md`): the CLI downloads it to
