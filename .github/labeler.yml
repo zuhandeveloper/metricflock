@@ -1,0 +1,35 @@
+# Labels applied by the Labeler workflow (.github/workflows/label.yml,
+# actions/labeler@v7) based on which files a pull request touches.
+# Format: labeler v5+ match objects — each label is a list of matchers,
+# `changed-files` with `any-glob-to-any-file` globs. (The old v4 format
+# of bare glob strings is rejected by labeler v5+.)
+#
+# NOTE: every label below must exist in the repo (Settings -> Labels)
+# before the workflow can apply it, otherwise the run fails. The
+# defaults `bug` and `enhancement` already exist (used by the issue
+# templates); create `frontend`, `backend`, `workflows`,
+# `documentation` and `tests` first.
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/**
+backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/**
+          - apps/worker/**
+workflows:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - "*.md"
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/tests/**"
+          - "**/*.test.*"
+          - "scripts/smoke-test.sh"

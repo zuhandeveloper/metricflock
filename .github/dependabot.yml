@@ -20,3 +20,9 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 3
+    groups:
+      # codeql-action init/autobuild/analyze must always move together —
+      # bumping only one breaks the CodeQL workflow (PR #4).
+      codeql:
+        patterns:
+          - "github/codeql-action/*"
