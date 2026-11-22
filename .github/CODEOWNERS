@@ -1,0 +1,11 @@
+# CODEOWNERS — automatic review routing.
+#
+# GitHub requests a review from the listed owner when a pull
+# request touches a matched path. Only the highest-blast-radius
+# paths are listed: workflow files (CI is the release gate) and
+# upstream skills (imported verbatim; any change is a re-import
+# or a policy exception). Everything else has no designated
+# reviewer — this is a solo-owner repository.
+
+# CI workflows: a bad workflow change can silently weaken the gate.
+/.github/workflows/ @zuhandeveloper
