@@ -60,6 +60,11 @@ function decryptWithKey(key: Buffer, buf: Buffer, aad: string | null): string {
   return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
 }
 export function decryptToken(ciphertext: string, aad = ""): string {
+  // Explicit envelope-version check (F-2.4): a future `v2:` (or any other
+  // versioned) ciphertext must fail loudly here instead of falling into
+  // the legacy branch and failing obscurely at GCM verification.
+  const versionMatch = /^v(\d+):/.exec(ciphertext);
+  if (versionMatch && versionMatch[1] !== "1") throw new Error("TOKEN_ENVELOPE_UNSUPPORTED");
   if (ciphertext.startsWith("v1:")) {
     const [, keyId, b64] = ciphertext.split(":");
     const current = getEncryptionKey();

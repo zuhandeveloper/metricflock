@@ -189,6 +189,26 @@ connection_scope_mismatch`); permission matrix documented in
   ("phase1" section) + team-b property fixture in `smoke-stage2.ts`.
   Local verification: format/lint/typecheck/unit tests/build green.
   Smoke suite requires Postgres+Redis (CI) — verdict pending CI run.
+  **Update 2026-11-21: pushed (01386e73), CI #183 SUCCESS — smoke
+  phase1 section green, IDOR matrix intact. Phase 1 closed.**
+- **2026-11-21 — Phase 2 (F-2.1a–d, F-2.2 note, F-2.3, F-2.4 note,
+  F-2.5 notes) implemented locally, pending push + CI.** Changes:
+  `openid`+`email` added to connect scopes; `admanager.readonly`
+  requested only when Ad Manager enabled; `missingScopesForProvider` /
+  `providersMissingScopes` helpers + `SCOPE_MISSING` fail-fast in
+  `getAuthorizedClientForIntegration` (classified `scope_missing`);
+  connections API exposes `needsReauth`/`missingProviders`; Integrations
+  page shows "Reconnect needed" with reconnect link; callback rejects
+  `org_mismatch`; mailer never logs bodies (preview only via
+  `EMAIL_LOG_PREVIEW=true`, error-level recipient+subject log otherwise);
+  crypto rejects unknown envelope versions (`TOKEN_ENVELOPE_UNSUPPORTED`);
+  better-auth `rateLimit` pinned (credential endpoints 3/10s) +
+  production secure cookies. Tests: new `oauth-scopes.test.ts`,
+  `mailer.test.ts`, crypto + auth-config additions — all green locally
+  (format/lint/typecheck/tests/build). Smoke already covers
+  forged/expired/wrong-session/PKCE-presence/replay; org-mismatch and
+  PKCE-verifier-mismatch cannot be exercised without a real Google
+  exchange (verifier never leaves the server).
 
 ### F-6.8 CSP — CONFIRMED (documented tradeoff), Medium
 

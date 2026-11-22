@@ -46,6 +46,13 @@ export async function GET(req: NextRequest) {
     const me = await getGoogleAccountProfile(client);
     const user = await prisma.user.findUnique({ where: { id: flow.userId } });
     if (!user) return NextResponse.redirect(`${appUrl}/integrations?oauth=user_not_found`);
+    // Explicit organization binding (F-2.2): the flow was started in one
+    // organization; if the user's organization no longer matches (e.g.
+    // moved between connect and callback), the state must not bind a
+    // connection into the wrong tenant.
+    if (user.organizationId !== flow.organizationId) {
+      return NextResponse.redirect(`${appUrl}/integrations?oauth=org_mismatch`);
+    }
     // Re-validate at callback time that the user still manages the owner
     // (team/website) in their own organization — membership may have been
     // revoked between connect and callback, and the state alone must

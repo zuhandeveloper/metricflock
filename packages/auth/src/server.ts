@@ -170,6 +170,28 @@ export const auth = betterAuth({
   },
   secret: process.env.BETTER_AUTH_SECRET ?? process.env.SESSION_SECRET,
   baseURL: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  // F-2.5: rate limits are pinned explicitly instead of relying on
+  // library defaults (which can drift across better-auth upgrades).
+  // Credential endpoints keep the strict 3-per-10s budget; everything
+  // else gets a generous per-IP ceiling. Storage is better-auth's
+  // in-memory store (per instance) — distributed limiting for the
+  // app's own endpoints is handled separately (Phase 3, F-3.1).
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 100,
+    customRules: {
+      "/sign-in/email": { window: 10, max: 3 },
+      "/sign-up/email": { window: 10, max: 3 },
+      "/change-password": { window: 10, max: 3 },
+      "/change-email": { window: 10, max: 3 },
+    },
+  },
+  advanced: {
+    // Secure cookies in production (F-2.5) — never send session cookies
+    // over plain HTTP outside local development.
+    useSecureCookies: process.env.NODE_ENV === "production",
+  },
   session: {
     expiresIn: 60 * 60 * 24 * 30, // 30 days, as before
     updateAge: 60 * 60 * 24, // refresh the session cookie at most once a day

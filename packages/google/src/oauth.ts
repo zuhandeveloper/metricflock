@@ -6,7 +6,34 @@ import { hmacState, verifyHmacState, hashToken } from "@metricflock/shared";
 export const GA4_SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"];
 export const GSC_SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"];
 export const ADSENSE_SCOPES = ["https://www.googleapis.com/auth/adsense.readonly"];
-export const ALL_SCOPES = [...GA4_SCOPES, ...GSC_SCOPES, ...ADSENSE_SCOPES];
+export const AD_MANAGER_SCOPES = ["https://www.googleapis.com/auth/admanager.readonly"];
+// Identity scopes: getGoogleAccountProfile() calls oauth2 userinfo, which
+// requires an identity scope. Without these the callback only worked when
+// the same Google account had previously granted identity scopes via
+// better-auth Google sign-in (F-2.1a).
+export const IDENTITY_SCOPES = ["openid", "email"];
+export const ALL_SCOPES = [...IDENTITY_SCOPES, ...GA4_SCOPES, ...GSC_SCOPES, ...ADSENSE_SCOPES];
+export type GoogleProvider = "GA4" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER";
+export const REQUIRED_SCOPES_BY_PROVIDER: Record<GoogleProvider, string[]> = {
+  GA4: GA4_SCOPES,
+  SEARCH_CONSOLE: GSC_SCOPES,
+  ADSENSE: ADSENSE_SCOPES,
+  AD_MANAGER: AD_MANAGER_SCOPES,
+};
+/** Required scopes for `provider` that are absent from a connection's
+ * granted scope list (F-2.1c). Empty array = fully authorized. */
+export function missingScopesForProvider(granted: string[], provider: GoogleProvider): string[] {
+  const have = new Set(granted);
+  return REQUIRED_SCOPES_BY_PROVIDER[provider].filter((s) => !have.has(s));
+}
+/** Providers whose required scopes are missing from `granted` — the
+ * connection needs reauthorization for those providers (F-2.1d). Ad
+ * Manager is only required when the feature is enabled. */
+export function providersMissingScopes(granted: string[], opts: { adManagerEnabled: boolean }): GoogleProvider[] {
+  const providers: GoogleProvider[] = ["GA4", "SEARCH_CONSOLE", "ADSENSE"];
+  if (opts.adManagerEnabled) providers.push("AD_MANAGER");
+  return providers.filter((p) => missingScopesForProvider(granted, p).length > 0);
+}
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 export function getOAuthClient() {
   const clientId = process.env.GOOGLE_CLIENT_ID;

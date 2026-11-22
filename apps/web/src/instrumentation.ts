@@ -20,8 +20,8 @@ export async function register() {
       );
     }
     if (!process.env.SMTP_HOST) {
-      createLogger("startup").warn(
-        "SMTP_HOST is not configured: email verification and password-reset emails will be logged to the server console instead of sent. Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM to enable real delivery.",
+      createLogger("startup").error(
+        "SMTP_HOST is not configured: email verification and password-reset emails will NOT be delivered (bodies are never logged). Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM to enable real delivery.",
       );
     }
   }

@@ -41,6 +41,13 @@ describe("versioned envelope + key rotation (OAUTH-7)", () => {
     const enc = encryptToken("tok", "mf-conn:org:TEAM:team:a@b.c");
     expect(() => decryptToken(enc, "mf-conn:org:TEAM:other:a@b.c")).toThrow();
   });
+  it("rejects unknown envelope versions explicitly (F-2.4)", () => {
+    const enc = encryptToken("tok");
+    const v2 = enc.replace(/^v1:/, "v2:");
+    expect(() => decryptToken(v2)).toThrow("TOKEN_ENVELOPE_UNSUPPORTED");
+    const v99 = enc.replace(/^v1:/, "v99:");
+    expect(() => decryptToken(v99)).toThrow("TOKEN_ENVELOPE_UNSUPPORTED");
+  });
   it("decrypts legacy (pre-v1) ciphertexts and flags them for re-encryption", () => {
     const key = Buffer.from(process.env.GOOGLE_TOKEN_ENCRYPTION_KEY!, "base64");
     const iv = crypto.randomBytes(12);

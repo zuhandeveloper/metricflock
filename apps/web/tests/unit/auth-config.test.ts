@@ -11,6 +11,8 @@ type AnyOptions = {
   emailAndPassword?: { requireEmailVerification?: boolean; minPasswordLength?: number };
   account?: { accountLinking?: { requireLocalEmailVerified?: boolean } };
   databaseHooks?: { user?: { create?: { before?: unknown }; update?: { before?: unknown } } };
+  rateLimit?: { enabled?: boolean; customRules?: Record<string, { window?: number; max?: number }> };
+  advanced?: { useSecureCookies?: boolean };
 };
 
 const options = (auth as unknown as { options: AnyOptions }).options;
@@ -34,5 +36,14 @@ describe("better-auth security configuration", () => {
   it("user create and update hooks are registered", () => {
     expect(typeof options.databaseHooks?.user?.create?.before).toBe("function");
     expect(typeof options.databaseHooks?.user?.update?.before).toBe("function");
+  });
+  it("rate limiting is explicitly enabled with strict credential rules (F-2.5)", () => {
+    expect(options.rateLimit?.enabled).toBe(true);
+    expect(options.rateLimit?.customRules?.["/sign-in/email"]).toEqual({ window: 10, max: 3 });
+    expect(options.rateLimit?.customRules?.["/sign-up/email"]).toEqual({ window: 10, max: 3 });
+    expect(options.rateLimit?.customRules?.["/change-password"]).toEqual({ window: 10, max: 3 });
+  });
+  it("secure cookies are tied to production (F-2.5)", () => {
+    expect(options.advanced?.useSecureCookies).toBe(process.env.NODE_ENV === "production");
   });
 });

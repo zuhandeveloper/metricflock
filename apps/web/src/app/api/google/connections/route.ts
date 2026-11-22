@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth, connectionVisibilityWhere } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
+import { providersMissingScopes } from "@metricflock/google/oauth";
+import { adManagerEnabled } from "@metricflock/google/ad-manager";
 import { parsePagination } from "@/lib/pagination";
 export async function GET(req: NextRequest) {
   const auth = await requireApiAuth("google.connection.view");
@@ -33,5 +35,11 @@ export async function GET(req: NextRequest) {
     }),
     prisma.googleConnection.count({ where }),
   ]);
-  return NextResponse.json({ connections: conns, pagination: { total, limit, offset } });
+  // Reauthorization state (F-2.1c/d): providers whose required scopes are
+  // missing from the granted set. The UI prompts a reconnect for these.
+  const connections = conns.map((c) => {
+    const missingProviders = providersMissingScopes(c.scopes, { adManagerEnabled: adManagerEnabled() });
+    return { ...c, missingProviders, needsReauth: missingProviders.length > 0 };
+  });
+  return NextResponse.json({ connections, pagination: { total, limit, offset } });
 }

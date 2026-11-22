@@ -1,25 +1,45 @@
 import nodemailer from "nodemailer";
+import { createLogger } from "@metricflock/shared";
 
 // Transactional mail for auth flows (email verification, password reset).
 //
 // Configure with SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM.
 // Works with any SMTP provider (Gmail app password, Resend, SES, ...).
-// When SMTP is not configured the link is logged to the server console
-// instead of emailed — acceptable for local development, but production
-// deployments MUST set the SMTP_* variables or verification/reset emails
-// will never reach users. Startup validation warns about this in production
-// (see apps/web/src/instrumentation.ts). Never log the link when SMTP is
-// configured: it is a credential-equivalent secret.
+//
+// F-2.3: message bodies carry credential-equivalent secrets (verification
+// and password-reset URLs). They are NEVER written to logs — in any
+// environment — unless EMAIL_LOG_PREVIEW=true is set explicitly (a
+// development/CI convenience that prints the full message instead of
+// sending it). When SMTP is not configured and preview is off, the
+// failure is logged loudly (recipient + subject only) so the
+// misconfiguration is visible without leaking links into log storage.
 
 type MailInput = { to: string; subject: string; text: string };
 
-function smtpConfigured(): boolean {
-  return Boolean(process.env.SMTP_HOST);
+const log = createLogger("mailer");
+
+export type MailerMode = "smtp" | "preview" | "unconfigured";
+
+export function mailerMode(): MailerMode {
+  if (process.env.SMTP_HOST) return "smtp";
+  if (process.env.EMAIL_LOG_PREVIEW === "true") return "preview";
+  return "unconfigured";
 }
 
 export async function sendMail({ to, subject, text }: MailInput): Promise<void> {
-  if (!smtpConfigured()) {
-    console.warn(`[mailer] SMTP not configured — email to ${to} ("${subject}") was NOT sent. Message:\n${text}`);
+  const mode = mailerMode();
+  if (mode === "preview") {
+    log.warn("EMAIL_LOG_PREVIEW is on — email not sent, full message follows (dev/CI only)", { to, subject });
+    console.warn(`[mailer:preview] to=${to} subject="${subject}"\n${text}`);
+    return;
+  }
+  if (mode === "unconfigured") {
+    // Never log the body: it contains auth URLs. Recipient + subject are
+    // enough to diagnose the misconfiguration.
+    log.error("SMTP not configured — email NOT sent (set SMTP_HOST or EMAIL_LOG_PREVIEW=true for dev)", {
+      to,
+      subject,
+    });
     return;
   }
   const port = Number(process.env.SMTP_PORT ?? 587);

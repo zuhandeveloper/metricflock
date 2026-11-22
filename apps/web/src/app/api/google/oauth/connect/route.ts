@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth, assertConnectionOwnerAccess } from "@metricflock/auth";
-import { buildAuthUrl } from "@metricflock/google/oauth";
+import { buildAuthUrl, AD_MANAGER_SCOPES } from "@metricflock/google/oauth";
+import { adManagerEnabled } from "@metricflock/google/ad-manager";
 import { rateLimit } from "@metricflock/shared";
 import { z } from "zod";
 const q = z.object({ ownerType: z.enum(["TEAM", "WEBSITE"]), ownerId: z.string().min(1) });
@@ -23,7 +24,11 @@ export async function GET(req: NextRequest) {
   );
   if (!owner) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
   try {
-    const url = await buildAuthUrl(auth.user, parsed.data.ownerType, parsed.data.ownerId);
+    // Ad Manager's readonly scope is requested only when the feature is
+    // enabled (F-2.1b) — incremental authorization keeps the base consent
+    // screen minimal for everyone else.
+    const extraScopes = adManagerEnabled() ? AD_MANAGER_SCOPES : [];
+    const url = await buildAuthUrl(auth.user, parsed.data.ownerType, parsed.data.ownerId, extraScopes);
     // Browser navigation (the Integrations page links here directly):
     // send the user to Google's consent screen instead of returning
     // the URL as JSON, which rendered as raw text in the browser.

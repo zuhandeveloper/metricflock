@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getSessionUser, hasPermission } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { Card, EmptyState, ConnectionStatus } from "@/components/ui";
+import { providersMissingScopes } from "@metricflock/google/oauth";
+import { adManagerEnabled } from "@metricflock/google/ad-manager";
 import { DisconnectButton, DiscoverButton, MapPropertyForm } from "./ConnectionActions";
 export const dynamic = "force-dynamic";
 export default async function IntegrationsPage({ searchParams }: { searchParams: Promise<{ oauth?: string }> }) {
@@ -107,6 +109,23 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
                   Health:{" "}
                   {c.health.length ? c.health.map((h) => `${h.provider}:${h.status}`).join(", ") : "not checked yet"}
                 </p>
+                {(() => {
+                  const missing = providersMissingScopes(c.scopes, { adManagerEnabled: adManagerEnabled() });
+                  if (missing.length === 0) return null;
+                  return (
+                    <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                      Reconnect needed — this connection is missing required permissions for {missing.join(", ")}.{" "}
+                      {canManage && (
+                        <a
+                          className="underline"
+                          href={`/api/google/oauth/connect?ownerType=${c.ownerType}&ownerId=${c.ownerId}`}
+                        >
+                          Reconnect now
+                        </a>
+                      )}
+                    </p>
+                  );
+                })()}
                 {canManage && (
                   <div className="mt-2 space-y-2">
                     {c.properties.map((p) => (

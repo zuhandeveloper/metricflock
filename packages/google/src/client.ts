@@ -1,7 +1,7 @@
 import { google } from "googleapis";
 import { prisma } from "@metricflock/db";
 import { getValidAccessToken } from "./tokens";
-import { getOAuthClient } from "./oauth";
+import { getOAuthClient, missingScopesForProvider, type GoogleProvider } from "./oauth";
 export type ConnectionResolution =
   | { status: "connected"; connectionId: string; level: "WEBSITE" | "TEAM"; googleAccountEmail: string }
   | { status: "not_connected"; connectionId: null; level: null; googleAccountEmail: null };
@@ -63,7 +63,7 @@ export async function getAuthorizedClientForWebsite(websiteId: string) {
  *  (legacy rows predating the Stage 2 backfill). */
 export async function getAuthorizedClientForIntegration(
   websiteId: string,
-  integration: { googleConnectionId?: string | null },
+  integration: { googleConnectionId?: string | null; provider?: GoogleProvider },
 ) {
   if (integration.googleConnectionId) {
     const website = await prisma.website.findUnique({ where: { id: websiteId }, select: { organizationId: true } });
@@ -76,6 +76,12 @@ export async function getAuthorizedClientForIntegration(
       },
     });
     if (!conn) throw new Error("CONNECTION_REQUIRED");
+    // Scope check before any Google call (F-2.1c): a connection granted
+    // without this provider's scope can only produce a 403 — fail fast
+    // with a distinct, classifiable error so the UI can prompt reconnect.
+    if (integration.provider && missingScopesForProvider(conn.scopes, integration.provider).length > 0) {
+      throw new Error("SCOPE_MISSING");
+    }
     const accessToken = await getValidAccessToken(conn.id);
     const auth = getOAuthClient();
     auth.setCredentials({ access_token: accessToken });
