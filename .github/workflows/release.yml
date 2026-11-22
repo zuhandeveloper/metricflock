@@ -1,0 +1,36 @@
+name: Release
+
+# Pushing a git tag that starts with "v" (for example v0.1.0) creates
+# a GitHub Release with auto-generated notes from the commits since
+# the previous tag.
+#
+# How to trigger it:
+#   git tag v0.1.0
+#   git push origin v0.1.0
+#
+# MetricFlock deploys via Vercel on push to main, so this workflow
+# builds and uploads no artifacts — it only records the release.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Required to create the release.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        run: >-
+          gh release create "${{ github.ref_name }}"
+          --title "MetricFlock ${{ github.ref_name }}"
+          --generate-notes
