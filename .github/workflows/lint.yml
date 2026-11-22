@@ -1,0 +1,51 @@
+name: Lint
+
+# Repo hygiene checks that are not the compiler or the test suite:
+# Markdown trailing whitespace and workflow YAML validity.
+#
+# What is intentionally NOT here:
+# - Frontend lint (eslint), TypeScript typechecking, format check,
+#   unit tests, build and the smoke test live in ci.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege: these jobs only read the repository and run local
+# checks. No secrets are used anywhere in this workflow, so
+# pull_request runs from forks are safe.
+permissions:
+  contents: read
+
+# One run per ref at a time: a new push to a PR cancels the stale run,
+# but runs on main are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check trailing whitespace in Markdown
+        run: |
+          if find . -name '*.md' -not -path './node_modules/*' -print0 \
+            | xargs -0 grep -n ' $'; then
+            echo "Trailing whitespace found in Markdown files."
+            exit 1
+          fi
+
+      - name: Check workflow YAML parses
+        run: |
+          python3 -c "
+          import glob, sys, yaml
+          for f in sorted(glob.glob('.github/**/*.yml', recursive=True)):
+              yaml.safe_load(open(f))
+          print('All .github YAML files parse.')
+          "
