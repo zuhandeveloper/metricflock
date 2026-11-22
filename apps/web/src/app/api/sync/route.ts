@@ -3,7 +3,7 @@ import { withApiErrors } from "@/lib/api-error";
 import { getSessionUser } from "@metricflock/auth";
 import { hasPermission } from "@metricflock/auth";
 import { assertWebsiteAccess } from "@metricflock/auth";
-import { enqueue, SYNC_TYPE_BY_QUEUE } from "@metricflock/jobs";
+import { enqueue, SYNC_TYPE_BY_QUEUE, JOB_PRIORITY } from "@metricflock/jobs";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
 import { z } from "zod";
@@ -40,7 +40,11 @@ async function post(req: NextRequest) {
       payload: { websiteId: website.id, manual: true },
     },
   });
-  const job = await enqueue(body.data.type, { websiteId: website.id, syncJobRowId: row.id }, { jobId });
+  const job = await enqueue(
+    body.data.type,
+    { websiteId: website.id, syncJobRowId: row.id },
+    { jobId, priority: JOB_PRIORITY.MANUAL },
+  );
   if (!job) {
     await prisma.analyticsSyncJob.update({
       where: { id: row.id },

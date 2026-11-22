@@ -5,6 +5,7 @@ import { prisma } from "@metricflock/db";
 import { revokeConnection } from "@metricflock/google/tokens";
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateOrgCache } from "@metricflock/shared";
+import { invalidateOrgSnapshots } from "@metricflock/db/snapshots";
 import { z } from "zod";
 const schema = z.object({ connectionId: z.string().min(1) });
 async function post(req: NextRequest) {
@@ -34,6 +35,7 @@ async function post(req: NextRequest) {
     details: { googleAccountEmail: conn.googleAccountEmail },
   });
   await invalidateOrgCache(auth.user.organizationId);
+  await invalidateOrgSnapshots(auth.user.organizationId);
   return NextResponse.json({ status: "ok" });
 }
 

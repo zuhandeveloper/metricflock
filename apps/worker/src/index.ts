@@ -12,7 +12,13 @@ import { createServer } from "node:http";
 import { Worker, type Job } from "bullmq";
 import { getRedis, bullConnectionOptions, createLogger, errMeta, incr, counterSnapshot } from "@metricflock/shared";
 import { prisma } from "@metricflock/db";
-import { QUEUE_NAMES, SYNC_TYPE_BY_QUEUE, intervalMsForQueue, type QueueName } from "@metricflock/jobs";
+import {
+  QUEUE_NAMES,
+  SYNC_TYPE_BY_QUEUE,
+  intervalMsForQueue,
+  jitteredBackoffMs,
+  type QueueName,
+} from "@metricflock/jobs";
 import {
   syncWebsite,
   refreshConnection,
@@ -187,12 +193,18 @@ for (const name of QUEUE_NAMES) {
             log.error("sync failure alert email failed", { queue: name, websiteId, ...errMeta(e) }),
           );
         }
-        throw err; // BullMQ retries with exponential backoff (queue.ts)
+        throw err; // BullMQ retries with jittered exponential backoff (queue.ts)
       }
     },
     // OPS-10: BullMQ owns dedicated connections (options, not the shared
     // cache client) with maxRetriesPerRequest: null.
-    { connection: bullConnection, concurrency: 5, limiter: LIMITERS[name] },
+    // Phase 5 (F-5.5): custom backoff strategy = exponential + jitter.
+    {
+      connection: bullConnection,
+      concurrency: 5,
+      limiter: LIMITERS[name],
+      settings: { backoffStrategy: (attemptsMade: number) => jitteredBackoffMs(attemptsMade) },
+    },
   );
   worker.on("completed", () => incr(`jobs.succeeded.${name}`));
   worker.on("failed", (job, err) => {

@@ -10,6 +10,7 @@ import { prisma } from "@metricflock/db";
 import { mapPropertySchema } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateWebsiteCache } from "@metricflock/shared";
+import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
 
 // Resolves a discovered property (by provider + externalId) inside the
 // caller's organization. A mapping may only point at a property that was
@@ -148,6 +149,7 @@ async function post(req: NextRequest) {
     details: { provider: body.data.provider, externalId: body.data.externalId, connectionId: resolved.connectionId },
   });
   await invalidateWebsiteCache(auth.user.organizationId, website.id);
+  await invalidateWebsiteSnapshots(website.id);
   return NextResponse.json({ integration });
 }
 

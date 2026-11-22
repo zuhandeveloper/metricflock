@@ -5,6 +5,7 @@ import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateWebsiteCache } from "@metricflock/shared";
+import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
 
 // Completes an accepted transfer. This is the ONLY step that moves
 // anything: teamId switches to the destination team, the old team's
@@ -63,6 +64,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     },
   });
   await invalidateWebsiteCache(auth.user.organizationId, transfer.websiteId);
+  await invalidateWebsiteSnapshots(transfer.websiteId);
   return NextResponse.json({
     transfer: updated,
     note: "Transfer completed. The destination team should now discover and map its properties for this website.",

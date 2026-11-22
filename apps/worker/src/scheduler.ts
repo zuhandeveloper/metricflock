@@ -12,7 +12,14 @@ import { prisma } from "@metricflock/db";
 import { getRedis, createLogger, errMeta, incr, auditRetentionDays } from "@metricflock/shared";
 
 const log = createLogger("scheduler");
-import { enqueueBulk, getQueue, planDueSyncs, type EnqueueEntry, type SyncProviderName } from "@metricflock/jobs";
+import {
+  enqueueBulk,
+  getQueue,
+  planDueSyncs,
+  JOB_PRIORITY,
+  type EnqueueEntry,
+  type SyncProviderName,
+} from "@metricflock/jobs";
 import { adManagerEnabled } from "@metricflock/google/ad-manager";
 
 type RedisClient = NonNullable<ReturnType<typeof getRedis>>;
@@ -105,6 +112,8 @@ async function runTick(): Promise<void> {
     data: { websiteId: p.websiteId },
     jobId: p.jobId,
     delayMs: p.delayMs,
+    // Realtime refreshes outrank other scheduled work (F-5.5).
+    priority: p.queue === "ga4-realtime-sync" ? JOB_PRIORITY.REALTIME : JOB_PRIORITY.SCHEDULED,
   }));
 
   const expiring = await prisma.googleConnection.findMany({

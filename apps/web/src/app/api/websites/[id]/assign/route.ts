@@ -5,6 +5,7 @@ import { prisma } from "@metricflock/db";
 import { assertWebsiteManageAccess } from "@metricflock/auth";
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateWebsiteCache } from "@metricflock/shared";
+import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
 import { z } from "zod";
 const schema = z.object({ userId: z.string().min(1), action: z.enum(["assign", "remove"]).default("assign") });
 async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -39,6 +40,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     details: { userId: target.id },
   });
   await invalidateWebsiteCache(auth.user.organizationId, id);
+  await invalidateWebsiteSnapshots(id);
   return NextResponse.json({ status: "ok" });
 }
 

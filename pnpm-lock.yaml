@@ -419,6 +419,9 @@ importers:
       '@metricflock/db':
         specifier: workspace:*
         version: link:../db
+      '@metricflock/jobs':
+        specifier: workspace:*
+        version: link:../jobs
       '@metricflock/shared':
         specifier: workspace:*
         version: link:../shared

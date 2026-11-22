@@ -16,6 +16,7 @@
 //   it into BullMQ's RateLimitError so the job is delayed, not failed.
 import { prisma } from "@metricflock/db";
 import { recordHealth } from "@metricflock/db/health";
+import { snapshotTtlSeconds } from "@metricflock/jobs";
 import { buildCacheKey, cacheSet, rateLimit } from "@metricflock/shared";
 import { getAuthorizedClientForWebsite, getAuthorizedClientForIntegration, getPrimaryIntegration } from "./client";
 import {
@@ -55,6 +56,10 @@ export type SyncDeps = {
   getPrimaryIntegration: typeof getPrimaryIntegration;
   getWebsiteOrganizationId: (websiteId: string) => Promise<string>;
   cacheSet: typeof cacheSet;
+  /** Hybrid snapshots (Phase 5, F-5.4): persist each synced report to
+   * the DB snapshot layer. Optional so existing test fakes keep
+   * working; production defaults wire the real implementation. */
+  writeSnapshot?: (cacheKey: string, websiteId: string, payload: unknown, ttlSeconds: number) => Promise<void>;
   recordHealth: typeof recordHealth;
   rateLimit: typeof rateLimit;
   ga4: {
@@ -101,6 +106,10 @@ export const defaultSyncDeps: SyncDeps = {
     return website.organizationId;
   },
   cacheSet,
+  writeSnapshot: async (cacheKey, websiteId, payload, ttlSeconds) => {
+    const { writeSnapshot } = await import("@metricflock/db/snapshots");
+    await writeSnapshot(cacheKey, websiteId, payload, ttlSeconds);
+  },
   recordHealth,
   rateLimit,
   ga4: {
@@ -244,6 +253,12 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
         range: `${range.startDate}_${range.endDate}`,
       });
       await deps.cacheSet(cacheKey, data, ttlSeconds);
+      // Hybrid (F-5.4): also persist a DB snapshot so dashboards can
+      // serve this sync without a live Google call. Snapshot failures
+      // must not fail the sync — Redis is already warmed.
+      await deps
+        .writeSnapshot?.(cacheKey, websiteId, data, snapshotTtlSeconds(report, ttlSeconds))
+        .catch(() => undefined);
       written.push(report);
     }
   } catch (e) {

@@ -4,6 +4,7 @@ import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertWebsiteAccess, assertWebsiteManageAccess, assertTeamManageAccess } from "@metricflock/auth";
 import { websiteCreateSchema, invalidateWebsiteCache } from "@metricflock/shared";
+import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
 import { writeAudit } from "@metricflock/db/audit";
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("website.view");
@@ -113,6 +114,7 @@ async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
     details: { domain: website.domain },
   });
   await invalidateWebsiteCache(auth.user.organizationId, id);
+  await invalidateWebsiteSnapshots(id);
   return NextResponse.json({ status: "ok" });
 }
 

@@ -6,36 +6,70 @@ import { MetricCard, Card, Badge, EmptyState } from "@/components/ui";
 import DateRangePicker from "@/components/DateRangePicker";
 import Link from "next/link";
 export const dynamic = "force-dynamic";
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
+
+// Phase 5 (F-5.6): every query on this page is bounded. Counts come
+// from COUNT/groupBy aggregates (never "load all rows and filter in
+// JS"), and the website table is paginated — at 10k websites the old
+// shape loaded every website + integration row and scanned O(W×I).
+const PAGE_SIZE = 50;
+const CONNECTIONS_SHOWN = 50;
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string; page?: string }>;
+}) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  const { range } = await searchParams;
+  const { range, page: pageParam } = await searchParams;
+  const page = Math.max(1, Number.parseInt(pageParam ?? "1", 10) || 1);
   const ids = await listAccessibleWebsiteIds(user);
   const websiteWhere =
     ids === null ? { organizationId: user.organizationId } : { organizationId: user.organizationId, id: { in: ids } };
-  const [websites, teams, members, connections, integrations] = await Promise.all([
+  const [
+    totalWebsites,
+    websites,
+    teams,
+    members,
+    connectionTotal,
+    connectionActive,
+    connections,
+    connected,
+    providerCounts,
+  ] = await Promise.all([
+    prisma.website.count({ where: websiteWhere }),
     prisma.website.findMany({
       where: websiteWhere,
       include: { team: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
     }),
     prisma.team.count({ where: { organizationId: user.organizationId } }),
     prisma.user.count({ where: { organizationId: user.organizationId } }),
+    prisma.googleConnection.count({ where: { organizationId: user.organizationId } }),
+    prisma.googleConnection.count({ where: { organizationId: user.organizationId, status: "ACTIVE" } }),
     prisma.googleConnection.findMany({
       where: { organizationId: user.organizationId },
       select: { id: true, googleAccountEmail: true, status: true, ownerType: true },
+      orderBy: { createdAt: "desc" },
+      take: CONNECTIONS_SHOWN,
     }),
-    prisma.websiteIntegration.findMany({
-      where: { website: { organizationId: user.organizationId } },
-      select: { provider: true, mappingStatus: true, websiteId: true },
+    // DATA-4: a website counts as connected only when IT has a mapped
+    // integration — one COUNT with a relation filter, not a JS scan.
+    prisma.website.count({
+      where: { ...websiteWhere, integrations: { some: { mappingStatus: "MAPPED" } } },
+    }),
+    prisma.websiteIntegration.groupBy({
+      by: ["provider"],
+      where: { website: websiteWhere },
+      _count: { _all: true },
     }),
   ]);
-  // DATA-4: a website counts as connected only when IT has a mapped
-  // integration — not when any integration in the org is mapped.
-  const connected = websites.filter((w) =>
-    integrations.some((i) => i.websiteId === w.id && i.mappingStatus === "MAPPED"),
-  ).length;
-  // FE-4: per-website last successful sync (one windowed groupBy).
+  const totalPages = Math.max(1, Math.ceil(totalWebsites / PAGE_SIZE));
+  const byProvider = new Map(providerCounts.map((r) => [r.provider, r._count._all]));
+  // FE-4: per-website last successful sync (one windowed groupBy over
+  // just this page's websites).
   const lastSyncRows = await prisma.analyticsSyncJob.groupBy({
     by: ["websiteId"],
     where: {
@@ -46,6 +80,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     _max: { updatedAt: true },
   });
   const lastSyncByWebsite = new Map(lastSyncRows.map((r) => [r.websiteId, r._max.updatedAt]));
+  const pageHref = (p: number) => {
+    const params = new URLSearchParams();
+    if (range) params.set("range", range);
+    if (p > 1) params.set("page", String(p));
+    const qs = params.toString();
+    return qs ? `/dashboard?${qs}` : "/dashboard";
+  };
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -84,96 +125,127 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </Card>
       )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <MetricCard label="Total websites" value={String(websites.length)} />
+        <MetricCard label="Total websites" value={String(totalWebsites)} />
         <MetricCard
           label="Connected websites"
           value={String(connected)}
-          sub={`${websites.length - connected} without a mapped property`}
+          sub={`${totalWebsites - connected} without a mapped property`}
         />
         <MetricCard label="Teams" value={String(teams)} />
         <MetricCard label="Members" value={String(members)} />
-        <MetricCard
-          label="Google accounts"
-          value={String(connections.length)}
-          sub={`${connections.filter((c) => c.status === "ACTIVE").length} active`}
-        />
-        <MetricCard label="GA4 mappings" value={String(integrations.filter((i) => i.provider === "GA4").length)} />
-        <MetricCard
-          label="Search Console"
-          value={String(integrations.filter((i) => i.provider === "SEARCH_CONSOLE").length)}
-        />
-        <MetricCard label="AdSense" value={String(integrations.filter((i) => i.provider === "ADSENSE").length)} />
+        <MetricCard label="Google accounts" value={String(connectionTotal)} sub={`${connectionActive} active`} />
+        <MetricCard label="GA4 mappings" value={String(byProvider.get("GA4") ?? 0)} />
+        <MetricCard label="Search Console" value={String(byProvider.get("SEARCH_CONSOLE") ?? 0)} />
+        <MetricCard label="AdSense" value={String(byProvider.get("ADSENSE") ?? 0)} />
       </div>
       <Card className="p-4">
         <h2 className="font-semibold">Websites</h2>
-        {websites.length === 0 ? (
+        {totalWebsites === 0 ? (
           <EmptyState
             title="No websites yet"
             hint="Add a website, then connect a Google account and map its properties."
           />
         ) : (
-          <table className="mt-3 w-full text-sm">
-            <thead>
-              <tr className="text-left text-zinc-500">
-                <th scope="col" className="py-2">
-                  Website
-                </th>
-                <th scope="col">Team</th>
-                <th scope="col">Status</th>
-                <th scope="col">Last synced</th>
-                <th scope="col">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {websites.map((w) => (
-                <tr key={w.id} className="border-t border-zinc-100 dark:border-zinc-800">
-                  <td className="py-2 font-medium">
-                    {w.name}
-                    <span className="block text-xs text-zinc-500">{w.domain}</span>
-                  </td>
-                  <td>{w.team?.name ?? "—"}</td>
-                  <td>
-                    <Badge tone={w.status === "ACTIVE" ? "green" : w.status === "PENDING_SETUP" ? "amber" : "zinc"}>
-                      {w.status}
-                    </Badge>
-                  </td>
-                  <td className="text-zinc-500">
-                    {lastSyncByWebsite.get(w.id)?.toISOString().slice(0, 16).replace("T", " ") ?? "never"}
-                  </td>
-                  <td className="text-right">
-                    <Link
-                      href={`/websites/${w.id}`}
-                      className="rounded text-blue-600 hover:underline focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                    >
-                      Open analytics →
-                    </Link>
-                  </td>
+          <>
+            <table className="mt-3 w-full text-sm">
+              <thead>
+                <tr className="text-left text-zinc-500">
+                  <th scope="col" className="py-2">
+                    Website
+                  </th>
+                  <th scope="col">Team</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Last synced</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {websites.map((w) => (
+                  <tr key={w.id} className="border-t border-zinc-100 dark:border-zinc-800">
+                    <td className="py-2 font-medium">
+                      {w.name}
+                      <span className="block text-xs text-zinc-500">{w.domain}</span>
+                    </td>
+                    <td>{w.team?.name ?? "—"}</td>
+                    <td>
+                      <Badge tone={w.status === "ACTIVE" ? "green" : w.status === "PENDING_SETUP" ? "amber" : "zinc"}>
+                        {w.status}
+                      </Badge>
+                    </td>
+                    <td className="text-zinc-500">
+                      {lastSyncByWebsite.get(w.id)?.toISOString().slice(0, 16).replace("T", " ") ?? "never"}
+                    </td>
+                    <td className="text-right">
+                      <Link
+                        href={`/websites/${w.id}`}
+                        className="rounded text-blue-600 hover:underline focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                      >
+                        Open analytics →
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {totalPages > 1 && (
+              <nav aria-label="Websites pagination" className="mt-3 flex items-center justify-between text-sm">
+                <span className="text-zinc-500">
+                  Page {page} of {totalPages} · {totalWebsites} websites
+                </span>
+                <span className="flex gap-2">
+                  {page > 1 && (
+                    <Link
+                      href={pageHref(page - 1)}
+                      className="rounded-lg border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none dark:border-zinc-700 dark:hover:bg-zinc-800"
+                    >
+                      ← Previous
+                    </Link>
+                  )}
+                  {page < totalPages && (
+                    <Link
+                      href={pageHref(page + 1)}
+                      className="rounded-lg border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none dark:border-zinc-700 dark:hover:bg-zinc-800"
+                    >
+                      Next →
+                    </Link>
+                  )}
+                </span>
+              </nav>
+            )}
+          </>
         )}
       </Card>
       <Card className="p-4">
         <h2 className="font-semibold">Google connections</h2>
-        {connections.length === 0 ? (
+        {connectionTotal === 0 ? (
           <EmptyState
             title="No Google accounts connected"
             hint="Connect a team or website Google account from Integrations."
           />
         ) : (
-          <ul className="mt-2 space-y-1 text-sm">
-            {connections.map((c) => (
-              <li key={c.id} className="flex justify-between gap-2">
-                <span>
-                  {c.googleAccountEmail} <span className="text-zinc-500">({c.ownerType})</span>
-                </span>
-                <Badge tone={c.status === "ACTIVE" ? "green" : "amber"}>{c.status}</Badge>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="mt-2 space-y-1 text-sm">
+              {connections.map((c) => (
+                <li key={c.id} className="flex justify-between gap-2">
+                  <span>
+                    {c.googleAccountEmail} <span className="text-zinc-500">({c.ownerType})</span>
+                  </span>
+                  <Badge tone={c.status === "ACTIVE" ? "green" : "amber"}>{c.status}</Badge>
+                </li>
+              ))}
+            </ul>
+            {connectionTotal > CONNECTIONS_SHOWN && (
+              <p className="mt-2 text-xs text-zinc-500">
+                Showing the {CONNECTIONS_SHOWN} most recent of {connectionTotal} connections — manage all of them from{" "}
+                <Link href="/integrations" className="text-blue-600 hover:underline">
+                  Integrations
+                </Link>
+                .
+              </p>
+            )}
+          </>
         )}
       </Card>
     </div>

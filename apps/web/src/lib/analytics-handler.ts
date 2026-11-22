@@ -11,7 +11,8 @@ import {
 } from "@metricflock/google/client";
 import { getGa4Client } from "@metricflock/google/ga4";
 import { lastSuccessfulSync } from "@metricflock/db/health";
-import { SYNC_TYPE_BY_REPORT } from "@metricflock/jobs";
+import { readSnapshot, writeSnapshot } from "@metricflock/db/snapshots";
+import { SYNC_TYPE_BY_REPORT, snapshotTtlSeconds } from "@metricflock/jobs";
 import type { Permission } from "@metricflock/auth";
 import type { OAuth2Client } from "@metricflock/google/auth-types";
 
@@ -138,6 +139,27 @@ export async function handleAnalyticsRequest(
       range: { startDate: sd, endDate: ed },
     });
   }
+  // Hybrid read order (Phase 5, F-5.4): Redis → fresh DB snapshot →
+  // live Google. A snapshot written by the worker's scheduled sync (or
+  // an earlier live fetch) serves the request without spending Google
+  // quota; it is labeled "snapshot", never passed off as live.
+  const snapshot = await readSnapshot(cacheKey).catch(() => null);
+  if (snapshot && snapshot.expiresAt.getTime() > Date.now()) {
+    incr("snapshot.hit");
+    // Re-warm Redis so the next request is a cache hit.
+    await cacheSet(cacheKey, snapshot.payload, opts.cacheTtlSeconds);
+    return analyticsEnvelope({
+      data: snapshot.payload,
+      websiteId,
+      includedWebsites: [websiteId],
+      unavailableWebsites: [],
+      lastSyncedAt: syncType ? await lastSuccessfulSync(websiteId, syncType) : null,
+      dataSource: opts.source,
+      freshness: "snapshot",
+      range: { startDate: sd, endDate: ed },
+    });
+  }
+  if (snapshot) incr("snapshot.stale");
   // OPS-6 single-flight: one request per cache key calls Google; concurrent
   // cold requests wait briefly for the winner's cache write instead of
   // stampeding the provider (and burning quota) in parallel.
@@ -177,6 +199,11 @@ export async function handleAnalyticsRequest(
       endDate: ed,
     });
     await cacheSet(cacheKey, data, opts.cacheTtlSeconds);
+    // Hybrid (F-5.4): persist the live result as a DB snapshot too, so
+    // later views (and Redis restarts) don't need another Google call.
+    await writeSnapshot(cacheKey, websiteId, data, snapshotTtlSeconds(opts.report, opts.cacheTtlSeconds)).catch(
+      () => undefined,
+    );
     if (format === "csv" && opts.csv) {
       return new NextResponse(opts.csv(data), {
         headers: {
@@ -213,9 +240,23 @@ export async function handleAnalyticsRequest(
     incr(quota ? "provider.quota_error" : "provider.error");
     // OPS-6 true stale-while-revalidate: on provider error, serve the stale
     // value we already hold (labeled stale) instead of failing the request.
+    // Hybrid (F-5.4): a stale DB snapshot is the next fallback.
     if (cached) {
       return analyticsEnvelope({
         data: cached.value,
+        websiteId,
+        includedWebsites: [websiteId],
+        unavailableWebsites: [],
+        lastSyncedAt: syncType ? await lastSuccessfulSync(websiteId, syncType) : null,
+        dataSource: opts.source,
+        freshness: "stale",
+        range: { startDate: sd, endDate: ed },
+      });
+    }
+    if (snapshot) {
+      incr("snapshot.stale_served");
+      return analyticsEnvelope({
+        data: snapshot.payload,
         websiteId,
         includedWebsites: [websiteId],
         unavailableWebsites: [],

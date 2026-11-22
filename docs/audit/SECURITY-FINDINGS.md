@@ -279,6 +279,51 @@ connection_scope_mismatch`); permission matrix documented in
   export contains no token/password fields; org delete slug-gated,
   deleted owner sign-in 401) + `audit-retention.test.ts`. **Phase 4
   complete locally (4.1 + 4.2 + 4.3).**
+  **Update 2026-11-22: pushed (cdde45f2) — CI #187 SUCCESS (27
+  files/141 tests, smoke ALL CHECKS PASSED incl. the phase4
+  data-lifecycle line, e2e 4/4). The smoke-stage2 DB-constraint
+  assertions ran inside the fixture (its stdout is captured into a
+  shell variable, so the confirmation line is not in the CI log; any
+  failed assertion would exit the fixture non-zero and fail the smoke
+  step). Phase 4 closed. Deploy note: production must run
+  `pnpm db:migrate` before deploying this commit.**
+- **2026-11-22 — Phase 5 (5.2–5.4) implemented locally, pending push
+  - CI; 5.1 (F-5.4) awaiting Gulzaib's architecture decision.**
+    F-5.5: jittered exponential backoff (`jitteredBackoffMs` in
+    @metricflock/jobs, 60s base doubling, 1h cap, 0.5–1.0 jitter factor;
+    registered as every Worker's custom backoffStrategy; queue default
+    backoff type "custom") + job priorities (`JOB_PRIORITY`: manual 1,
+    requeue 2, realtime 5, scheduled 10 — wired into sync route,
+    requeue route, scheduler bulk). F-5.6: dashboard page fully bounded
+    — COUNT/groupBy aggregates instead of loading all rows, website
+    table paginated (50/page), connections list capped at 50, last-sync
+    groupBy scoped to the page; provider counts now scoped to
+    accessible websites (previously org-wide for restricted users).
+    Brief 5.3: `packages/db/scripts/benchmark-scale.ts` (scratch-org
+    DB benchmark at 100/1k/10k, prod-host refusal guard) +
+    `docs/audit/BENCHMARKS.md` — local JS simulation: old O(W×I)
+    connected-count took 3,019 ms at 10k websites vs 8.75 ms for the
+    single-pass shape (~345×); DB timings pending a staging run (no
+    Postgres in sandbox). Tests: `job-backoff.test.ts` (jitter bounds,
+    priority ordering). Verified locally: format/lint ✓, turbo
+    typecheck/test/build 10/10 ✓ (146 tests; one transient web#test
+    failure under parallel load, green on re-run).
+    **F-5.4 hybrid implemented 2026-11-22 on Gulzaib's choice
+    ("Hybrid rakho — snapshot pehle, miss par live"):** new
+    `@metricflock/db/snapshots` (write/read/invalidate over the
+    previously-unused AnalyticsCache table); read order in
+    analytics-handler is now Redis → fresh DB snapshot (labeled
+    `freshness: "snapshot"`, re-warms Redis) → live Google (writes
+    both layers); stale snapshot is the provider-error fallback after
+    stale Redis. Worker sync writes snapshots for every synced report
+    (optional `writeSnapshot` dep; failures never fail the sync).
+    Snapshot freshness = max(cache TTL, sync interval) via
+    `snapshotTtlSeconds` in @metricflock/jobs (google package gained a
+    workspace dep on jobs). Invalidation: all 6 Redis-invalidation
+    call sites now also invalidate snapshots (map, assign, website
+    PATCH, transfer complete, disconnect, OAuth callback); website/org
+    deletion cascades via FK. Tests: `snapshot-ttl.test.ts`. Verified:
+    format/lint ✓, turbo 10/10 ✓. **Phase 5 complete locally.**
 
 ### F-6.8 CSP — CONFIRMED (documented tradeoff), Medium
 

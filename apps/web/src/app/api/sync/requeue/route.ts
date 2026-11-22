@@ -3,7 +3,7 @@ import { withApiErrors, requestIdOf } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
-import { enqueue, QUEUE_BY_SYNC_TYPE } from "@metricflock/jobs";
+import { enqueue, QUEUE_BY_SYNC_TYPE, JOB_PRIORITY } from "@metricflock/jobs";
 import { z } from "zod";
 
 const schema = z.object({ jobId: z.string().min(1) });
@@ -27,7 +27,11 @@ async function post(req: NextRequest) {
   // BullMQ custom jobIds may contain ":" only as exactly 3 colon-separated
   // parts (legacy compat check) — the enqueue default embeds JSON, which
   // would throw. Explicit 3-part id, unique per requeue.
-  const job = await enqueue(queue, { ...payload, syncJobRowId: row.id }, { jobId: `requeue:${row.id}:${Date.now()}` });
+  const job = await enqueue(
+    queue,
+    { ...payload, syncJobRowId: row.id },
+    { jobId: `requeue:${row.id}:${Date.now()}`, priority: JOB_PRIORITY.REQUEUE },
+  );
   if (!job) return NextResponse.json({ error: "queue_unavailable" }, { status: 503 });
   await prisma.analyticsSyncJob.update({
     where: { id: row.id },

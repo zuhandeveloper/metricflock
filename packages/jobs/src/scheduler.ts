@@ -8,7 +8,13 @@
 // 300s (100 sites ≈ 20/min produced, matching the limiter), with per-site
 // coalescing (stable jobId) and hash stagger bounding the backlog at any
 // scale. Override with SYNC_GA4_REALTIME_SECONDS if quota allows.
-import { SYNC_TYPE_BY_QUEUE, type QueueName, type SyncJobTypeName } from "./queue";
+import {
+  SYNC_TYPE_BY_QUEUE,
+  SYNC_TYPE_BY_REPORT,
+  QUEUE_BY_SYNC_TYPE,
+  type QueueName,
+  type SyncJobTypeName,
+} from "./queue";
 export const SYNC_INTERVALS = {
   ga4RealtimeSeconds: Number(process.env.SYNC_GA4_REALTIME_SECONDS ?? 300),
   ga4DailyMinutes: 5,
@@ -48,6 +54,18 @@ export function intervalMsForQueue(queue: QueueName, intervals: typeof SYNC_INTE
     default:
       return Number.POSITIVE_INFINITY; // oauth-refresh / discovery / cache-refresh are event-driven, not interval-driven
   }
+}
+
+/** Freshness window for a DB analytics snapshot (Phase 5, F-5.4
+ * hybrid): a snapshot stays servable until the next scheduled sync
+ * would refresh it anyway — max(Redis cache TTL, the report's sync
+ * interval). Unknown reports fall back to the cache TTL. */
+export function snapshotTtlSeconds(report: string, cacheTtlSeconds: number): number {
+  const syncType = SYNC_TYPE_BY_REPORT[report];
+  const queue = syncType ? QUEUE_BY_SYNC_TYPE[syncType] : undefined;
+  const intervalMs = queue ? intervalMsForQueue(queue) : Number.NaN;
+  if (!Number.isFinite(intervalMs)) return cacheTtlSeconds;
+  return Math.max(cacheTtlSeconds, Math.round(intervalMs / 1000));
 }
 
 /** Queues a website's mapped providers make it eligible for. */

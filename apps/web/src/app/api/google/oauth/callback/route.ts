@@ -5,6 +5,7 @@ import { parseState, consumeOAuthState, getOAuthClient, getGoogleAccountProfile 
 import { encryptToken, connectionAad, rateLimit, clientIpFromHeaders } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateOrgCache } from "@metricflock/shared";
+import { invalidateOrgSnapshots } from "@metricflock/db/snapshots";
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
@@ -116,6 +117,7 @@ export async function GET(req: NextRequest) {
       details: { ownerType: flow.ownerType, ownerId: flow.ownerId, googleAccountEmail: email },
     });
     await invalidateOrgCache(user.organizationId);
+    await invalidateOrgSnapshots(user.organizationId);
     return NextResponse.redirect(`${appUrl}/integrations?oauth=connected`);
   } catch {
     return NextResponse.redirect(`${appUrl}/integrations?oauth=failed`);

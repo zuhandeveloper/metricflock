@@ -46,6 +46,26 @@ export const SYNC_TYPE_BY_REPORT: Record<string, SyncJobTypeName> = {
   "ad-manager": "AD_MANAGER",
 };
 const queues = new Map<string, Queue>();
+
+/** Job priorities (Phase 5, F-5.5): BullMQ processes lower numbers
+ * first. User-triggered work outranks scheduled background sync so a
+ * "Sync now" click is never stuck behind a 10k-site schedule sweep. */
+export const JOB_PRIORITY = {
+  MANUAL: 1,
+  REQUEUE: 2,
+  REALTIME: 5,
+  SCHEDULED: 10,
+} as const;
+
+/** Exponential backoff with jitter (Phase 5, F-5.5): 60s doubling per
+ * attempt, capped at 1h, scaled by a random 0.5–1.0 factor so retries
+ * from many jobs failing together (e.g. a Google outage) spread out
+ * instead of stampeding at the same instant. `rand` is injectable for
+ * tests. Registered as the workers' custom BullMQ backoffStrategy. */
+export function jitteredBackoffMs(attemptsMade: number, rand: () => number = Math.random): number {
+  const base = Math.min(60_000 * 2 ** Math.max(0, attemptsMade), 3_600_000);
+  return Math.round(base * (0.5 + rand() * 0.5));
+}
 export function getQueue(name: QueueName): Queue | null {
   // OPS-10: BullMQ gets connection OPTIONS (dedicated connections,
   // maxRetriesPerRequest: null), never the shared cache client.
@@ -55,13 +75,22 @@ export function getQueue(name: QueueName): Queue | null {
   return queues.get(name)!;
 }
 
-export type EnqueueEntry = { name: QueueName; data: Record<string, unknown>; jobId: string; delayMs?: number };
+export type EnqueueEntry = {
+  name: QueueName;
+  data: Record<string, unknown>;
+  jobId: string;
+  delayMs?: number;
+  priority?: number;
+};
 
-function jobOptions(name: QueueName, jobId: string, delayMs?: number) {
+function jobOptions(name: QueueName, jobId: string, delayMs?: number, priority?: number) {
   return {
     jobId,
     attempts: 5,
-    backoff: { type: "exponential" as const, delay: 60_000 },
+    // Custom strategy (jitteredBackoffMs) registered on every Worker —
+    // plain "exponential" has no jitter and retries would synchronize.
+    backoff: { type: "custom" as const },
+    priority: priority ?? JOB_PRIORITY.SCHEDULED,
     // Realtime jobs are coalesced by stable jobId (OPS-2): the completed
     // job must be removed immediately or BullMQ would dedupe the NEXT
     // cycle's enqueue against the finished one. Other queues keep a
@@ -76,7 +105,7 @@ function jobOptions(name: QueueName, jobId: string, delayMs?: number) {
 export async function enqueue(
   name: QueueName,
   data: Record<string, unknown>,
-  opts: { jobId?: string; delayMs?: number } = {},
+  opts: { jobId?: string; delayMs?: number; priority?: number } = {},
 ) {
   const q = getQueue(name);
   if (!q) return null;
@@ -85,7 +114,7 @@ export async function enqueue(
     data,
     // Default id: exactly 3 colon-separated parts (BullMQ rejects custom
     // ids with ":" in any other shape; JSON payloads contain colons).
-    jobOptions(name, opts.jobId ?? `${name}:${randomUUID()}:${Date.now()}`, opts.delayMs),
+    jobOptions(name, opts.jobId ?? `${name}:${randomUUID()}:${Date.now()}`, opts.delayMs, opts.priority),
   );
 }
 
@@ -102,7 +131,7 @@ export async function enqueueBulk(entries: EnqueueEntry[]): Promise<number> {
   for (const [name, list] of byQueue) {
     const q = getQueue(name);
     if (!q) continue;
-    await q.addBulk(list.map((e) => ({ name, data: e.data, opts: jobOptions(name, e.jobId, e.delayMs) })));
+    await q.addBulk(list.map((e) => ({ name, data: e.data, opts: jobOptions(name, e.jobId, e.delayMs, e.priority) })));
     submitted += list.length;
   }
   return submitted;

@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@metricflock/db": "workspace:*",
+    "@metricflock/jobs": "workspace:*",
     "@metricflock/shared": "workspace:*",
     "google-auth-library": "11.3.4",
     "googleapis": "^190.0.0"

@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/client.ts",
     "./audit": "./src/audit.ts",
-    "./health": "./src/health.ts"
+    "./health": "./src/health.ts",
+    "./snapshots": "./src/snapshots.ts"
   },
   "scripts": {
     "build": "cross-env DOTENV_CONFIG_PATH=../../apps/web/.env prisma generate",
