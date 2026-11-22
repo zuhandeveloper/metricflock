@@ -1,0 +1,53 @@
+name: Security audit
+
+# Semgrep SAST over the TypeScript apps and packages. Runs on every
+# push/PR and weekly, so newly disclosed issues surface even without
+# code changes. CodeQL runs in its own workflow (codeql.yml);
+# dependency audits run weekly in scheduled-maintenance.yml; secret
+# scanning (gitleaks) runs in ci.yml; GitHub secret scanning and
+# Dependabot alerts are repo settings, not workflow steps.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 06:00 UTC
+    - cron: "0 6 * * 1"
+
+# Least privilege: these jobs only read the repository and run local
+# checks. No secrets are used anywhere in this workflow, so
+# pull_request runs from forks are safe.
+permissions:
+  contents: read
+
+# One run per ref at a time: a new push to a PR cancels the stale run,
+# but runs on main are never cancelled (the weekly schedule also runs
+# on main, so it is never cancelled either).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  semgrep:
+    # SAST over the real MetricFlock code: p/typescript over the web
+    # app, the worker and the shared packages. Semgrep is installed
+    # unpinned from PyPI; the rulesets resolve from the Semgrep
+    # Registry at runtime. A failed run means findings to triage, not
+    # a broken workflow — read the output before re-running.
+    name: Semgrep (SAST)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Semgrep
+        run: python3 -m pip install semgrep
+
+      - name: Run Semgrep
+        run: >-
+          semgrep --config p/typescript --error
+          apps
+          packages
