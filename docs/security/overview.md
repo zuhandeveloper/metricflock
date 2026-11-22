@@ -4,6 +4,18 @@ How MetricFlock protects accounts, tenants and Google credentials.
 Findings and remediation history: `docs/audits/PRODUCTION_READINESS_AUDIT.md`
 (93 findings, 2026-11-20) and the hardening stages that closed them.
 
+```mermaid
+flowchart TD
+    REQ["Incoming request"] --> PROXY["proxy.ts<br/>x-request-id, security headers"]
+    PROXY --> AUTH["better-auth session<br/>email verification · TOTP · fresh-session checks"]
+    AUTH --> TENANT["Tenant scoping<br/>org-resolved queries, foreign ids → 404"]
+    TENANT --> PERM["Permission matrix<br/>17 permissions, 3 roles"]
+    PERM --> HANDLER["Route handler"]
+    HANDLER --> DB[("PostgreSQL<br/>composite FKs, partial unique indexes")]
+    HANDLER --> TOK["Token crypto<br/>AES-256-GCM v1 envelope, AAD-bound"]
+    HANDLER --> AUDIT["AuditLog<br/>actor · IP · requestId · scrubbed"]
+```
+
 ## Authentication
 
 - better-auth with Prisma adapter. Email + password (≥12 chars,
@@ -39,10 +51,11 @@ Findings and remediation history: `docs/audits/PRODUCTION_READINESS_AUDIT.md`
 - Connect flow: server-persisted, single-use, session-bound state
   with **PKCE (S256)**; the connection owner (team/website) is
   validated against the caller's org at connect **and** callback.
+  See `docs/oauth-guide.md`.
 - Tokens encrypted at rest with **AES-256-GCM**, versioned envelope
-  `v1:<keyId>:…`, AAD bound to the connection identity; previous-key
-  rotation window + lazy re-encryption
-  (`docs/token-encryption-rotation.md`).
+  `v1:<keyId>:…`, AAD bound to the connection identity, auth tag
+  length pinned to 16 bytes; previous-key rotation window + lazy
+  re-encryption (`docs/token-encryption-rotation.md`).
 - Refresh is serialized per connection (Redis lock); only a
   structured `invalid_grant` marks a connection REVOKED, and the
   revocation is audit-logged.
@@ -69,3 +82,20 @@ Findings and remediation history: `docs/audits/PRODUCTION_READINESS_AUDIT.md`
   Permissions-Policy on every response (`apps/web/next.config.ts`).
 - Session cookies are httpOnly via better-auth; state-changing auth
   calls pass better-auth's CSRF origin check.
+
+## Supply chain & CI security
+
+- **GitHub Actions pinned by commit SHA** (never moving tags) —
+  Dependabot keeps the pins current with grouped, weekly PRs.
+- **gitleaks** secret scanning on every CI run (`.gitleaks.toml`
+  allowlists only documented CI dummy values).
+- **CodeQL** + **Semgrep** (`p/typescript`) SAST on every push.
+- `pnpm audit` gate in CI and a weekly scheduled audit.
+- `minimumReleaseAge: 1440` in `pnpm-workspace.yaml` refuses package
+  versions published <24 h ago (lockfile installs unaffected);
+  pnpm's postinstall allowlist (`allowBuilds`) gates build scripts.
+- Latest **stable** versions only — no beta/RC dependencies.
+
+## Reporting
+
+Vulnerability reports: see `SECURITY.md` at the repo root.

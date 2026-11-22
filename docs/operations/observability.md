@@ -1,5 +1,18 @@
 # Observability & Operations
 
+## Request flow
+
+```mermaid
+flowchart LR
+    REQ["Request"] --> PROXY["proxy.ts (Node runtime)<br/>stamps x-request-id"]
+    PROXY --> ROUTE["API route"]
+    ROUTE --> LOG["Structured JSON log<br/>requestId on every line"]
+    ROUTE --> MET["In-process counters<br/>cache · provider · api errors"]
+    ROUTE --> AUD["AuditLog (sensitive actions)<br/>actor · IP · requestId"]
+    LOG --> TRACE["Trace a user-reported error<br/>by its requestId"]
+    MET --> EP["GET /api/metrics (SUPER_ADMIN)"]
+```
+
 ## Structured logging
 
 Both apps log one JSON object per line to stdout/stderr
@@ -37,7 +50,8 @@ Both apps log one JSON object per line to stdout/stderr
 | Worker `:8080/readyz`   | Worker readiness: Redis + DB                                                                         | host-local |
 
 Point your host's health check / uptime monitor at
-`/api/health/ready` (web) and the worker's `/readyz`.
+`/api/health/ready` (web) and the worker's `/readyz`. The worker's health
+port is configurable via `WORKER_HEALTH_PORT` (default 8080).
 
 ## Metrics
 
@@ -63,6 +77,7 @@ Terminally failed jobs stay as `FAILED` rows with payload + error for
 - Requeue: `POST /api/sync/requeue` `{"jobId":"<row id>"}` — re-enqueues
   the retained payload, flips the row to `PENDING`, writes an audit
   entry (`sync.job.requeued`).
+- The same view is available in the UI under **Sync jobs** (SUPER_ADMIN).
 
 ## Alerting
 

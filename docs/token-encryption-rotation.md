@@ -1,7 +1,7 @@
 # Token Encryption Key Rotation
 
-Google OAuth tokens are encrypted at rest with AES-256-GCM. Since Stage 3
-(OAUTH-7) every ciphertext carries a versioned envelope:
+Google OAuth tokens are encrypted at rest with AES-256-GCM. Every
+ciphertext carries a versioned envelope:
 
 ```
 v1:<keyId>:<base64(iv|tag|data)>
@@ -11,7 +11,8 @@ v1:<keyId>:<base64(iv|tag|data)>
 identifier that tells decrypt which key to use. Ciphertexts are also
 bound to their connection identity via AAD
 (`mf-conn:<orgId>:<ownerType>:<ownerId>:<googleAccountEmail>`), so a
-ciphertext cannot be transplanted between connection rows. Legacy
+ciphertext cannot be transplanted between connection rows. The auth tag
+length is pinned to 16 bytes on both encrypt and decrypt. Legacy
 ciphertexts (no `v1:` prefix, no AAD) still decrypt and are re-encrypted
 lazily the next time their connection refreshes.
 
@@ -19,6 +20,21 @@ lazily the next time their connection refreshes.
 
 - The current key may have leaked (repo/log/backup exposure).
 - Routine hygiene (e.g. annually, or when team members with access leave).
+
+## Rotation flow
+
+```mermaid
+flowchart TD
+    A["Generate new key"] --> B["Set GOOGLE_TOKEN_ENCRYPTION_KEY = new<br/>GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS = old"]
+    B --> C["Deploy / restart"]
+    C --> D["New encryptions use the new key"]
+    C --> E["Old ciphertexts decrypt via keyId<br/>(legacy: current key, then previous)"]
+    D --> F["Each connection re-encrypts<br/>on its next token refresh"]
+    E --> F
+    F --> G{"Any rows left<br/>on the old key?"}
+    G -->|"yes"| F
+    G -->|"no (SQL check = 0)"| H["Remove GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS<br/>and redeploy"]
+```
 
 ## Rotation procedure
 
@@ -48,6 +64,9 @@ lazily the next time their connection refreshes.
 ## Notes
 
 - Never commit keys to the repo; they live only in env config.
+- The key must be **identical** in every environment that touches the
+  same database (local dev against a production DB included) — a
+  different key cannot decrypt existing tokens.
 - Rotating does not revoke Google grants; it only re-wraps stored
   tokens. If a _token_ leaked, disconnect the connection instead
   (revokes at Google and clears stored tokens).

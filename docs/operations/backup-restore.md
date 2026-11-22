@@ -12,6 +12,15 @@ reconstructible. After a Redis loss the scheduler re-enqueues due
 syncs on its next tick and the cache repopulates on demand. The
 durable record of every sync is the `AnalyticsSyncJob` table.
 
+```mermaid
+flowchart LR
+    PG[("PostgreSQL<br/>all durable data")] -->|"pg_dump -Fc (scripts/backup.sh)"| DUMP["backups/metricflock-&lt;stamp&gt;.dump"]
+    DUMP -->|"pg_restore --clean (scripts/restore.sh)"| PG2[("PostgreSQL<br/>restored")]
+    PG2 --> MIG["pnpm db:migrate"]
+    MIG --> VER["GET /api/health/ready = ready<br/>sign in · dashboard loads"]
+    RD[("Redis<br/>cache · queues · locks")] -.->|"not backed up — rebuilds itself"| PG
+```
+
 ## Taking a backup
 
 ```bash
