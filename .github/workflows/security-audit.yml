@@ -32,10 +32,12 @@ concurrency:
 jobs:
   semgrep:
     # SAST over the real MetricFlock code: p/typescript over the web
-    # app, the worker and the shared packages. Semgrep is installed
-    # unpinned from PyPI; the rulesets resolve from the Semgrep
-    # Registry at runtime. A failed run means findings to triage, not
-    # a broken workflow — read the output before re-running.
+    # app, the worker and the shared packages. Semgrep is pinned to an
+    # exact PyPI version (Phase 6, F-6.9) so the scanner cannot change
+    # silently between runs; bump the pin deliberately. The rulesets
+    # resolve from the Semgrep Registry at runtime. A failed run means
+    # findings to triage, not a broken workflow — read the output
+    # before re-running.
     name: Semgrep (SAST)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -44,7 +46,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Semgrep
-        run: python3 -m pip install semgrep
+        run: python3 -m pip install semgrep==1.185.0
 
       - name: Run Semgrep
         run: >-
