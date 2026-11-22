@@ -107,6 +107,44 @@ export function RevokeInviteButton({ inviteId }: { inviteId: string }) {
   );
 }
 
+export function DeleteMemberButton({ memberId, memberEmail }: { memberId: string; memberEmail: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function act() {
+    if (
+      !window.confirm(
+        `Delete member "${memberEmail}"? Their sessions and access end immediately. This cannot be undone.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    const { error: err, data } = await sendJson(`/api/members/${memberId}`, "DELETE");
+    setBusy(false);
+    if (err) {
+      const d = data as { details?: { connections?: number; transfers?: number } } | null;
+      const blockers = d?.details
+        ? ` (${d.details.connections ?? 0} connections, ${d.details.transfers ?? 0} transfers created by them)`
+        : "";
+      return setError(`${err}${blockers}`);
+    }
+    router.refresh();
+  }
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Button type="button" variant="ghost" onClick={() => void act()}>
+        {busy ? "Deleting…" : "Delete"}
+      </Button>
+      {error && (
+        <span role="alert" className="text-xs text-red-600">
+          {error}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function RoleSelect({
   memberId,
   role,

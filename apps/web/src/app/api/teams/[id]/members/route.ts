@@ -37,7 +37,12 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     await prisma.teamMember.upsert({
       where: { teamId_userId: { teamId: id, userId: target.id } },
       update: body.data.isAdmin !== undefined ? { isAdmin: body.data.isAdmin } : {},
-      create: { teamId: id, userId: target.id, isAdmin: body.data.isAdmin ?? false },
+      create: {
+        teamId: id,
+        userId: target.id,
+        organizationId: auth.user.organizationId,
+        isAdmin: body.data.isAdmin ?? false,
+      },
     });
   } else {
     // Never remove the team's last admin (would lock the team).

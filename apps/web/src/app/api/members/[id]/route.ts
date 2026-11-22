@@ -51,3 +51,55 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
 }
 
 export const PATCH = withApiErrors("members/[id]", patch);
+
+// Member deletion (Phase 4, F-4.3 — docs/security/data-lifecycle.md).
+// Sessions/accounts/memberships/assignments cascade; audit rows survive
+// with the actor nulled. Deletion is blocked (409) while the user is
+// recorded as creator of Google connections or initiator of transfers
+// (Restrict FKs) so ownership history is never silently orphaned.
+async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await requireApiAuth("member.manage");
+  if ("error" in auth) return auth.error;
+  const { id } = await ctx.params;
+
+  const target = await prisma.user.findFirst({
+    where: { id, organizationId: auth.user.organizationId },
+    select: { id: true, role: true, email: true },
+  });
+  if (!target) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (target.id === auth.user.id) return NextResponse.json({ error: "cannot_delete_self" }, { status: 400 });
+  if (target.role === "SUPER_ADMIN" && auth.user.role !== "SUPER_ADMIN") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  if (target.role === "SUPER_ADMIN") {
+    const admins = await prisma.user.count({
+      where: { organizationId: auth.user.organizationId, role: "SUPER_ADMIN" },
+    });
+    if (admins <= 1) return NextResponse.json({ error: "last_super_admin" }, { status: 409 });
+  }
+
+  const [connections, transfers] = await Promise.all([
+    prisma.googleConnection.count({ where: { createdById: id } }),
+    prisma.websiteTransfer.count({ where: { initiatedById: id } }),
+  ]);
+  if (connections > 0 || transfers > 0) {
+    return NextResponse.json(
+      { error: "member_has_dependencies", details: { connections, transfers } },
+      { status: 409 },
+    );
+  }
+
+  await prisma.user.delete({ where: { id } });
+  await writeAudit({
+    organizationId: auth.user.organizationId,
+    actorId: auth.user.id,
+    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    action: "member.deleted",
+    entityType: "User",
+    entityId: id,
+    details: { email: target.email, role: target.role },
+  });
+  return NextResponse.json({ deleted: true });
+}
+
+export const DELETE = withApiErrors("members/[id]", del);

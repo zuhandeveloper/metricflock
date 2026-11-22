@@ -112,6 +112,10 @@ model User {
   auditLogs    AuditLog[] @relation("AuditActor")
   sentInvites  OrganizationInvite[] @relation("InviteSentBy")
   @@index([organizationId, role])
+  // Composite-FK target (Phase 4, F-4.1): membership/assignment tables
+  // reference (id, organizationId) so a user can never be attached to
+  // another organization's team or website at the database level.
+  @@unique([id, organizationId])
 }
 
 // Organization invite (invite-flow pass): an org admin invites an email
@@ -201,15 +205,20 @@ model Team {
 }
 
 model TeamMember {
-  id        String   @id @default(cuid())
-  teamId    String
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  isAdmin   Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  // Phase 4 (F-4.1): organizationId denormalized so composite FKs can
+  // enforce same-organization membership at the database level — the
+  // team and the user must both belong to this organization.
+  organizationId String
+  teamId         String
+  team           Team     @relation(fields: [teamId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  isAdmin        Boolean  @default(false)
+  createdAt      DateTime @default(now())
   @@unique([teamId, userId])
   @@index([userId])
+  @@index([organizationId])
 }
 
 model Website {
@@ -247,14 +256,17 @@ model Website {
 }
 
 model WebsiteAssignment {
-  id        String   @id @default(cuid())
-  websiteId String
-  website   Website  @relation(fields: [websiteId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  // Phase 4 (F-4.1): same-organization composite FKs, as on TeamMember.
+  organizationId String
+  websiteId      String
+  website        Website  @relation(fields: [websiteId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  createdAt      DateTime @default(now())
   @@unique([websiteId, userId])
   @@index([userId])
+  @@index([organizationId])
 }
 
 model WebsiteTransfer {
@@ -355,6 +367,8 @@ model GoogleProperty {
   createdAt      DateTime @default(now())
   integrations   WebsiteIntegration[]
   @@unique([connectionId, propertyId])
+  // Composite-FK target (Phase 4, F-4.1).
+  @@unique([id, connectionId])
 }
 
 model SearchConsoleProperty {
@@ -366,6 +380,8 @@ model SearchConsoleProperty {
   createdAt    DateTime @default(now())
   integrations WebsiteIntegration[]
   @@unique([connectionId, siteUrl])
+  // Composite-FK target (Phase 4, F-4.1).
+  @@unique([id, connectionId])
 }
 
 model AdSenseAccount {
@@ -377,6 +393,8 @@ model AdSenseAccount {
   createdAt    DateTime @default(now())
   integrations WebsiteIntegration[]
   @@unique([connectionId, accountId])
+  // Composite-FK target (Phase 4, F-4.1).
+  @@unique([id, connectionId])
 }
 
 model AdManagerNetwork {
@@ -388,6 +406,8 @@ model AdManagerNetwork {
   createdAt    DateTime @default(now())
   integrations WebsiteIntegration[]
   @@unique([connectionId, networkCode])
+  // Composite-FK target (Phase 4, F-4.1).
+  @@unique([id, connectionId])
 }
 
 model WebsiteIntegration {
@@ -397,14 +417,19 @@ model WebsiteIntegration {
   provider           Provider
   googleConnectionId String?
   googleConnection   GoogleConnection? @relation(fields: [googleConnectionId], references: [id], onDelete: SetNull)
+  // Phase 4 (F-4.1): property FKs are composite with googleConnectionId —
+  // a mapped property must belong to the integration's own connection,
+  // enforced by the database, not only by the map route. (Postgres
+  // MATCH SIMPLE: the check applies whenever both columns are set,
+  // which the map route always does.)
   googlePropertyId   String?
-  googleProperty     GoogleProperty? @relation(fields: [googlePropertyId], references: [id], onDelete: SetNull)
+  googleProperty     GoogleProperty? @relation(fields: [googlePropertyId, googleConnectionId], references: [id, connectionId], onDelete: SetNull)
   searchConsolePropertyId String?
-  searchConsoleProperty SearchConsoleProperty? @relation(fields: [searchConsolePropertyId], references: [id], onDelete: SetNull)
+  searchConsoleProperty SearchConsoleProperty? @relation(fields: [searchConsolePropertyId, googleConnectionId], references: [id, connectionId], onDelete: SetNull)
   adsenseAccountId   String?
-  adsenseAccount     AdSenseAccount? @relation(fields: [adsenseAccountId], references: [id], onDelete: SetNull)
+  adsenseAccount     AdSenseAccount? @relation(fields: [adsenseAccountId, googleConnectionId], references: [id, connectionId], onDelete: SetNull)
   adManagerNetworkId String?
-  adManagerNetwork   AdManagerNetwork? @relation(fields: [adManagerNetworkId], references: [id], onDelete: SetNull)
+  adManagerNetwork   AdManagerNetwork? @relation(fields: [adManagerNetworkId, googleConnectionId], references: [id, connectionId], onDelete: SetNull)
   externalId         String
   resourceName       String?
   mappingStatus      MappingStatus @default(PENDING)

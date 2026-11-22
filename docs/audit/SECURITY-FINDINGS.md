@@ -234,6 +234,51 @@ connection_scope_mismatch`); permission matrix documented in
   rate-limit-failclosed (mocked ioredis), refresh-lock
   (acquired/timeout/error), discovery-pagination (mocked googleapis),
   ad-manager CTR/date/retry/pagination additions.
+  **Update 2026-11-21: pushed (daef93f7); CI #185 FAILED on a test-env
+  bug only — the ioredis mock did not intercept in CI (ioredis is
+  @metricflock/shared's dep; CI's real Redis service answered instead).
+  Fixed by aliasing ioredis in vitest.config.ts; pushed 2026-11-22
+  (d759d72e) — CI #186 SUCCESS (26 files/138 tests, smoke ALL CHECKS
+  PASSED, e2e 4/4). Phase 3 closed.**
+- **2026-11-22 — Phase 4.1/4.2 (F-4.1, F-4.2 note) implemented
+  locally, pending push + CI.** Migration
+  `20261122000000_phase4_db_integrity`: TeamMember/WebsiteAssignment
+  gain `organizationId` (backfilled from team/website) + composite FKs
+  to Team/Website and User (new `User @@unique([id, organizationId])`
+  target); WebsiteIntegration property FKs become composite with
+  `googleConnectionId` (mapped property must belong to the
+  integration's connection; `@@unique([id, connectionId])` targets on
+  the four property tables); GoogleConnection owner CHECK tightened to
+  exactly-one typed owner after a defensive legacy backfill. Create
+  sites updated (members/assign routes, smoke fixture). F-4.2:
+  transfer initiate maps the P2002 race to the stable
+  `transfer_in_progress` 409 (the central handler already returned a
+  generic 409 `conflict`). Regression tests: smoke-stage2 Phase 4
+  section asserts Postgres itself rejects cross-connection mapping,
+  ownerless connection, cross-org membership and cross-org assignment.
+  **Deploy requires `pnpm db:migrate` BEFORE deploying this code** (new
+  NOT NULL columns); the migration fails loudly if existing rows
+  violate the new constraints. F-4.3 (deletion/retention/export) still
+  needs a policy decision.
+- **2026-11-22 — Phase 4.3 (F-4.3) implemented locally on Gulzaib's
+  approval of the proposed policy, pending push + CI.** Policy doc:
+  `docs/security/data-lifecycle.md`. Member deletion
+  (`DELETE /api/members/[id]`, member.manage; self/last-super-admin
+  guards; 409 `member_has_dependencies` with counts when the user
+  created connections/transfers; audit `member.deleted`; Delete button
+  on Members page). Organization deletion (`DELETE /api/organization`,
+  organization.manage + slug confirmation; best-effort Google token
+  revocation; audit rows + org deleted in one transaction; logged
+  server-side; Members page Organization card). Org export
+  (`GET /api/organization/export`, organization.manage; JSON download;
+  credentials/tokens never included; audit `organization.exported`).
+  Retention: worker prunes OAuthState (>1 day past expiry),
+  AnalyticsCache (expired), AuditLog (`AUDIT_RETENTION_DAYS`, default
+  365, parsed in `@metricflock/shared/retention`). Tests: smoke
+  phase4 section (member delete + guards + deleted-user sign-in 401;
+  export contains no token/password fields; org delete slug-gated,
+  deleted owner sign-in 401) + `audit-retention.test.ts`. **Phase 4
+  complete locally (4.1 + 4.2 + 4.3).**
 
 ### F-6.8 CSP — CONFIRMED (documented tradeoff), Medium
 

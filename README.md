@@ -336,6 +336,7 @@ suite against real infrastructure. See `docs/testing/README.md`.
 | [`docs/website-management.md`](docs/website-management.md)               | Websites and assignments                  |
 | [`docs/ownership-transfer.md`](docs/ownership-transfer.md)               | Website ownership transfers               |
 | [`docs/security/overview.md`](docs/security/overview.md)                 | Security architecture                     |
+| [`docs/security/data-lifecycle.md`](docs/security/data-lifecycle.md)     | Deletion, retention and export policy     |
 | [`docs/token-encryption-rotation.md`](docs/token-encryption-rotation.md) | Rotating the token encryption key         |
 | [`docs/operations/observability.md`](docs/operations/observability.md)   | Logs, metrics, health endpoints, DLQ      |
 | [`docs/operations/backup-restore.md`](docs/operations/backup-restore.md) | Backup & restore runbook                  |

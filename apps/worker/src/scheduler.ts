@@ -9,7 +9,7 @@
 // discovered properties yet.
 import { randomUUID } from "node:crypto";
 import { prisma } from "@metricflock/db";
-import { getRedis, createLogger, errMeta, incr } from "@metricflock/shared";
+import { getRedis, createLogger, errMeta, incr, auditRetentionDays } from "@metricflock/shared";
 
 const log = createLogger("scheduler");
 import { enqueueBulk, getQueue, planDueSyncs, type EnqueueEntry, type SyncProviderName } from "@metricflock/jobs";
@@ -26,6 +26,10 @@ const RELEASE_LUA = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.
 const REALTIME_BACKPRESSURE_DEPTH = 40;
 // OPS-3 retention: bookkeeping rows older than this are pruned per tick.
 const RETENTION_DAYS = 30;
+// Phase 4 (F-4.3, docs/security/data-lifecycle.md): audit logs are kept
+// for AUDIT_RETENTION_DAYS (default 365, parsed in @metricflock/shared);
+// OAuth flow state is single-use with a 10-minute TTL, so anything
+// expired for over a day is dead weight.
 const WEBSITE_PAGE_SIZE = 500;
 
 let tickRunning = false;
@@ -151,6 +155,18 @@ async function runTick(): Promise<void> {
     where: { updatedAt: { lt: windowStart }, status: { in: ["SUCCEEDED", "FAILED"] } },
   });
   if (pruned.count) log.info("pruned old sync-job rows", { count: pruned.count });
+
+  // Phase 4 (F-4.3) retention: expired OAuth flow state (>1 day past
+  // expiry — consumed or abandoned), expired analytics cache rows, and
+  // audit logs past the retention window (AUDIT_RETENTION_DAYS, 365).
+  const oneDayAgo = new Date(now.getTime() - 86_400_000);
+  const prunedStates = await prisma.oAuthState.deleteMany({ where: { expiresAt: { lt: oneDayAgo } } });
+  if (prunedStates.count) log.info("pruned expired OAuth states", { count: prunedStates.count });
+  const prunedCache = await prisma.analyticsCache.deleteMany({ where: { expiresAt: { lt: now } } });
+  if (prunedCache.count) log.info("pruned expired analytics cache rows", { count: prunedCache.count });
+  const auditCutoff = new Date(now.getTime() - auditRetentionDays() * 86_400_000);
+  const prunedAudit = await prisma.auditLog.deleteMany({ where: { createdAt: { lt: auditCutoff } } });
+  if (prunedAudit.count) log.info("pruned old audit logs", { count: prunedAudit.count });
 }
 
 export function startScheduler(redis: RedisClient): { stop: () => void } {

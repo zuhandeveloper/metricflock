@@ -48,7 +48,7 @@ async function main() {
   await prisma.teamMember.upsert({
     where: { teamId_userId: { teamId: teamA.id, userId: teamAdmin.id } },
     update: { isAdmin: true },
-    create: { teamId: teamA.id, userId: teamAdmin.id, isAdmin: true },
+    create: { teamId: teamA.id, userId: teamAdmin.id, organizationId: org.id, isAdmin: true },
   });
 
   async function upsertConnection(teamId: string, email: string) {
@@ -91,6 +91,97 @@ async function main() {
     where: { connectionId_propertyId: { connectionId: connB.id, propertyId: "properties/555000111" } },
     update: {},
     create: { connectionId: connB.id, propertyId: "properties/555000111", displayName: "Smoke properties/555000111" },
+  });
+
+  // Phase 4 (F-4.1): database-level tenant-integrity constraints. Each
+  // invalid insert below must be rejected by Postgres itself (composite
+  // FK / CHECK), not by application code.
+  async function expectFailure(label: string, fn: () => Promise<unknown>) {
+    try {
+      await fn();
+    } catch {
+      return; // rejected as required
+    }
+    throw new Error(`Phase 4 constraint check failed: ${label} was NOT rejected`);
+  }
+
+  const propB = await prisma.googleProperty.findFirst({
+    where: { connectionId: connB.id, propertyId: "properties/555000111" },
+  });
+  const anyWebsite = await prisma.website.findFirst({ where: { organizationId: org.id } });
+  if (!propB || !anyWebsite) throw new Error("Phase 4 checks need the team-b property and a seeded website.");
+
+  // (a) A property of connection B cannot be mapped under connection A.
+  await expectFailure("cross-connection property mapping", () =>
+    prisma.websiteIntegration.create({
+      data: {
+        websiteId: anyWebsite.id,
+        provider: "GA4",
+        externalId: "phase4-cross-connection",
+        googleConnectionId: connA.id,
+        googlePropertyId: propB.id,
+      },
+    }),
+  );
+
+  // (b) A connection must have exactly one typed owner.
+  await expectFailure("ownerless connection", () =>
+    prisma.googleConnection.create({
+      data: {
+        organizationId: org.id,
+        ownerType: "TEAM",
+        ownerId: teamA.id,
+        googleAccountEmail: "phase4-ownerless@example.com",
+        encryptedRefreshToken: "smoke-dummy-token",
+        scopes: [],
+        status: "ACTIVE",
+        createdById: admin.id,
+      },
+    }),
+  );
+
+  // (c)+(d) A user from another organization cannot join this org's
+  // team or be assigned to this org's website.
+  const org2 = await prisma.organization.upsert({
+    where: { slug: "smoke-org-2" },
+    update: {},
+    create: { name: "Smoke Org 2", slug: "smoke-org-2" },
+  });
+  const outsider = await prisma.user.upsert({
+    where: { email: "outsider@example.com" },
+    update: { organizationId: org2.id },
+    create: { organizationId: org2.id, email: "outsider@example.com", name: "Smoke Outsider", role: "TEAM_MEMBER" },
+  });
+  await expectFailure("cross-org team membership", () =>
+    prisma.teamMember.create({
+      data: { teamId: teamA.id, userId: outsider.id, organizationId: org.id },
+    }),
+  );
+  await expectFailure("cross-org website assignment", () =>
+    prisma.websiteAssignment.create({
+      data: { websiteId: anyWebsite.id, userId: outsider.id, organizationId: org.id },
+    }),
+  );
+  await prisma.organization.delete({ where: { id: org2.id } }).catch(() => undefined);
+  console.log(
+    "smoke ok: phase4: DB constraints reject cross-connection mapping, ownerless connection, cross-org membership/assignment",
+  );
+
+  // Phase 4 (F-4.3): a throwaway organization + verified SUPER_ADMIN
+  // owner, so the smoke test can exercise org export + org deletion
+  // without touching the main org. Recreated here if a previous smoke
+  // run deleted it.
+  const deleteOrg = await prisma.organization.upsert({
+    where: { slug: "smoke-org-delete" },
+    update: {},
+    create: { name: "Smoke Org Delete", slug: "smoke-org-delete" },
+  });
+  const orgOwner = await upsertCredentialUser("orgowner@example.com", "OrgOwner123!", {
+    organizationId: deleteOrg.id,
+    email: "orgowner@example.com",
+    name: "Smoke Org Owner",
+    emailVerified: true,
+    role: "SUPER_ADMIN",
   });
 
   console.log(`ADMIN_USER_ID=${admin.id}`);

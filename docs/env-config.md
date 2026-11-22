@@ -78,10 +78,11 @@ and reset emails).
 
 ## Operations
 
-| Variable             | Default | Purpose                                |
-| -------------------- | ------- | -------------------------------------- |
-| `LOG_LEVEL`          | `info`  | `debug` \| `info` \| `warn` \| `error` |
-| `WORKER_HEALTH_PORT` | `8080`  | Worker health/metrics HTTP port        |
+| Variable               | Default | Purpose                                                                         |
+| ---------------------- | ------- | ------------------------------------------------------------------------------- |
+| `LOG_LEVEL`            | `info`  | `debug` \| `info` \| `warn` \| `error`                                          |
+| `AUDIT_RETENTION_DAYS` | `365`   | Audit-log retention in days (worker prune; see docs/security/data-lifecycle.md) |
+| `WORKER_HEALTH_PORT`   | `8080`  | Worker health/metrics HTTP port                                                 |
 
 ## Startup validation
 

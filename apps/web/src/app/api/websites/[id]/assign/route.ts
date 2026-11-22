@@ -24,7 +24,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     await prisma.websiteAssignment.upsert({
       where: { websiteId_userId: { websiteId: id, userId: target.id } },
       update: {},
-      create: { websiteId: id, userId: target.id },
+      create: { websiteId: id, userId: target.id, organizationId: auth.user.organizationId },
     });
   } else {
     await prisma.websiteAssignment.deleteMany({ where: { websiteId: id, userId: target.id } });

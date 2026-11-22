@@ -27,17 +27,36 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     where: { websiteId: id, status: { in: OPEN_TRANSFER_STATUSES } },
   });
   if (open) return NextResponse.json({ error: "transfer_in_progress", transferId: open.id }, { status: 409 });
-  const transfer = await prisma.websiteTransfer.create({
-    data: {
-      websiteId: id,
-      fromTeamId: website.teamId,
-      toTeamId: toTeam.id,
-      initiatedById: auth.user.id,
-      status: "PENDING_ACCEPTANCE",
-      reason: body.data.reason,
-      expiresAt: new Date(Date.now() + TRANSFER_TTL_MS),
-    },
-  });
+  // F-4.2: two concurrent initiates can both pass the check above; the
+  // one-open-transfer partial unique index then rejects the second
+  // insert (P2002). Map that race to the same stable 409 contract
+  // instead of the generic conflict code.
+  let transfer;
+  try {
+    transfer = await prisma.websiteTransfer.create({
+      data: {
+        websiteId: id,
+        fromTeamId: website.teamId,
+        toTeamId: toTeam.id,
+        initiatedById: auth.user.id,
+        status: "PENDING_ACCEPTANCE",
+        reason: body.data.reason,
+        expiresAt: new Date(Date.now() + TRANSFER_TTL_MS),
+      },
+    });
+  } catch (e) {
+    if ((e as { code?: string }).code === "P2002") {
+      const raced = await prisma.websiteTransfer.findFirst({
+        where: { websiteId: id, status: { in: OPEN_TRANSFER_STATUSES } },
+        select: { id: true },
+      });
+      return NextResponse.json(
+        { error: "transfer_in_progress", ...(raced ? { transferId: raced.id } : {}) },
+        { status: 409 },
+      );
+    }
+    throw e;
+  }
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,

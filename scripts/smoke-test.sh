@@ -583,4 +583,33 @@ code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_
 [ "$code" = "200" ] || fail "phase1 cleanup delete P1B returned $code"
 ok "phase1: assignee cannot manage; cross-team create/move/map rejected; own-team flows work"
 
+echo "smoke: phase4 — data lifecycle (member delete, org export/delete)"
+# Member deletion (F-4.3): admin deletes the team admin (no longer
+# needed after the phase1 section), re-delete 404s, self-delete 400s,
+# and the deleted user can no longer sign in.
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/members/$TEAMADMIN_USER_ID")"
+[ "$code" = "200" ] || fail "phase4 member delete returned $code"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/members/$TEAMADMIN_USER_ID")"
+[ "$code" = "404" ] || fail "phase4 member re-delete returned $code, expected 404"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/members/$ADMIN_USER_ID")"
+[ "$code" = "400" ] || fail "phase4 self-delete returned $code, expected 400"
+code="$(auth_post "$TMP/p4-deleted-signin.json" "$TMP/p4-deleted.cookies" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$TEAMADMIN_EMAIL\",\"password\":\"$TEAMADMIN_PASSWORD\"}")"
+[ "$code" = "401" ] || fail "phase4 deleted member sign-in returned $code, expected 401"
+# Org export + deletion (F-4.3) on the throwaway org.
+ORGOWNER_JAR="$TMP/orgowner.cookies"
+code="$(auth_post "$TMP/p4-owner-signin.json" "$ORGOWNER_JAR" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"orgowner@example.com\",\"password\":\"OrgOwner123!\"}")"
+[ "$code" = "200" ] || fail "phase4 orgowner sign-in returned $code"
+code="$(curl -s -o "$TMP/p4-export.json" -w "%{http_code}" -b "$ORGOWNER_JAR" "$BASE_URL/api/organization/export")"
+[ "$code" = "200" ] || { cat "$TMP/p4-export.json"; fail "phase4 org export returned $code"; }
+grep -q 'encryptedRefreshToken' "$TMP/p4-export.json" && fail "phase4 export leaked encryptedRefreshToken"
+grep -q '"password"' "$TMP/p4-export.json" && fail "phase4 export leaked password field"
+grep -q '"smoke-org-delete"' "$TMP/p4-export.json" || fail "phase4 export missing organization slug"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ORGOWNER_JAR" -X DELETE "$BASE_URL/api/organization" -H "Content-Type: application/json" -d '{"confirmSlug":"wrong-slug"}')"
+[ "$code" = "400" ] || fail "phase4 org delete wrong slug returned $code, expected 400"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ORGOWNER_JAR" -X DELETE "$BASE_URL/api/organization" -H "Content-Type: application/json" -d '{"confirmSlug":"smoke-org-delete"}')"
+[ "$code" = "200" ] || fail "phase4 org delete returned $code"
+code="$(auth_post "$TMP/p4-owner-signin2.json" "$TMP/p4-owner2.cookies" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"orgowner@example.com\",\"password\":\"OrgOwner123!\"}")"
+[ "$code" = "401" ] || fail "phase4 deleted org owner sign-in returned $code, expected 401"
+ok "phase4: member delete + guards; org export clean; org delete slug-gated"
+
 echo "smoke: ALL CHECKS PASSED"

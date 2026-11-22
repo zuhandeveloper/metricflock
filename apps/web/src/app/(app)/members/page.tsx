@@ -2,13 +2,14 @@ import { redirect } from "next/navigation";
 import { getSessionUser, hasPermission } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { Card, Badge } from "@/components/ui";
-import { InviteForm, RevokeInviteButton, RoleSelect } from "./MemberForms";
+import { InviteForm, RevokeInviteButton, RoleSelect, DeleteMemberButton } from "./MemberForms";
+import { OrgAdminActions } from "./OrgAdminForms";
 export const dynamic = "force-dynamic";
 export default async function MembersPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const canManage = hasPermission(user.role, "member.manage");
-  const [members, invites] = await Promise.all([
+  const [members, invites, organization] = await Promise.all([
     prisma.user.findMany({
       where: { organizationId: user.organizationId },
       select: { id: true, name: true, email: true, role: true, createdAt: true, emailVerified: true },
@@ -18,6 +19,7 @@ export default async function MembersPage() {
       where: { organizationId: user.organizationId, acceptedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: "desc" },
     }),
+    prisma.organization.findUnique({ where: { id: user.organizationId }, select: { slug: true } }),
   ]);
   return (
     <div className="space-y-4">
@@ -55,7 +57,10 @@ export default async function MembersPage() {
                 </td>
                 <td>
                   {canManage && m.id !== user.id ? (
-                    <RoleSelect memberId={m.id} role={m.role} canGrantSuperAdmin={user.role === "SUPER_ADMIN"} />
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      <RoleSelect memberId={m.id} role={m.role} canGrantSuperAdmin={user.role === "SUPER_ADMIN"} />
+                      <DeleteMemberButton memberId={m.id} memberEmail={m.email} />
+                    </span>
                   ) : (
                     <Badge tone={m.role === "SUPER_ADMIN" ? "blue" : m.role === "TEAM_ADMIN" ? "green" : "zinc"}>
                       {m.role}
@@ -85,6 +90,14 @@ export default async function MembersPage() {
               ))}
             </ul>
           )}
+        </Card>
+      )}
+      {user.role === "SUPER_ADMIN" && organization && (
+        <Card className="p-4">
+          <h2 className="font-semibold">Organization</h2>
+          <div className="mt-3">
+            <OrgAdminActions orgSlug={organization.slug} />
+          </div>
         </Card>
       )}
     </div>
