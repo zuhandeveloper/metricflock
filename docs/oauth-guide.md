@@ -17,7 +17,7 @@ sequenceDiagram
     Web-->>User: 302 redirect to Google consent (S256 challenge)
     User->>Google: Authorize (offline access, consent prompt)
     Google-->>Web: GET /api/google/oauth/callback?code=…&state=…
-    Web->>DB: Atomically consume state; verify session user matches
+    Web->>DB: Atomically consume state, verify session user matches
     Web->>Google: Exchange code + PKCE verifier for tokens
     Web->>DB: Store tokens AES-256-GCM encrypted (v1 envelope, AAD-bound)
     Web-->>User: Redirect to /integrations?oauth=connected
