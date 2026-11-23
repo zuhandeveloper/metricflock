@@ -17,11 +17,8 @@ test("create a team from the Teams page", async ({ page }) => {
 
 test("create a website from the Websites page", async ({ page }) => {
   await page.goto("/websites");
-  await page
-    .getByLabel(/website name|name/i)
-    .first()
-    .fill(`E2E Site ${stamp}`);
-  await page.getByLabel(/domain/i).fill(`e2e-${stamp}.example.com`);
+  await page.getByLabel("Website name", { exact: true }).fill(`E2E Site ${stamp}`);
+  await page.getByLabel("Domain", { exact: true }).fill(`e2e-${stamp}.example.com`);
   await page.getByRole("button", { name: /add website|create website/i }).click();
   await expect(page.getByText(`e2e-${stamp}.example.com`)).toBeVisible();
 });
