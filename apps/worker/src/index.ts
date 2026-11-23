@@ -18,8 +18,10 @@ import {
   incr,
   counterSnapshot,
   sanitizeProviderError,
+  healthTransition,
 } from "@metricflock/shared";
 import { prisma } from "@metricflock/db";
+import { recordHealth } from "@metricflock/db/health";
 import {
   QUEUE_NAMES,
   SYNC_TYPE_BY_QUEUE,
@@ -31,8 +33,10 @@ import {
   syncWebsite,
   refreshConnection,
   discoverConnectionProperties,
+  defaultSyncDeps,
   SyncRateLimitError,
   type SyncResult,
+  type SyncDeps,
 } from "@metricflock/google/sync";
 import { resolveConnectionForWebsite } from "@metricflock/google/client";
 import { sendMail } from "@metricflock/auth/mailer";
@@ -69,6 +73,67 @@ async function alertSyncFailure(websiteId: string, queue: string, error: string)
   }
 }
 
+async function alertHealthTransition(
+  websiteId: string,
+  provider: string,
+  kind: "alert_error" | "recovered",
+  error?: string | null,
+): Promise<void> {
+  const website = await prisma.website.findUnique({
+    where: { id: websiteId },
+    select: { name: true, domain: true, organizationId: true },
+  });
+  if (!website) return;
+  const admins = await prisma.user.findMany({
+    where: { organizationId: website.organizationId, role: "SUPER_ADMIN" },
+    select: { email: true },
+  });
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+  const failed = kind === "alert_error";
+  for (const admin of admins) {
+    await sendMail({
+      to: admin.email,
+      subject: failed
+        ? `MetricFlock: ${provider} integration failing for ${website.domain}`
+        : `MetricFlock: ${provider} integration recovered for ${website.domain}`,
+      text: [
+        failed
+          ? `The ${provider} integration for ${website.name} (${website.domain}) started failing health checks.`
+          : `The ${provider} integration for ${website.name} (${website.domain}) is healthy again.`,
+        ``,
+        ...(failed && error ? [`Error: ${sanitizeProviderError(error, 300)}`, ``] : []),
+        appUrl ? `Open integration health: ${appUrl}/health` : `Open the Health page in the dashboard to investigate.`,
+        ...(failed ? [`If the Google connection was revoked, reconnect it from Integrations.`] : []),
+      ].join("\n"),
+    });
+  }
+}
+
+// Phase 7.2: health writes go through this wrapper so a provider
+// flipping into error (or recovering) emails org SUPER_ADMINs exactly
+// once per transition — repeated failing checks stay silent.
+const alertingRecordHealth: SyncDeps["recordHealth"] = async (opts) => {
+  const prev =
+    opts.websiteId != null
+      ? await prisma.integrationHealth
+          .findUnique({
+            where: { websiteId_provider: { websiteId: opts.websiteId, provider: opts.provider } },
+            select: { status: true },
+          })
+          .catch(() => null)
+      : null;
+  const result = await recordHealth(opts);
+  const transition = healthTransition(prev?.status ?? null, opts.status);
+  if (transition && opts.websiteId) {
+    await alertHealthTransition(opts.websiteId, opts.provider, transition, opts.lastError).catch((e) =>
+      log.error("health alert email failed", errMeta(e)),
+    );
+  }
+  return result;
+};
+
+const workerDeps: SyncDeps = { ...defaultSyncDeps, recordHealth: alertingRecordHealth };
+
 const redis = getRedis();
 const bullConnection = bullConnectionOptions();
 if (!redis || !bullConnection) {
@@ -88,19 +153,19 @@ async function runJob(name: QueueName, data: SyncJobData): Promise<SyncResult> {
   const websiteId = data.websiteId ?? null;
   switch (name) {
     case "ga4-realtime-sync":
-      return syncWebsite(websiteId!, "ga4-realtime");
+      return syncWebsite(websiteId!, "ga4-realtime", workerDeps);
     case "ga4-historical-sync":
-      return syncWebsite(websiteId!, "ga4-historical");
+      return syncWebsite(websiteId!, "ga4-historical", workerDeps);
     case "search-console-sync":
-      return syncWebsite(websiteId!, "search-console");
+      return syncWebsite(websiteId!, "search-console", workerDeps);
     case "adsense-sync":
-      return syncWebsite(websiteId!, "adsense");
+      return syncWebsite(websiteId!, "adsense", workerDeps);
     case "ad-manager-sync":
-      return syncWebsite(websiteId!, "ad-manager");
+      return syncWebsite(websiteId!, "ad-manager", workerDeps);
     case "analytics-cache-refresh":
-      return syncWebsite(websiteId!, "cache-refresh");
+      return syncWebsite(websiteId!, "cache-refresh", workerDeps);
     case "integration-health-check":
-      return syncWebsite(websiteId!, "health-check");
+      return syncWebsite(websiteId!, "health-check", workerDeps);
     case "google-oauth-refresh": {
       const connectionId = await connectionIdForJob(data);
       if (!connectionId) return { status: "not_connected", reports: [], detail: "No connection to refresh." };

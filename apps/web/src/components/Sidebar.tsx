@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   RefreshCw,
   UserPlus,
+  HeartPulse,
 } from "lucide-react";
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -22,6 +23,7 @@ const links = [
   { href: "/members", label: "Members", icon: UserPlus },
   { href: "/team", label: "My Team", icon: BarChart3 },
   { href: "/integrations", label: "Integrations", icon: Plug },
+  { href: "/health", label: "Health", icon: HeartPulse },
   { href: "/transfers", label: "Transfers", icon: ArrowLeftRight },
   { href: "/sync", label: "Sync jobs", icon: RefreshCw, superAdminOnly: true },
   { href: "/audit", label: "Audit Log", icon: ScrollText },

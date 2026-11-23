@@ -82,8 +82,14 @@ per-website snapshots via `apps/web/src/lib/portfolio.ts` (GA4 overview,
 Search Console, AdSense; rates recomputed from summed totals,
 underivable metrics null, snapshot-less websites reported unavailable);
 the analytics handler's no-websiteId stub now serves real aggregates;
-dashboard gained a Portfolio totals section. Remaining Phase 7 slices
-(SEO/revenue intelligence, reporting, alerts, developer platform) on
+dashboard gained a Portfolio totals section. **7.2 (2026-11-22): health
+monitoring + alerts** — `/health` page + `GET /api/integrations/health`
+(healthy/error/stale derivation in `@metricflock/shared/health-state`,
+48h stale window, accessible-website scoping, `analytics.view`
+permission); worker wraps `recordHealth` to email org SUPER_ADMINs
+once per ok→error transition (and once on recovery), sanitized error
+text. Remaining Phase 7 slices
+(SEO/revenue intelligence, reporting, developer platform) on
 Gulzaib's priority choice.
 Phase 8 UX/a11y work builds on the existing Playwright+axe harness.
 Phase 9 release gates: full check suite + live-data verification per

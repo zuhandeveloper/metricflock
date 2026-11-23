@@ -11,3 +11,4 @@ export * from "./logger";
 export * from "./metrics";
 export * from "./retention";
 export * from "./redact";
+export * from "./health-state";
