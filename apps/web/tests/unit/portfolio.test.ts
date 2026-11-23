@@ -156,6 +156,23 @@ describe("loadPortfolio", () => {
     expect(result.truncated).toBe(false);
   });
 
+  it("treats integration/snapshot lookup failures as unavailable, not fatal", async () => {
+    mocks.getPrimaryIntegration.mockImplementation(async (websiteId: string) => {
+      if (websiteId === "w1") throw new Error("db down");
+      return { externalId: `properties/${websiteId}` };
+    });
+    mocks.readSnapshot.mockRejectedValue(new Error("cache down"));
+    const result = await loadPortfolio(user, opts);
+    expect(result.websites).toHaveLength(0);
+    expect(result.unavailableWebsites).toEqual(
+      expect.arrayContaining([
+        { websiteId: "w1", reason: "no_property_mapped" },
+        { websiteId: "w2", reason: "no_snapshot_yet" },
+        { websiteId: "w3", reason: "no_snapshot_yet" },
+      ]),
+    );
+  });
+
   it("scopes the query to accessible websites for restricted users", async () => {
     mocks.listAccessibleWebsiteIds.mockResolvedValue(["w1"]);
     mocks.count.mockResolvedValue(1);

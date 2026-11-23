@@ -18,6 +18,7 @@ const VALID_SYNC_TYPES = [
   "AD_MANAGER",
   "CACHE_REFRESH",
   "HEALTH_CHECK",
+  "SCHEDULED_REPORT",
 ];
 
 describe("scheduler due-plan", () => {

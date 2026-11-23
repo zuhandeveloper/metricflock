@@ -12,6 +12,7 @@ import {
   LogOut,
   BarChart3,
   ShieldCheck,
+  Mail,
   RefreshCw,
   UserPlus,
   HeartPulse,
@@ -28,6 +29,7 @@ const links = [
   { href: "/sync", label: "Sync jobs", icon: RefreshCw, superAdminOnly: true },
   { href: "/audit", label: "Audit Log", icon: ScrollText },
   { href: "/settings/security", label: "Account security", icon: ShieldCheck },
+  { href: "/settings/reports", label: "Weekly reports", icon: Mail, superAdminOnly: true },
 ];
 export type SidebarUser = { name: string | null; email: string; role: string };
 export default function Sidebar({ user }: { user: SidebarUser }) {

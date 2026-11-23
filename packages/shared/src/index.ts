@@ -12,3 +12,5 @@ export * from "./metrics";
 export * from "./retention";
 export * from "./redact";
 export * from "./health-state";
+export * from "./portfolio-aggregate";
+export * from "./report";

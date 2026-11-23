@@ -41,8 +41,9 @@ import {
 import { resolveConnectionForWebsite } from "@metricflock/google/client";
 import { sendMail } from "@metricflock/auth/mailer";
 import { startScheduler } from "./scheduler";
+import { sendOrgReport } from "./report";
 
-type SyncJobData = { websiteId?: string; connectionId?: string; syncJobRowId?: string };
+type SyncJobData = { websiteId?: string; connectionId?: string; syncJobRowId?: string; organizationId?: string };
 
 const log = createLogger("worker");
 
@@ -166,6 +167,9 @@ async function runJob(name: QueueName, data: SyncJobData): Promise<SyncResult> {
       return syncWebsite(websiteId!, "cache-refresh", workerDeps);
     case "integration-health-check":
       return syncWebsite(websiteId!, "health-check", workerDeps);
+    case "scheduled-report":
+      if (!data.organizationId) return { status: "skipped", reports: [], detail: "report job without organizationId" };
+      return sendOrgReport(data.organizationId);
     case "google-oauth-refresh": {
       const connectionId = await connectionIdForJob(data);
       if (!connectionId) return { status: "not_connected", reports: [], detail: "No connection to refresh." };

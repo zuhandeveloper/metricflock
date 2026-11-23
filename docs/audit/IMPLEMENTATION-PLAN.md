@@ -88,8 +88,20 @@ monitoring + alerts** — `/health` page + `GET /api/integrations/health`
 48h stale window, accessible-website scoping, `analytics.view`
 permission); worker wraps `recordHealth` to email org SUPER_ADMINs
 once per ok→error transition (and once on recovery), sanitized error
-text. Remaining Phase 7 slices
-(SEO/revenue intelligence, reporting, developer platform) on
+text. **7.3 (2026-11-23): scheduled email reporting** — `ReportSchedule`
+model + migration `20261123000000_report_schedules` (one schedule per
+org; weekday/hour UTC; empty recipients = SUPER_ADMINs) +
+`SCHEDULED_REPORT` sync-job type; aggregation math moved to
+`@metricflock/shared` (`portfolio-aggregate`) so web and worker share
+it; report email builder + `isReportDue` in shared; worker scheduler
+enqueues due reports (new `scheduled-report` queue), worker builds
+from 28-day snapshots and sends via the mailer (lastSentAt recorded
+only when SMTP actually delivered); `/settings/reports` page
+(SUPER_ADMIN) with schedule form + send-test; APIs
+`/api/reports/schedule` (GET/PUT) and `/api/reports/send-test`, both
+`organization.manage`; audit `report.schedule_updated` /
+`report.test_sent`; tests report.test.ts. Remaining Phase 7 slices
+(SEO/revenue intelligence, developer platform) on
 Gulzaib's priority choice.
 Phase 8 UX/a11y work builds on the existing Playwright+axe harness.
 Phase 9 release gates: full check suite + live-data verification per

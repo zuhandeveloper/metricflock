@@ -70,6 +70,7 @@ enum SyncJobType {
   AD_MANAGER
   CACHE_REFRESH
   HEALTH_CHECK
+  SCHEDULED_REPORT
 }
 
 model Organization {
@@ -84,6 +85,7 @@ model Organization {
   connections GoogleConnection[]
   auditLogs AuditLog[]
   invites   OrganizationInvite[]
+  reportSchedule ReportSchedule?
 }
 
 model User {
@@ -137,6 +139,23 @@ model OrganizationInvite {
   createdAt      DateTime     @default(now())
   @@index([organizationId, email])
   @@index([email, acceptedAt])
+}
+
+// Phase 7.3 — scheduled email reports. One schedule per organization:
+// the worker's scheduler enqueues a report job on the configured
+// weekday/hour (UTC); the report is built from per-website snapshots
+// (never live fan-out). Empty recipients = org SUPER_ADMINs.
+model ReportSchedule {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  enabled        Boolean      @default(false)
+  dayOfWeek      Int          @default(1) // 0=Sunday .. 6=Saturday (UTC)
+  hourUtc        Int          @default(8)
+  recipients     Json         @default("[]") // string[] of email addresses
+  lastSentAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 }
 
 // better-auth session (replaces the old custom tokenHash session)

@@ -11,6 +11,7 @@ export const QUEUE_NAMES = [
   "ad-manager-sync",
   "analytics-cache-refresh",
   "integration-health-check",
+  "scheduled-report",
 ] as const;
 export type QueueName = (typeof QUEUE_NAMES)[number];
 /** Queue name -> Prisma SyncJobType enum value. Explicit map: a naive
@@ -26,6 +27,7 @@ export const SYNC_TYPE_BY_QUEUE = {
   "ad-manager-sync": "AD_MANAGER",
   "analytics-cache-refresh": "CACHE_REFRESH",
   "integration-health-check": "HEALTH_CHECK",
+  "scheduled-report": "SCHEDULED_REPORT",
 } as const satisfies Record<QueueName, string>;
 export type SyncJobTypeName = (typeof SYNC_TYPE_BY_QUEUE)[QueueName];
 /** Reverse map for the DLQ requeue path (Stage 8): a failed

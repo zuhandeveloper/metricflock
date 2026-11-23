@@ -9,7 +9,7 @@
 // discovered properties yet.
 import { randomUUID } from "node:crypto";
 import { prisma } from "@metricflock/db";
-import { getRedis, createLogger, errMeta, incr, auditRetentionDays } from "@metricflock/shared";
+import { getRedis, createLogger, errMeta, incr, auditRetentionDays, isReportDue } from "@metricflock/shared";
 
 const log = createLogger("scheduler");
 import {
@@ -146,6 +146,21 @@ async function runTick(): Promise<void> {
       data: { connectionId: conn.id },
       jobId: `google-property-discovery:${conn.id}:${dayBucket}`,
     });
+  }
+
+  // Phase 7.3: weekly portfolio reports. One job per due organization
+  // per day (stable jobId dedupes repeat ticks inside the send hour;
+  // lastSentAt guards the week).
+  const schedules = await prisma.reportSchedule.findMany({ where: { enabled: true } });
+  let reportsDue = 0;
+  for (const s of schedules) {
+    if (!isReportDue(s, now)) continue;
+    entries.push({
+      name: "scheduled-report",
+      data: { organizationId: s.organizationId },
+      jobId: `scheduled-report:${s.organizationId}:${dayBucket}`,
+    });
+    reportsDue += 1;
   }
 
   // OPS-7/11: one bulk round trip per queue instead of sequential awaits.
