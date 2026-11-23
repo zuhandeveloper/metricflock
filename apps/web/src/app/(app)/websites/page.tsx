@@ -44,13 +44,21 @@ export default async function WebsitesPage({
         </Card>
       )}
       <form className="flex gap-2">
+        <label htmlFor="website-search" className="sr-only">
+          Search name or domain
+        </label>
         <input
+          id="website-search"
           name="q"
           defaultValue={q ?? ""}
           placeholder="Search name or domain…"
           className="w-full max-w-sm rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
         />
+        <label htmlFor="website-status-filter" className="sr-only">
+          Filter by status
+        </label>
         <select
+          id="website-status-filter"
           name="status"
           defaultValue={status ?? ""}
           className="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
