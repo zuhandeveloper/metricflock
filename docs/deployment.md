@@ -31,12 +31,13 @@ flowchart LR
 4. Deploy. Vercel runs the monorepo build via Turborepo.
 
 > ⚠️ **Migrate before you deploy code that needs new columns.**
-> `pnpm db:migrate` (`prisma migrate deploy`) must run against the
+> `pnpm db:migrate:deploy` (`prisma migrate deploy`) must run against the
 > production database before (or as part of) deploying a release that
 > includes migrations. Re-running it is idempotent — when in doubt, run
-> it.
+> it. (`pnpm db:migrate` is the dev variant, `prisma migrate dev` —
+> interactive, and must never be used against production.)
 
-Self-hosting instead: `pnpm install --frozen-lockfile && pnpm db:migrate &&
+Self-hosting instead: `pnpm install --frozen-lockfile && pnpm db:migrate:deploy &&
 pnpm build && pnpm start`.
 
 ## Worker (background sync)
@@ -73,7 +74,7 @@ without the worker, scheduled sync simply doesn't happen and manual
 
 ## Pre-launch checklist
 
-- [ ] `pnpm db:migrate` run against the production database
+- [ ] `pnpm db:migrate:deploy` run against the production database
 - [ ] All env vars set (esp. `GOOGLE_TOKEN_ENCRYPTION_KEY` — base64 of
       32 bytes; identical everywhere the same DB is used)
 - [ ] `GOOGLE_REDIRECT_URI` added in Google Cloud Console, APIs enabled

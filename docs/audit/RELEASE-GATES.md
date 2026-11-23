@@ -40,14 +40,12 @@ Verified 2026-11-23 against main @ `51d8c3c8`.
 These do not block the code release; they are operational steps only
 the account owner can perform:
 
-1. **Database migrations** — run `pnpm db:migrate` against production
-   for: `20261121000000_organization_invites`,
-   `20261121010000_website_status_backfill`,
-   `20261122000000_phase4_db_integrity` (before relying on Phase 4
-   constraints), `20261123000000_report_schedules`,
-   `20261123010000_api_keys`. Until the invite migration runs, new
-   signups fail; until the last two run, the Reports and API-keys
-   pages error.
+1. **Database migrations** — confirmed in sync 2026-11-23: Gulzaib ran
+   `pnpm db:migrate` and Prisma reported "Already in sync". For future
+   releases use `pnpm db:migrate:deploy` against production (the
+   `db:migrate` script is the dev variant, `prisma migrate dev`).
+   `pnpm db:status` had a Windows/MSYS2 bug (spawned bare `pnpm` →
+   ENOENT); fixed in this push via `npm_execpath` resolution.
 2. **Worker hosting** — the BullMQ worker (scheduled sync, snapshot
    writes, health alerts, weekly report sends) is not deployed.
    Recommended: Railway Hobby ($5/mo). Dockerfile is ready; needs

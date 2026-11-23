@@ -15,6 +15,7 @@
     "clean": "turbo run clean && rimraf node_modules",
     "db:generate": "pnpm --filter @metricflock/db db:generate",
     "db:migrate": "pnpm --filter @metricflock/db db:migrate",
+    "db:migrate:deploy": "pnpm --filter @metricflock/db db:migrate:deploy",
     "db:reset": "pnpm --filter @metricflock/db db:reset",
     "db:seed": "pnpm --filter @metricflock/db db:seed",
     "db:status": "pnpm --filter @metricflock/db db:status",
