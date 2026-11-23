@@ -86,6 +86,7 @@ model Organization {
   auditLogs AuditLog[]
   invites   OrganizationInvite[]
   reportSchedule ReportSchedule?
+  apiKeys   ApiKey[]
 }
 
 model User {
@@ -113,6 +114,7 @@ model User {
   acceptedTransfers  WebsiteTransfer[] @relation("TransferAcceptedBy")
   auditLogs    AuditLog[] @relation("AuditActor")
   sentInvites  OrganizationInvite[] @relation("InviteSentBy")
+  createdApiKeys ApiKey[] @relation("ApiKeyCreatedBy")
   @@index([organizationId, role])
   // Composite-FK target (Phase 4, F-4.1): membership/assignment tables
   // reference (id, organizationId) so a user can never be attached to
@@ -156,6 +158,26 @@ model ReportSchedule {
   lastSentAt     DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+}
+
+// Phase 7.5 — developer platform. Organization API keys for the
+// read-only public API (/api/v1/*). Only the SHA-256 hash of the
+// secret is stored (same pattern as invite tokens); the plaintext is
+// shown once at creation. Revocation is a timestamp, not a delete,
+// so audit history stays meaningful.
+model ApiKey {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  keyHash        String       @unique
+  prefix         String // first chars of the secret, for display
+  createdById    String
+  createdBy      User         @relation("ApiKeyCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  @@index([organizationId, revokedAt])
 }
 
 // better-auth session (replaces the old custom tokenHash session)

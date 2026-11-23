@@ -109,9 +109,18 @@ half-vs-half trend; GA4 traffic rows → channel mix); web loader
 `lib/insights.ts` (accessible-website scoping, bounded 50) + portfolio
 summary (total earnings, blended RPM, earnings/1k sessions via 7.1
 aggregates); `/insights` page + `GET /api/insights` (`analytics.view`);
-tests insights.test.ts + insights-loader.test.ts. Remaining Phase 7
-slices (developer platform) on
-Gulzaib's priority choice.
+tests insights.test.ts + insights-loader.test.ts. **7.5 (2026-11-23):
+developer platform** — `ApiKey` model + migration
+`20261123010000_api_keys` (SHA-256 hash stored, secret shown once,
+revocation by timestamp); read-only public API under `/api/v1/*`
+(websites, per-website analytics from snapshots only — keys never
+trigger live Google calls, portfolio, health, insights) with Bearer
+key auth + 120 req/min/key rate limit; management APIs
+`/api/api-keys` (GET/POST) + `/api/api-keys/[id]` (DELETE=revoke),
+`organization.manage`, audit `api_key.created`/`api_key.revoked`;
+`/settings/api-keys` page (SUPER_ADMIN) with one-time secret display;
+`docs/api.md` + README docs index; tests api-keys.test.ts +
+api-key-auth.test.ts. **Phase 7 complete.**
 Phase 8 UX/a11y work builds on the existing Playwright+axe harness.
 Phase 9 release gates: full check suite + live-data verification per
 provider (GA4/AdSense still pending user-side confirmation) + worker

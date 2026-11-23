@@ -344,6 +344,7 @@ suite against real infrastructure. See `docs/testing/README.md`.
 | [`docs/env-config.md`](docs/env-config.md)                               | Environment variables                     |
 | [`docs/testing/README.md`](docs/testing/README.md)                       | Testing strategy                          |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md)                     | Common problems and fixes                 |
+| [`docs/api.md`](docs/api.md)                                             | Public API (API keys, /api/v1 endpoints)  |
 
 ## Project status
 
