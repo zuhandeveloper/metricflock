@@ -16,6 +16,7 @@ import {
   RefreshCw,
   UserPlus,
   HeartPulse,
+  TrendingUp,
 } from "lucide-react";
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -25,6 +26,7 @@ const links = [
   { href: "/team", label: "My Team", icon: BarChart3 },
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/health", label: "Health", icon: HeartPulse },
+  { href: "/insights", label: "Insights", icon: TrendingUp },
   { href: "/transfers", label: "Transfers", icon: ArrowLeftRight },
   { href: "/sync", label: "Sync jobs", icon: RefreshCw, superAdminOnly: true },
   { href: "/audit", label: "Audit Log", icon: ScrollText },

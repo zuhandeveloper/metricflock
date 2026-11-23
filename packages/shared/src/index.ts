@@ -14,3 +14,4 @@ export * from "./redact";
 export * from "./health-state";
 export * from "./portfolio-aggregate";
 export * from "./report";
+export * from "./insights";

@@ -100,8 +100,17 @@ only when SMTP actually delivered); `/settings/reports` page
 (SUPER_ADMIN) with schedule form + send-test; APIs
 `/api/reports/schedule` (GET/PUT) and `/api/reports/send-test`, both
 `organization.manage`; audit `report.schedule_updated` /
-`report.test_sent`; tests report.test.ts. Remaining Phase 7 slices
-(SEO/revenue intelligence, developer platform) on
+`report.test_sent`; tests report.test.ts. **7.4 (2026-11-23): SEO/revenue
+intelligence** — pure derivations in `@metricflock/shared/insights`
+from existing snapshots (Search Console [date,query,page] rows →
+striking-distance queries position 4–20, below-average-CTR queries,
+top queries/pages; AdSense DATE rows → daily earnings, best day,
+half-vs-half trend; GA4 traffic rows → channel mix); web loader
+`lib/insights.ts` (accessible-website scoping, bounded 50) + portfolio
+summary (total earnings, blended RPM, earnings/1k sessions via 7.1
+aggregates); `/insights` page + `GET /api/insights` (`analytics.view`);
+tests insights.test.ts + insights-loader.test.ts. Remaining Phase 7
+slices (developer platform) on
 Gulzaib's priority choice.
 Phase 8 UX/a11y work builds on the existing Playwright+axe harness.
 Phase 9 release gates: full check suite + live-data verification per
