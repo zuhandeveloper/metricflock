@@ -132,12 +132,17 @@ to 12 signed-in pages + skip-link test, and UI journeys (create
 team, create website, API key create/revoke, report schedule save,
 mobile nav). Phase 9 release gates: full check suite + live-data verification per
 provider (GA4/AdSense still pending user-side confirmation) + worker
-hosting.
+hosting. **Phase 9 verification complete 2026-11-23** — see
+`docs/audit/RELEASE-GATES.md` (all gates green on main @ 51d8c3c8,
+CI #204, production READY + healthy; open operational items listed
+there are Gulzaib's: prod migrations, worker hosting, GA4/AdSense
+confirmation, brand assets, GitHub housekeeping, release tag).
 
 ## Decisions needed from Gulzaib (in order)
 
-1. Approve Phase 1 implementation (P0) — or adjust scope.
-2. Worker hosting (Railway recommended earlier) — blocks 5.1 and scheduled sync in production.
-3. Deletion/retention/export policy direction (4.3).
-4. Snapshot-first dashboards yes/no (5.1).
-5. Which Phase 7 features first (after gates).
+1. ~~Approve Phase 1 implementation (P0)~~ — done (Phases 1–9 complete).
+2. Worker hosting (Railway recommended) — still open; blocks scheduled sync/alerts/reports in production.
+3. ~~Deletion/retention/export policy direction (4.3)~~ — approved 2026-11-22, implemented.
+4. ~~Snapshot-first dashboards yes/no (5.1)~~ — hybrid chosen 2026-11-22, implemented.
+5. ~~Which Phase 7 features first~~ — all five slices implemented.
+6. Release tag for current main (recommended: v2.0.0 after prod migrations).
