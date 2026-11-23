@@ -180,8 +180,8 @@ catalogs:
       specifier: ^1.7.26
       version: 1.7.26
     bullmq:
-      specifier: ^6.7.7
-      version: 6.7.7
+      specifier: ^6.7.8
+      version: 6.7.8
     cross-env:
       specifier: ^10.1.0
       version: 10.1.0
@@ -257,11 +257,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       '@tanstack/react-query':
-        specifier: ^5.108.0
-        version: 5.108.0(@types/react@19.3.0)(react@19.3.1)
+        specifier: ^5.108.1
+        version: 5.108.1(@types/react@19.3.0)(react@19.3.1)
       lucide-react:
-        specifier: ^1.75.0
-        version: 1.75.0(@types/react@19.3.0)(react@19.3.1)
+        specifier: ^1.77.0
+        version: 1.77.0(@types/react@19.3.0)(react@19.3.1)
       marked:
         specifier: ^18.2.1
         version: 18.2.1
@@ -334,7 +334,7 @@ importers:
         version: link:../../packages/shared
       bullmq:
         specifier: 'catalog:'
-        version: 6.7.7(ioredis@6.0.0(supports-color@10.2.2))(pg@8.23.1)
+        version: 6.7.8(ioredis@6.0.0(supports-color@10.2.2))(pg@8.23.1)
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -449,7 +449,7 @@ importers:
         version: link:../shared
       bullmq:
         specifier: 'catalog:'
-        version: 6.7.7(ioredis@6.0.0(supports-color@10.2.2))(pg@8.23.1)
+        version: 6.7.8(ioredis@6.0.0(supports-color@10.2.2))(pg@8.23.1)
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -1578,11 +1578,11 @@ packages:
   '@tailwindcss/postcss@4.3.5':
     resolution: {integrity: sha512-FAV37Tlx9wBiT/hkfgVD0Q6CWsP2oUX3lf28nrfjW8+ksILjnpuFulUqWDfNR4/ZiEHHDRBX8DUTzD1Rys687A==}
 
-  '@tanstack/query-core@5.108.0':
-    resolution: {integrity: sha512-X9zJUtEV/0D2q9pmGS/Bza8S4bNovSBhZOtdhtu0fzsHwizC6C+Eh/q5CX3MQBchsRMrirWVQmv7Fp4OStzV9g==}
+  '@tanstack/query-core@5.108.1':
+    resolution: {integrity: sha512-GBX6Xsc9E+9eVLLxuM7orQNbssQjpruOCbocBYwT78MjxOWT5I+CWdvEo0N+UM6+oCZEKxuSud1oFLvE3OEmIg==}
 
-  '@tanstack/react-query@5.108.0':
-    resolution: {integrity: sha512-DpMbB8pVorEZcsHRa0Z13KQGfmndqvJbuLy9h+xfP8XpuEZBOxzq+QfXGonQ0fAgRSWhc+QsfoRETSTWxAEAVw==}
+  '@tanstack/react-query@5.108.1':
+    resolution: {integrity: sha512-8/p7fpIdmUiKIukQ5ddAMUUSKC7Z8CcgUOBR2r3WqRvMg9Lzc4CXeoFchjfATKvqi23SyYFvesDdOULrvyunNg==}
     peerDependencies:
       '@types/react': ^18 || ^19
       react: ^18 || ^19
@@ -2287,8 +2287,8 @@ packages:
   buffer-from@1.1.2:
     resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
 
-  bullmq@6.7.7:
-    resolution: {integrity: sha512-UYCta40FLxOTEYqFZmwvQhnqqYbUCkYRsjOhCyQ6/fH5vbRsHvQPEljorbE7Jm4w5uyfZV9ri3N1U95mskGgLg==}
+  bullmq@6.7.8:
+    resolution: {integrity: sha512-Mt0+nKGNFWAruuwwzEUVE+5yEgK5XgzjoR2BjSKp/JeqfgeYO0pFh6oy78Ls8u9upVTsaLhBzSaEZAhYvjPlJg==}
     engines: {node: '>=14.18.0'}
     peerDependencies:
       bullmq-otel: '>=2.0.0'
@@ -2372,8 +2372,8 @@ packages:
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
 
-  cron-parser@5.10.5:
-    resolution: {integrity: sha512-zxFew0gkBdb9HudAqeNLIZ2Phczw8oQDGDMYc1HUYvAaxZqhML2gZyUwVqaOs23YKDWXRRvd/nNo0ycGdXt80A==}
+  cron-parser@5.10.6:
+    resolution: {integrity: sha512-kpoxgQyveO1l29nw+FWdvmotyV7eOSzGHQpxiXOEZIDOjqO1iR6kfgJ0PVHTuV26uBemKq3ppzma7dHFAG7viw==}
     engines: {node: '>=18'}
 
   cross-env@10.1.0:
@@ -3352,8 +3352,8 @@ packages:
     resolution: {integrity: sha512-5J9ysMYUpYIg9RF2vJpy9SinEmSviFSe0GyPpCQ4L5QSkLAgeLXlTAOu2ZwWUU5m+0SBl6gUU1R1ZQB3aKypfA==}
     engines: {bun: '>=1.0.0', deno: '>=1.30.0', node: '>=8.0.0'}
 
-  lucide-react@1.75.0:
-    resolution: {integrity: sha512-piesXAZIXru9d5lHBoM6cPHOBs5+QkMx+3EXwG3xWJ7qdViuz92JtYN0u9jMB6jt+2WbQrwhvJGdMwGnL3EOfA==}
+  lucide-react@1.77.0:
+    resolution: {integrity: sha512-VS6sOi8ZUH1qm6swBL/tpI4xAhB6pFTdHvw3pfCJD+DaTJwpyynVzfOS6mdyMZ+OCdY/GMSQbqinOMOPbNSrQA==}
     peerDependencies:
       '@types/react': '*'
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -5238,11 +5238,11 @@ snapshots:
       postcss: 8.5.33
       tailwindcss: 4.3.5
 
-  '@tanstack/query-core@5.108.0': {}
+  '@tanstack/query-core@5.108.1': {}
 
-  '@tanstack/react-query@5.108.0(@types/react@19.3.0)(react@19.3.1)':
+  '@tanstack/react-query@5.108.1(@types/react@19.3.0)(react@19.3.1)':
     dependencies:
-      '@tanstack/query-core': 5.108.0
+      '@tanstack/query-core': 5.108.1
       react: 19.3.1
     optionalDependencies:
       '@types/react': 19.3.0
@@ -5882,9 +5882,9 @@ snapshots:
   buffer-from@1.1.2:
     optional: true
 
-  bullmq@6.7.7(ioredis@6.0.0(supports-color@10.2.2))(pg@8.23.1):
+  bullmq@6.7.8(ioredis@6.0.0(supports-color@10.2.2))(pg@8.23.1):
     dependencies:
-      cron-parser: 5.10.5
+      cron-parser: 5.10.6
       msgpackr: 2.1.4
       node-abort-controller: 3.1.1
       semver: 7.8.6
@@ -5964,7 +5964,7 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  cron-parser@5.10.5:
+  cron-parser@5.10.6:
     dependencies:
       luxon: 3.7.2
 
@@ -7105,7 +7105,7 @@ snapshots:
 
   lru.min@1.1.5: {}
 
-  lucide-react@1.75.0(@types/react@19.3.0)(react@19.3.1):
+  lucide-react@1.77.0(@types/react@19.3.0)(react@19.3.1):
     dependencies:
       react: 19.3.1
     optionalDependencies:
