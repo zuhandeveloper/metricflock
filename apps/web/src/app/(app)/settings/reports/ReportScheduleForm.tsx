@@ -110,11 +110,11 @@ export function ReportScheduleForm({ initial }: { initial: Schedule }) {
         <p className="text-xs text-zinc-500">Last sent: {new Date(initial.lastSentAt).toLocaleString()}</p>
       )}
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-red-700">
           {error}
         </p>
       )}
-      {notice && <p className="text-sm text-green-600">{notice}</p>}
+      {notice && <p className="text-sm text-green-700">{notice}</p>}
       <div className="flex gap-2">
         <Button onClick={save}>Save schedule</Button>
         <Button onClick={sendTest} variant="outline">

@@ -64,7 +64,7 @@ export default async function SyncJobsPage() {
                   </td>
                   <td>{j.type}</td>
                   <td>{j.attempts}</td>
-                  <td className="max-w-xs truncate text-xs text-red-600" title={j.lastError ?? ""}>
+                  <td className="max-w-xs truncate text-xs text-red-700" title={j.lastError ?? ""}>
                     {j.lastError ?? "—"}
                   </td>
                   <td className="text-xs text-zinc-500">{j.updatedAt.toISOString()}</td>

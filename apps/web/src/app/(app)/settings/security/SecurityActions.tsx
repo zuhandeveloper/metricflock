@@ -46,7 +46,7 @@ export function SessionActions({ sessions }: { sessions: SessionRow[] }) {
             <div>
               <p className="font-medium">
                 {s.ipAddress ?? "unknown IP"}
-                {s.current && <span className="ml-2 text-xs text-green-600">this device</span>}
+                {s.current && <span className="ml-2 text-xs text-green-700">this device</span>}
               </p>
               <p className="max-w-md truncate text-xs text-zinc-500">{s.userAgent ?? "unknown browser"}</p>
               <p className="text-xs text-zinc-500">
@@ -123,7 +123,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
     return (
       <form onSubmit={disable} className="space-y-3">
         <p className="text-sm">
-          Two-factor authentication is <span className="font-medium text-green-600">on</span>. Enter your password to
+          Two-factor authentication is <span className="font-medium text-green-700">on</span>. Enter your password to
           turn it off.
         </p>
         <div>
@@ -140,7 +140,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
           />
         </div>
         {error && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-red-700">
             {error}
           </p>
         )}
@@ -189,7 +189,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
           />
         </div>
         {error && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-red-700">
             {error}
           </p>
         )}
@@ -218,7 +218,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
         />
       </div>
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-red-700">
           {error}
         </p>
       )}

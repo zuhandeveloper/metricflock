@@ -67,7 +67,7 @@ function ErrorNote({ error, onRetry }: { error: unknown; onRetry: () => void }) 
   };
   return (
     <div role="alert" className="mt-2 text-sm">
-      <p role="alert" className="text-red-600">
+      <p role="alert" className="text-red-700">
         Couldn&apos;t load this data ({code}){hints[code] ?? ""}.
       </p>
       <button type="button" onClick={onRetry} className="mt-1 text-blue-600 hover:underline">
@@ -182,13 +182,13 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
           <>
             <StatusNote data={ov.data} />
             {ov.data.data.sampling?.sampled && (
-              <p className="mt-1 text-xs text-amber-600">
+              <p className="mt-1 text-xs text-amber-700">
                 Sampled data: GA4 read {ov.data.data.sampling.samplesReadCount?.toLocaleString()} of{" "}
                 {ov.data.data.sampling.samplingSpaceSize?.toLocaleString()} sessions — figures are estimates.
               </p>
             )}
             {ov.data.data.sampling?.subjectToThresholding && (
-              <p className="mt-1 text-xs text-amber-600">
+              <p className="mt-1 text-xs text-amber-700">
                 Some data was withheld by GA4 thresholding (low-volume segments).
               </p>
             )}

@@ -51,7 +51,7 @@ export default function TransferActions({ transferId, status, canDestination, ca
         </Button>
       )}
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}

@@ -113,7 +113,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
                   const missing = providersMissingScopes(c.scopes, { adManagerEnabled: adManagerEnabled() });
                   if (missing.length === 0) return null;
                   return (
-                    <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
                       Reconnect needed — this connection is missing required permissions for {missing.join(", ")}.{" "}
                       {canManage && (
                         <a

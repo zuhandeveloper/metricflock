@@ -17,7 +17,7 @@ async function sendJson(url: string, method: string, body: unknown): Promise<str
 function ErrorText({ error }: { error: string }) {
   if (!error) return null;
   return (
-    <span role="alert" className="text-xs text-red-600">
+    <span role="alert" className="text-xs text-red-700">
       {error}
     </span>
   );
@@ -119,7 +119,7 @@ export function EditWebsiteForm({
       <Button type="submit" variant="outline">
         {busy ? "Saving…" : "Save changes"}
       </Button>
-      {saved && <span className="text-xs text-emerald-600">Saved.</span>}
+      {saved && <span className="text-xs text-emerald-700">Saved.</span>}
       <ErrorText error={error} />
     </form>
   );
@@ -299,7 +299,7 @@ export function TransferForm({
       <Button type="submit" variant="outline">
         {busy ? "Starting…" : "Start transfer"}
       </Button>
-      {done && <span className="text-xs text-emerald-600">Transfer started — destination team must accept.</span>}
+      {done && <span className="text-xs text-emerald-700">Transfer started — destination team must accept.</span>}
       <ErrorText error={error} />
     </form>
   );
@@ -350,7 +350,7 @@ export function SyncNowForm({ websiteId }: { websiteId: string }) {
       <Button type="submit" variant="outline">
         {busy ? "Queueing…" : "Sync now"}
       </Button>
-      {done && <span className="text-xs text-emerald-600">Queued.</span>}
+      {done && <span className="text-xs text-emerald-700">Queued.</span>}
       <ErrorText error={error} />
     </form>
   );

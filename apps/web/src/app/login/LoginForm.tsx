@@ -78,7 +78,7 @@ export default function LoginForm() {
             <p className="mt-1 text-xs text-zinc-500">Enter the 6-digit code from your authenticator app.</p>
           </div>
           {error && (
-            <p role="alert" className="text-sm text-red-600">
+            <p role="alert" className="text-sm text-red-700">
               {error}
             </p>
           )}
@@ -129,7 +129,7 @@ export default function LoginForm() {
           />
         </div>
         {error && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-red-700">
             {error}
           </p>
         )}

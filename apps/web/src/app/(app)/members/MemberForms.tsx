@@ -66,7 +66,7 @@ export function InviteForm() {
         </div>
         <Button type="submit">{busy ? "Inviting…" : "Send invite"}</Button>
         {error && (
-          <span role="alert" className="text-xs text-red-600">
+          <span role="alert" className="text-xs text-red-700">
             {error}
           </span>
         )}
@@ -99,7 +99,7 @@ export function RevokeInviteButton({ inviteId }: { inviteId: string }) {
         {busy ? "Revoking…" : "Revoke"}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}
@@ -137,7 +137,7 @@ export function DeleteMemberButton({ memberId, memberEmail }: { memberId: string
         {busy ? "Deleting…" : "Delete"}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}
@@ -191,7 +191,7 @@ export function RoleSelect({
         ))}
       </select>
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}

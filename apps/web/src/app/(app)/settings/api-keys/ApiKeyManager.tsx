@@ -72,7 +72,7 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
         </div>
       )}
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-red-700">
           {error}
         </p>
       )}

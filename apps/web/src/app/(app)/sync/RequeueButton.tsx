@@ -29,7 +29,7 @@ export function RequeueButton({ jobId }: { jobId: string }) {
         {busy ? "Requeueing…" : "Requeue"}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}

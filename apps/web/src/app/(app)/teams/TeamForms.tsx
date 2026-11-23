@@ -51,7 +51,7 @@ export function DeleteTeamButton({ teamId, teamName }: { teamId: string; teamNam
         {busy ? "Deleting…" : "Delete team"}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}
@@ -113,7 +113,7 @@ export function CreateTeamForm() {
       </div>
       <Button type="submit">{busy ? "Creating…" : "Create team"}</Button>
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}
@@ -256,7 +256,7 @@ export function TeamAdminControls({
         <DeleteTeamButton teamId={teamId} teamName={teamName} />
       </div>
       {error && (
-        <p role="alert" className="text-xs text-red-600">
+        <p role="alert" className="text-xs text-red-700">
           {error}
         </p>
       )}

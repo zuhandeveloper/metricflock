@@ -33,7 +33,7 @@ export function DisconnectButton({ connectionId }: { connectionId: string }) {
         {busy ? "Disconnecting…" : "Disconnect"}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}
@@ -79,14 +79,14 @@ export function DiscoverButton({ connectionId }: { connectionId: string }) {
       <Button type="button" variant="outline" onClick={() => void act()}>
         {busy ? "Discovering…" : "Discover properties"}
       </Button>
-      {summary && <span className="text-xs text-emerald-600">{summary}</span>}
+      {summary && <span className="text-xs text-emerald-700">{summary}</span>}
       {providerErrors.map((e) => (
-        <span key={e} role="alert" className="text-xs text-amber-600">
+        <span key={e} role="alert" className="text-xs text-amber-700">
           {e}
         </span>
       ))}
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}
@@ -164,9 +164,9 @@ export function MapPropertyForm({
       <Button type="submit" variant="outline">
         {busy ? "Mapping…" : "Map"}
       </Button>
-      {done && <span className="text-xs text-emerald-600">Mapped.</span>}
+      {done && <span className="text-xs text-emerald-700">Mapped.</span>}
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}

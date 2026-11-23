@@ -30,7 +30,7 @@ export function AcceptInviteButton({ token }: { token: string }) {
         {busy ? "Joining…" : "Accept invite"}
       </Button>
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-red-700">
           {error}
         </p>
       )}

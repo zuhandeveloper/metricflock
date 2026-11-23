@@ -49,7 +49,7 @@ export function OrgAdminActions({ orgSlug }: { orgSlug: string }) {
         </a>
       </div>
       <div className="border-t border-zinc-100 pt-4 dark:border-zinc-800">
-        <h3 className="text-sm font-semibold text-red-600">Delete organization</h3>
+        <h3 className="text-sm font-semibold text-red-700">Delete organization</h3>
         <p className="mt-1 text-xs text-zinc-500">
           Permanently deletes this organization and everything in it, and revokes its Google grants. Export first if you
           need an archive. Type the organization slug <strong>{orgSlug}</strong> to confirm.
@@ -70,7 +70,7 @@ export function OrgAdminActions({ orgSlug }: { orgSlug: string }) {
             {busy ? "Deleting…" : "Delete organization"}
           </Button>
           {error && (
-            <span role="alert" className="text-xs text-red-600">
+            <span role="alert" className="text-xs text-red-700">
               {error}
             </span>
           )}

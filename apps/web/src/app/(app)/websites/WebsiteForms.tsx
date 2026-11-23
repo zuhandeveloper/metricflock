@@ -100,7 +100,7 @@ export function AddWebsiteForm({ teams }: { teams: TeamOption[] }) {
       </div>
       <Button type="submit">{busy ? "Adding…" : "Add website"}</Button>
       {error && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-red-700">
           {error}
         </span>
       )}
