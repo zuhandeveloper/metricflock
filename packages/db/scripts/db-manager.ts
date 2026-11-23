@@ -16,10 +16,14 @@ const cmd = process.argv[2];
 // Spawning bare `pnpm` fails on shells where pnpm is not on PATH
 // (e.g. MSYS2/UCRT64 on Windows: `spawnSync pnpm ENOENT`). When this
 // script runs under a package manager, npm_execpath points at it —
-// invoke it via node instead. Fall back to a shell lookup otherwise.
+// but on Windows that is a pnpm.exe binary, which node cannot load
+// as a script (ERR_UNKNOWN_FILE_EXTENSION), so invoke the binary
+// directly; on Unix it is a .cjs file, run via node.
 function runPnpm(args: string[]) {
   const execpath = process.env.npm_execpath;
-  if (execpath) {
+  if (execpath && /\.(exe|cmd|bat)$/i.test(execpath)) {
+    execFileSync(execpath, args, { stdio: "inherit" });
+  } else if (execpath) {
     execFileSync(process.execPath, [execpath, ...args], { stdio: "inherit" });
   } else {
     execFileSync("pnpm", args, { stdio: "inherit", shell: process.platform === "win32" });
