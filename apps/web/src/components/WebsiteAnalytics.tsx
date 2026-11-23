@@ -67,7 +67,7 @@ function ErrorNote({ error, onRetry }: { error: unknown; onRetry: () => void }) 
   };
   return (
     <div role="alert" className="mt-2 text-sm">
-      <p className="text-red-600">
+      <p role="alert" className="text-red-600">
         Couldn&apos;t load this data ({code}){hints[code] ?? ""}.
       </p>
       <button type="button" onClick={onRetry} className="mt-1 text-blue-600 hover:underline">

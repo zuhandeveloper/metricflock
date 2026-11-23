@@ -121,8 +121,16 @@ key auth + 120 req/min/key rate limit; management APIs
 `/settings/api-keys` page (SUPER_ADMIN) with one-time secret display;
 `docs/api.md` + README docs index; tests api-keys.test.ts +
 api-key-auth.test.ts. **Phase 7 complete.**
-Phase 8 UX/a11y work builds on the existing Playwright+axe harness.
-Phase 9 release gates: full check suite + live-data verification per
+**Phase 8 (2026-11-23): UX/accessibility** — mobile navigation
+(the sidebar was hidden below md with no alternative: new
+`MobileNav` drawer with focus management, Escape/backdrop close,
+route-change close); skip-to-main-content link + `main` focus
+target; `scope="col"` on all table headers; `role="alert"` completed
+on the new forms' error text. Playwright: setup project signs in
+once with the seeded demo admin (storageState), axe gate extended
+to 12 signed-in pages + skip-link test, and UI journeys (create
+team, create website, API key create/revoke, report schedule save,
+mobile nav). Phase 9 release gates: full check suite + live-data verification per
 provider (GA4/AdSense still pending user-side confirmation) + worker
 hosting.
 

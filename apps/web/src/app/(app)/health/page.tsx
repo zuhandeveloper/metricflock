@@ -45,12 +45,24 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-zinc-500">
-                  <th className="py-1 font-medium">Website</th>
-                  <th className="py-1 font-medium">Provider</th>
-                  <th className="py-1 font-medium">State</th>
-                  <th className="py-1 font-medium">Last success</th>
-                  <th className="py-1 font-medium">Last checked</th>
-                  <th className="py-1 font-medium">Last error</th>
+                  <th scope="col" className="py-1 font-medium">
+                    Website
+                  </th>
+                  <th scope="col" className="py-1 font-medium">
+                    Provider
+                  </th>
+                  <th scope="col" className="py-1 font-medium">
+                    State
+                  </th>
+                  <th scope="col" className="py-1 font-medium">
+                    Last success
+                  </th>
+                  <th scope="col" className="py-1 font-medium">
+                    Last checked
+                  </th>
+                  <th scope="col" className="py-1 font-medium">
+                    Last error
+                  </th>
                 </tr>
               </thead>
               <tbody>

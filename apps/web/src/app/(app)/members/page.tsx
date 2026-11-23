@@ -39,9 +39,11 @@ export default async function MembersPage() {
         <table className="mt-2 w-full text-sm">
           <thead>
             <tr className="text-left text-zinc-500">
-              <th className="py-2">Member</th>
-              <th>Role</th>
-              <th>Joined</th>
+              <th scope="col" className="py-2">
+                Member
+              </th>
+              <th scope="col">Role</th>
+              <th scope="col">Joined</th>
             </tr>
           </thead>
           <tbody>

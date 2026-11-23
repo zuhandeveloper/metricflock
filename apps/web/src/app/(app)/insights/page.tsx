@@ -87,10 +87,18 @@ export default async function InsightsPage() {
               <table className="mt-1 w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-zinc-500">
-                    <th className="py-1 pr-2">Query</th>
-                    <th className="py-1 pr-2">Position</th>
-                    <th className="py-1 pr-2">Impressions</th>
-                    <th className="py-1">CTR</th>
+                    <th scope="col" className="py-1 pr-2">
+                      Query
+                    </th>
+                    <th scope="col" className="py-1 pr-2">
+                      Position
+                    </th>
+                    <th scope="col" className="py-1 pr-2">
+                      Impressions
+                    </th>
+                    <th scope="col" className="py-1">
+                      CTR
+                    </th>
                   </tr>
                 </thead>
                 <tbody>

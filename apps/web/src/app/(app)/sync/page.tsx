@@ -45,12 +45,14 @@ export default async function SyncJobsPage() {
           <table className="mt-2 w-full text-sm">
             <thead>
               <tr className="text-left text-zinc-500">
-                <th className="py-2">Website</th>
-                <th>Type</th>
-                <th>Attempts</th>
-                <th>Last error</th>
-                <th>Updated</th>
-                <th></th>
+                <th scope="col" className="py-2">
+                  Website
+                </th>
+                <th scope="col">Type</th>
+                <th scope="col">Attempts</th>
+                <th scope="col">Last error</th>
+                <th scope="col">Updated</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
@@ -85,10 +87,12 @@ export default async function SyncJobsPage() {
           <table className="mt-2 w-full text-sm">
             <thead>
               <tr className="text-left text-zinc-500">
-                <th className="py-2">Website</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Updated</th>
+                <th scope="col" className="py-2">
+                  Website
+                </th>
+                <th scope="col">Type</th>
+                <th scope="col">Status</th>
+                <th scope="col">Updated</th>
               </tr>
             </thead>
             <tbody>

@@ -5,8 +5,10 @@ import { defineConfig } from "@playwright/test";
 // `pnpm test:e2e` boots `next start` itself via webServer below).
 // Requires the same env as the app (DATABASE_URL etc.) — in CI the
 // service containers provide them; locally point DATABASE_URL at a
-// dev database. Only signed-out pages are covered here; authenticated
-// flows are covered by scripts/smoke-test.sh over HTTP.
+// dev database. Phase 8 adds signed-in coverage: the "setup" project
+// signs in once with the seeded demo admin and saves the session;
+// the "app" project (axe on signed-in pages + UI journeys) reuses
+// it. The "signed-out" project keeps the original auth-page gate.
 const PORT = Number(process.env.E2E_PORT ?? 3200);
 
 export default defineConfig({
@@ -15,6 +17,15 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: { baseURL: `http://localhost:${PORT}` },
+  projects: [
+    { name: "setup", testMatch: /auth\.setup\.ts/ },
+    { name: "signed-out", testMatch: /accessibility\.spec\.ts/ },
+    {
+      name: "app",
+      testMatch: /(app-accessibility|journeys)\.spec\.ts/,
+      dependencies: ["setup"],
+    },
+  ],
   webServer: {
     command: `pnpm exec next start -p ${PORT}`,
     url: `http://localhost:${PORT}/api/health`,

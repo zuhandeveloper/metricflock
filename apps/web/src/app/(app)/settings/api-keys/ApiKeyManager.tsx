@@ -71,19 +71,33 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
           <code className="mt-1 block break-all">{newSecret}</code>
         </div>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-red-600">
+          {error}
+        </p>
+      )}
       {initial.length === 0 ? (
         <p className="text-sm text-zinc-500">No API keys yet.</p>
       ) : (
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-zinc-500">
-              <th className="py-1 pr-2">Name</th>
-              <th className="py-1 pr-2">Key</th>
-              <th className="py-1 pr-2">Created</th>
-              <th className="py-1 pr-2">Last used</th>
-              <th className="py-1 pr-2">Status</th>
-              <th className="py-1" />
+              <th scope="col" className="py-1 pr-2">
+                Name
+              </th>
+              <th scope="col" className="py-1 pr-2">
+                Key
+              </th>
+              <th scope="col" className="py-1 pr-2">
+                Created
+              </th>
+              <th scope="col" className="py-1 pr-2">
+                Last used
+              </th>
+              <th scope="col" className="py-1 pr-2">
+                Status
+              </th>
+              <th scope="col" className="py-1" />
             </tr>
           </thead>
           <tbody>

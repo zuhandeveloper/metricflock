@@ -76,11 +76,13 @@ export default async function WebsitesPage({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-zinc-500">
-                <th className="py-2">Website</th>
-                <th>Team</th>
-                <th>Status</th>
-                <th>Integrations</th>
-                <th></th>
+                <th scope="col" className="py-2">
+                  Website
+                </th>
+                <th scope="col">Team</th>
+                <th scope="col">Status</th>
+                <th scope="col">Integrations</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>

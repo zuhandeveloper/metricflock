@@ -29,10 +29,12 @@ export default async function AuditPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-zinc-500">
-                <th className="py-2">Time</th>
-                <th>Actor</th>
-                <th>Action</th>
-                <th>Entity</th>
+                <th scope="col" className="py-2">
+                  Time
+                </th>
+                <th scope="col">Actor</th>
+                <th scope="col">Action</th>
+                <th scope="col">Entity</th>
               </tr>
             </thead>
             <tbody>

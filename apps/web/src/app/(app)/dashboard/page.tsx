@@ -203,9 +203,15 @@ export default async function DashboardPage({
               <table className="mt-4 w-full text-sm">
                 <thead>
                   <tr className="text-left text-zinc-500">
-                    <th className="py-1 font-medium">Top websites by sessions</th>
-                    <th className="py-1 text-right font-medium">Sessions</th>
-                    <th className="py-1 text-right font-medium">Snapshot</th>
+                    <th scope="col" className="py-1 font-medium">
+                      Top websites by sessions
+                    </th>
+                    <th scope="col" className="py-1 text-right font-medium">
+                      Sessions
+                    </th>
+                    <th scope="col" className="py-1 text-right font-medium">
+                      Snapshot
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
