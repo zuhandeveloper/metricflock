@@ -22,6 +22,12 @@ const sumOrNull = (values: Num[]): number | null => {
 };
 const ratio = (a: number | null, b: number | null): number | null =>
   a === null || b === null || b === 0 ? null : a / b;
+// RPM is a ratio scaled by 1000; null propagates like ratio —
+// missing earnings (or missing views) yields null, never an invented 0.
+const rpm = (earnings: number | null, views: number | null): number | null => {
+  const r = ratio(earnings, views);
+  return r === null ? null : r * 1000;
+};
 
 export function aggregatePayloads(
   report: string,
@@ -87,8 +93,8 @@ export function aggregatePayloads(
         CLICKS: clicks,
         CTR: ratio(clicks, impressions),
         CPC: ratio(earnings, clicks),
-        PAGE_RPM: pageViews ? ((earnings ?? 0) / pageViews) * 1000 : null,
-        IMPRESSION_RPM: impressions ? ((earnings ?? 0) / impressions) * 1000 : null,
+        PAGE_RPM: rpm(earnings, pageViews),
+        IMPRESSION_RPM: rpm(earnings, impressions),
       },
       note: "AdSense figures are estimated earnings, not finalized payments. Rates are recomputed from summed totals.",
     };

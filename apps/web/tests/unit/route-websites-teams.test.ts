@@ -31,6 +31,10 @@ const mocks = vi.hoisted(() => ({
   teamMemberCount: vi.fn(),
   teamMemberUpsert: vi.fn(),
   teamMemberDeleteMany: vi.fn(),
+  txQueryRaw: vi.fn(),
+  txTeamMemberCount: vi.fn(),
+  txTeamMemberUpsert: vi.fn(),
+  txTeamMemberDeleteMany: vi.fn(),
   userFindFirst: vi.fn(),
   assignmentUpsert: vi.fn(),
   assignmentDeleteMany: vi.fn(),
@@ -121,6 +125,12 @@ beforeEach(() => {
     cb({
       team: { findFirst: mocks.txTeamFindFirst },
       website: { update: mocks.txWebsiteUpdate },
+      $queryRaw: mocks.txQueryRaw,
+      teamMember: {
+        count: mocks.txTeamMemberCount,
+        upsert: mocks.txTeamMemberUpsert,
+        deleteMany: mocks.txTeamMemberDeleteMany,
+      },
     }),
   );
   mocks.txTeamFindFirst.mockResolvedValue({ id: "t1" });
@@ -444,14 +454,27 @@ describe("POST /api/teams/[id]/members", () => {
   it("demoting the last admin → 409 last_admin; with 2 admins → 200", async () => {
     mocks.userFindFirst.mockResolvedValue({ id: "u2", organizationId: "org1" });
     mocks.teamMemberFindFirst.mockResolvedValue({ isAdmin: true });
-    mocks.teamMemberCount.mockResolvedValue(1);
+    mocks.txTeamMemberCount.mockResolvedValue(1);
     const blocked = await teamMembersPost(jsonReq(url, "POST", { userId: "u2", isAdmin: false }), ctx("t1"));
     expect(blocked.status).toBe(409);
     expect(await blocked.json()).toMatchObject({ error: "last_admin" });
-    mocks.teamMemberCount.mockResolvedValue(2);
-    mocks.teamMemberUpsert.mockResolvedValue({});
+    // The count ran on the transaction client, behind the row lock —
+    // never on the root client — and no demote was issued.
+    expect(mocks.txQueryRaw).toHaveBeenCalledTimes(1);
+    expect(mocks.txTeamMemberCount).toHaveBeenCalledWith({ where: { teamId: "t1", isAdmin: true } });
+    expect(mocks.teamMemberCount).not.toHaveBeenCalled();
+    expect(mocks.txTeamMemberUpsert).not.toHaveBeenCalled();
+    expect(mocks.teamMemberUpsert).not.toHaveBeenCalled();
+    mocks.txTeamMemberCount.mockResolvedValue(2);
+    mocks.txTeamMemberUpsert.mockResolvedValue({});
     const ok = await teamMembersPost(jsonReq(url, "POST", { userId: "u2", isAdmin: false }), ctx("t1"));
     expect(ok.status).toBe(200);
+    // The lock is taken before the count is read.
+    expect(mocks.txQueryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.txTeamMemberCount.mock.invocationCallOrder[0],
+    );
+    expect(mocks.txTeamMemberUpsert).toHaveBeenCalledWith(expect.objectContaining({ update: { isAdmin: false } }));
+    expect(mocks.teamMemberUpsert).not.toHaveBeenCalled();
   });
   it("remove non-admin → 200 + deleteMany + audit team.member.remove", async () => {
     mocks.userFindFirst.mockResolvedValue({ id: "u2", organizationId: "org1" });
@@ -465,9 +488,98 @@ describe("POST /api/teams/[id]/members", () => {
   it("remove the last admin → 409 last_admin", async () => {
     mocks.userFindFirst.mockResolvedValue({ id: "u2", organizationId: "org1" });
     mocks.teamMemberFindFirst.mockResolvedValue({ isAdmin: true });
-    mocks.teamMemberCount.mockResolvedValue(1);
+    mocks.txTeamMemberCount.mockResolvedValue(1);
     const res = await teamMembersPost(jsonReq(url, "POST", { userId: "u2", action: "remove" }), ctx("t1"));
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: "last_admin" });
+    expect(mocks.txTeamMemberCount).toHaveBeenCalledWith({ where: { teamId: "t1", isAdmin: true } });
+    expect(mocks.teamMemberCount).not.toHaveBeenCalled();
+    expect(mocks.txTeamMemberDeleteMany).not.toHaveBeenCalled();
+    expect(mocks.teamMemberDeleteMany).not.toHaveBeenCalled();
+  });
+});
+
+// A-SEC-18 (team half): the last-admin count + demote/remove must
+// happen atomically — inside one transaction with the admin rows locked
+// (SELECT … FOR UPDATE) — so two concurrent requests against the last
+// two admins cannot both observe count 2 and both proceed, leaving
+// zero team admins.
+//
+// The mocked $transaction below serializes the two callbacks through a
+// queue, the way the FOR UPDATE lock serializes them against a real
+// database: the second transaction waits for the first to commit, then
+// reads the fresh count (1) and is refused. Against the old
+// check-then-act code there is no serialization — both requests read
+// count 2 from the live counter and both proceed, leaving zero admins,
+// so this test fails on the old code. True serialization against a
+// real DB is CI-smoke territory — mocks cannot prove two transactions
+// serialize; this proves the code issues the lock + in-transaction
+// count and that the loser observes the post-commit count.
+describe("POST /api/teams/[id]/members last-admin concurrency (A-SEC-18)", () => {
+  const url = "http://localhost/api/teams/t1/members";
+  let admins: number;
+  let txQueue: Promise<unknown>;
+  const tx = {
+    $queryRaw: mocks.txQueryRaw,
+    teamMember: {
+      count: mocks.txTeamMemberCount,
+      upsert: mocks.txTeamMemberUpsert,
+      deleteMany: mocks.txTeamMemberDeleteMany,
+    },
+  };
+
+  beforeEach(() => {
+    admins = 2;
+    txQueue = Promise.resolve();
+    mocks.tx.mockImplementation((cb: (t: typeof tx) => Promise<unknown>) => {
+      const run = txQueue.then(() => cb(tx));
+      txQueue = run.catch(() => undefined);
+      return run;
+    });
+    // The count reads the live admin total; the mutations move it.
+    mocks.txTeamMemberCount.mockImplementation(async () => admins);
+    mocks.txTeamMemberDeleteMany.mockImplementation(async () => {
+      admins -= 1;
+      return { count: 1 };
+    });
+    mocks.txTeamMemberUpsert.mockImplementation(async () => {
+      admins -= 1;
+      return {};
+    });
+    mocks.teamMemberFindFirst.mockResolvedValue({ isAdmin: true });
+    mocks.userFindFirst.mockImplementation(async ({ where }: { where: { id: string } }) => ({
+      id: where.id,
+      organizationId: "org1",
+    }));
+  });
+
+  it("two concurrent removes of the last two admins leave exactly one admin", async () => {
+    const [first, second] = await Promise.all([
+      teamMembersPost(jsonReq(url, "POST", { userId: "u2", action: "remove" }), ctx("t1")),
+      teamMembersPost(jsonReq(url, "POST", { userId: "u3", action: "remove" }), ctx("t1")),
+    ]);
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    expect(admins).toBe(1);
+    expect(mocks.txQueryRaw).toHaveBeenCalledTimes(2);
+    expect(mocks.txTeamMemberCount).toHaveBeenCalledTimes(2);
+    expect(mocks.txTeamMemberDeleteMany).toHaveBeenCalledTimes(1);
+    // The loser saw the post-commit count and was refused.
+    const loser = first.status === 409 ? first : second;
+    expect(await loser.json()).toMatchObject({ error: "last_admin" });
+  });
+
+  it("two concurrent demotes of the last two admins leave exactly one admin", async () => {
+    const [first, second] = await Promise.all([
+      teamMembersPost(jsonReq(url, "POST", { userId: "u2", isAdmin: false }), ctx("t1")),
+      teamMembersPost(jsonReq(url, "POST", { userId: "u3", isAdmin: false }), ctx("t1")),
+    ]);
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    expect(admins).toBe(1);
+    expect(mocks.txQueryRaw).toHaveBeenCalledTimes(2);
+    expect(mocks.txTeamMemberUpsert).toHaveBeenCalledTimes(1);
+    const loser = first.status === 409 ? first : second;
+    expect(await loser.json()).toMatchObject({ error: "last_admin" });
   });
 });

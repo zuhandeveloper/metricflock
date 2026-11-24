@@ -16,8 +16,9 @@ FROM node:26-slim
 
 WORKDIR /app
 
-# pnpm (matches the repo's packageManager field).
-RUN corepack enable && corepack prepare pnpm@12.21.0 --activate
+# pnpm (matches the repo's packageManager field). Node 25+ ships without
+# corepack, so install pnpm directly with npm instead.
+RUN npm install -g pnpm@12.21.0
 
 # Whole repo (see .dockerignore: node_modules, .next, .turbo, .git, .env
 # are excluded). The worker imports the workspace packages as TS source,

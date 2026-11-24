@@ -98,6 +98,33 @@ describe("aggregatePayloads — AdSense", () => {
     expect(totals?.CPC).toBeCloseTo(15.75 / 30);
     expect(totals?.PAGE_RPM).toBeCloseTo((15.75 / 1500) * 1000);
   });
+
+  it("leaves RPM null when earnings are missing instead of inventing 0 (A-GGL-05)", () => {
+    const { totals } = aggregatePayloads("adsense", [
+      { totalsByMetric: { ESTIMATED_EARNINGS: null, PAGE_VIEWS: "1500", IMPRESSIONS: "3000", CLICKS: "10" } },
+      { totalsByMetric: { PAGE_VIEWS: "500", IMPRESSIONS: "1000", CLICKS: "5" } },
+    ]);
+    expect(totals?.ESTIMATED_EARNINGS).toBeNull();
+    expect(totals?.PAGE_RPM).toBeNull();
+    expect(totals?.IMPRESSION_RPM).toBeNull();
+    // Consistent with the neighbouring rates, which already yielded null.
+    expect(totals?.CPC).toBeNull();
+    expect(totals?.CTR).toBeCloseTo(15 / 4000);
+  });
+
+  it("keeps a genuine zero-earnings RPM at 0 and null page views at null RPM", () => {
+    const zero = aggregatePayloads("adsense", [
+      { totalsByMetric: { ESTIMATED_EARNINGS: "0", PAGE_VIEWS: "1500", IMPRESSIONS: "3000", CLICKS: "10" } },
+    ]);
+    expect(zero.totals?.PAGE_RPM).toBe(0);
+    expect(zero.totals?.IMPRESSION_RPM).toBe(0);
+
+    const noViews = aggregatePayloads("adsense", [
+      { totalsByMetric: { ESTIMATED_EARNINGS: "10.50", PAGE_VIEWS: null, IMPRESSIONS: "3000", CLICKS: "10" } },
+    ]);
+    expect(noViews.totals?.PAGE_RPM).toBeNull();
+    expect(noViews.totals?.IMPRESSION_RPM).toBeCloseTo((10.5 / 3000) * 1000);
+  });
 });
 
 describe("aggregatePayloads — unsupported reports", () => {
