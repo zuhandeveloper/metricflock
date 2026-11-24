@@ -82,6 +82,9 @@ echo "smoke: migrate (deploy) + seed"
 # service per CI run), so generate a throwaway password when the caller
 # did not set one. Never hardcode a password here.
 export SEED_DEMO_ADMIN_PASSWORD="${SEED_DEMO_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
+# The seeded demo admin's password IS the generated one — the old default
+# no longer exists, so sign in with it (CI #210 failed here with 401).
+ADMIN_PASSWORD="$SEED_DEMO_ADMIN_PASSWORD"
 # `migrate deploy` (not `migrate dev`): applies the checked-in migrations
 # without creating new ones — the right command for CI and servers.
 DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec prisma migrate deploy >/dev/null || fail "prisma migrate deploy"
