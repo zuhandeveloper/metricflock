@@ -34,8 +34,12 @@ USER node
 # OPS-5/9: exec-form CMD so node is PID 1 and receives SIGTERM directly
 # (the pnpm→cross-env→tsx chain does not forward signals). tsx loader runs
 # the TS source; dotenv config path matches the dev/start scripts.
+# Run from the worker directory: `node --import tsx` resolves the loader
+# from the CWD, and tsx lives in apps/worker/node_modules (a runtime
+# dependency of @metricflock/worker), not in /app/node_modules.
+WORKDIR /app/apps/worker
 ENV DOTENV_CONFIG_PATH=/app/apps/web/.env
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:8080/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "--import", "tsx", "apps/worker/src/index.ts"]
+CMD ["node", "--import", "tsx", "src/index.ts"]
