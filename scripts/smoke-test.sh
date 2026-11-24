@@ -77,6 +77,11 @@ auth_post() {
 
 
 echo "smoke: migrate (deploy) + seed"
+# The seed guard (A-SEC-03) requires an explicit demo-admin password —
+# there is no default. The smoke database is ephemeral (fresh Postgres
+# service per CI run), so generate a throwaway password when the caller
+# did not set one. Never hardcode a password here.
+export SEED_DEMO_ADMIN_PASSWORD="${SEED_DEMO_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
 # `migrate deploy` (not `migrate dev`): applies the checked-in migrations
 # without creating new ones — the right command for CI and servers.
 DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec prisma migrate deploy >/dev/null || fail "prisma migrate deploy"
