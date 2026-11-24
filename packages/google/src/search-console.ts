@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import type { OAuth2Client } from "./auth-types";
+import { GOOGLE_API_TIMEOUT_MS, withGoogleTimeout } from "./timeout";
 // Search Console data is delayed by 2-3 days; never present it as real-time.
 export const GSC_DATA_DELAY_NOTE = "Search Console data is delayed by approximately 2-3 days and is not real-time.";
 export function parseGscRows(
@@ -48,23 +49,37 @@ export async function querySearchAnalytics(
   rowLimit = 1000,
 ) {
   const sc = google.searchconsole({ version: "v1", auth });
+  // A-GGL-03: every Search Console call is bounded (see timeout.ts).
+  const opts = { timeout: GOOGLE_API_TIMEOUT_MS };
   // DATA-3: totals come from a separate dimension-less query. Reducing the
   // detail page (sorted by clicks, capped at rowLimit) undercounts every
   // site with more rows than the page size.
-  const totalsRes = await sc.searchanalytics.query({
-    siteUrl,
-    requestBody: { startDate, endDate, dimensions: [], rowLimit: 1 },
-  });
+  const totalsRes = await withGoogleTimeout(
+    sc.searchanalytics.query(
+      {
+        siteUrl,
+        requestBody: { startDate, endDate, dimensions: [], rowLimit: 1 },
+      },
+      opts,
+    ),
+    "search-console.query.totals",
+  );
   const totalsRow = parseGscRows(totalsRes.data.rows as never)[0];
   // Detail rows are paginated with startRow; `truncated` surfaces when the
   // page cap is hit instead of silently dropping the tail.
   const rows: ReturnType<typeof parseGscRows> = [];
   let truncated = false;
   for (let page = 0; page < GSC_MAX_PAGES; page++) {
-    const res = await sc.searchanalytics.query({
-      siteUrl,
-      requestBody: { startDate, endDate, dimensions, rowLimit, startRow: page * rowLimit },
-    });
+    const res = await withGoogleTimeout(
+      sc.searchanalytics.query(
+        {
+          siteUrl,
+          requestBody: { startDate, endDate, dimensions, rowLimit, startRow: page * rowLimit },
+        },
+        opts,
+      ),
+      "search-console.query.detail",
+    );
     const pageRows = parseGscRows(res.data.rows as never);
     rows.push(...pageRows);
     if (pageRows.length < rowLimit) break;
@@ -90,7 +105,10 @@ export async function querySearchAnalytics(
 }
 export async function listSitemaps(auth: OAuth2Client, siteUrl: string) {
   const sc = google.searchconsole({ version: "v1", auth });
-  const res = await sc.sitemaps.list({ siteUrl });
+  const res = await withGoogleTimeout(
+    sc.sitemaps.list({ siteUrl }, { timeout: GOOGLE_API_TIMEOUT_MS }),
+    "search-console.sitemaps.list",
+  );
   return (res.data.sitemap ?? []).map((s) => ({
     path: s.path,
     lastSubmitted: s.lastSubmitted,
@@ -102,6 +120,9 @@ export async function listSitemaps(auth: OAuth2Client, siteUrl: string) {
 }
 export async function inspectUrl(auth: OAuth2Client, siteUrl: string, inspectionUrl: string) {
   const sc = google.searchconsole({ version: "v1", auth });
-  const res = await sc.urlInspection.index.inspect({ requestBody: { siteUrl, inspectionUrl } });
+  const res = await withGoogleTimeout(
+    sc.urlInspection.index.inspect({ requestBody: { siteUrl, inspectionUrl } }, { timeout: GOOGLE_API_TIMEOUT_MS }),
+    "search-console.urlInspection.inspect",
+  );
   return res.data.inspectionResult ?? null;
 }

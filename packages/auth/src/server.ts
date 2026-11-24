@@ -228,6 +228,14 @@ export async function getSessionUser() {
   return prisma.user.findUnique({ where: { id: session.user.id } });
 }
 
+/** The raw better-auth session for the current request, or null. Unlike
+ *  `getSessionUser` this keeps the session row itself — notably
+ *  `session.createdAt`, which is the basis for freshness (step-up)
+ *  checks in `requireFreshSession` (`api-helpers.ts`). */
+export async function getSession() {
+  return auth.api.getSession({ headers: await headers() });
+}
+
 export async function requireAuth() {
   const user = await getSessionUser();
   if (!user) throw new Error("UNAUTHENTICATED");

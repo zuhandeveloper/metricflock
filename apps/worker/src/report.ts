@@ -120,15 +120,57 @@ export async function sendOrgReport(organizationId: string): Promise<SyncResult>
     log.error("weekly report not sent — SMTP not configured", { organizationId });
     return { status: "skipped", reports: [], detail: "SMTP not configured; report not sent" };
   }
-  let sent = 0;
+  // A-WRK-03: per-recipient fault isolation. The old loop threw on the
+  // first failed recipient, so `lastSentAt` was never written, the BullMQ
+  // job retried, and every retry re-mailed the recipients who had already
+  // received the report (up to 5 copies). Now each send is tried
+  // independently and failures are collected, never thrown mid-loop.
+  //
+  // Idempotent re-send without a schema change: ReportSchedule has no
+  // per-recipient sent column (and this row adds no migration), so the
+  // duplicate-mail guarantee comes from the outcome rule instead — the
+  // job only throws (and therefore only retries) when ZERO recipients
+  // were mailed, in which case a retry cannot duplicate anything. A
+  // partial success returns `ok` with the failed recipients named in
+  // `detail`, and `lastSentAt` is still recorded so the next tick does
+  // not re-mail the recipients who already got it.
+  const sent: string[] = [];
+  const failed: { to: string; error: string }[] = [];
   for (const to of recipients) {
-    await sendMail({ to, subject, text });
-    sent += 1;
+    try {
+      await sendMail({ to, subject, text });
+      sent.push(to);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      failed.push({ to, error: message });
+      log.error("weekly report failed for recipient", { organizationId, to, error: message });
+    }
+  }
+  if (sent.length === 0) {
+    // Nobody received anything: safe to throw so BullMQ retries. The
+    // retry re-attempts the same set, still with zero prior deliveries.
+    throw new Error(
+      `weekly report delivery failed for all ${recipients.length} recipient(s): ${failed
+        .map((f) => `${f.to} (${f.error})`)
+        .join("; ")}`,
+    );
   }
   await prisma.reportSchedule.updateMany({
     where: { organizationId },
     data: { lastSentAt: new Date() },
   });
-  log.info("weekly report sent", { organizationId, recipients: recipients.length, sent });
-  return { status: "ok", reports: [], detail: `report sent to ${sent}/${recipients.length} recipients` };
+  log.info("weekly report sent", {
+    organizationId,
+    recipients: recipients.length,
+    sent: sent.length,
+    failed: failed.map((f) => f.to),
+  });
+  return {
+    status: "ok",
+    reports: [],
+    detail:
+      failed.length === 0
+        ? `report sent to ${sent.length}/${recipients.length} recipients`
+        : `report sent to ${sent.length}/${recipients.length} recipients; failed: ${failed.map((f) => f.to).join(", ")}`,
+  };
 }

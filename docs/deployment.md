@@ -70,7 +70,10 @@ without the worker, scheduled sync simply doesn't happen and manual
   `docs/operations/backup-restore.md`.
 - **Redis 7** — cache, rate limits, BullMQ queues, refresh locks. Managed
   Redis (e.g. Upstash) is fine; Redis is never backed up (all state is
-  reconstructible).
+  reconstructible). **Production requires Redis:** running without
+  `REDIS_URL` is a dev-only posture — in production (`NODE_ENV=production`)
+  Google token refresh fails closed without it, because concurrent refreshes
+  cannot be serialized and can clobber a rotated refresh token (A-GGL-02).
 
 ## Pre-launch checklist
 

@@ -34,12 +34,14 @@ export function Button({
   type = "button",
   variant = "primary",
   className = "",
+  disabled = false,
 }: {
   children: ReactNode;
   onClick?: () => void;
   type?: "button" | "submit";
   variant?: "primary" | "ghost" | "outline";
   className?: string;
+  disabled?: boolean;
 }) {
   const v =
     variant === "primary"
@@ -51,7 +53,8 @@ export function Button({
     <button
       type={type}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:outline-none ${v} ${className}`}
+      disabled={disabled}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${v} ${className}`}
     >
       {children}
     </button>

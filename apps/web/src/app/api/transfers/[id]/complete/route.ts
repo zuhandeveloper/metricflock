@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors } from "@/lib/api-error";
-import { canActForDestination, expireIfStale, loadTransferInOrg } from "@/lib/transfers";
-import { requireApiAuth } from "@metricflock/auth";
+import { canActForDestination, expireIfStale, loadTransferInOrg, transferStaleStateResponse } from "@/lib/transfers";
+import { requireApiAuth, requireFreshSession } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateWebsiteCache } from "@metricflock/shared";
@@ -16,6 +16,10 @@ import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
 async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth();
   if ("error" in auth) return auth.error;
+  // A-SEC-02: completing a transfer moves a website between teams —
+  // require a fresh session.
+  const fresh = await requireFreshSession();
+  if ("error" in fresh) return fresh.error;
   const { id } = await ctx.params;
   const found = await loadTransferInOrg(id, auth.user.organizationId);
   if (!found) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
@@ -37,18 +41,31 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
       },
       { status: 409 },
     );
+  // A-DB-01: the status guard runs FIRST inside the transaction as a
+  // conditional updateMany. Under Read Committed the guarded write takes
+  // a row lock, so a concurrent complete/cancel serializes behind it
+  // and then matches 0 rows: the transaction returns null before any
+  // side effect (website flip, assignment/integration deletes) runs,
+  // so a cancelled transfer can never be resurrected and a completed
+  // one is never completed twice.
   const updated = await prisma.$transaction(async (tx) => {
+    const guard = await tx.websiteTransfer.updateMany({
+      where: { id, status: "PENDING_CONNECTION" },
+      data: { status: "COMPLETED", completedAt: new Date(), connectionHealthChecked: true },
+    });
+    if (guard.count === 0) return null;
     await tx.website.update({
       where: { id: transfer.websiteId },
       data: { teamId: transfer.toTeamId, status: "ACTIVE" },
     });
     await tx.websiteAssignment.deleteMany({ where: { websiteId: transfer.websiteId } });
     await tx.websiteIntegration.deleteMany({ where: { websiteId: transfer.websiteId } });
-    return tx.websiteTransfer.update({
-      where: { id },
-      data: { status: "COMPLETED", completedAt: new Date(), connectionHealthChecked: true },
-    });
+    return tx.websiteTransfer.findUnique({ where: { id } });
   });
+  if (!updated) {
+    const current = await prisma.websiteTransfer.findUnique({ where: { id }, select: { status: true } });
+    return transferStaleStateResponse(current?.status ?? transfer.status);
+  }
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
@@ -62,7 +79,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
       toTeamId: transfer.toTeamId,
       destinationConnectionId: destinationConnection.id,
     },
-  });
+  }).catch(() => undefined); // A-DB-09: audit failure must not turn a committed completion into a 500.
   await invalidateWebsiteCache(auth.user.organizationId, transfer.websiteId);
   await invalidateWebsiteSnapshots(transfer.websiteId);
   return NextResponse.json({

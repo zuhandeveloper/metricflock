@@ -28,6 +28,7 @@ export function DeleteTeamButton({ teamId, teamName }: { teamId: string; teamNam
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function act() {
+    if (busy) return;
     if (!window.confirm(`Delete team "${teamName}"? Its members and team-level Google connections will be removed.`))
       return;
     setBusy(true);
@@ -47,7 +48,7 @@ export function DeleteTeamButton({ teamId, teamName }: { teamId: string; teamNam
   }
   return (
     <span className="inline-flex items-center gap-2">
-      <Button type="button" variant="outline" onClick={() => void act()}>
+      <Button type="button" variant="outline" disabled={busy} onClick={() => void act()}>
         {busy ? "Deleting…" : "Delete team"}
       </Button>
       {error && (
@@ -68,6 +69,7 @@ export function CreateTeamForm() {
   const [error, setError] = useState("");
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     const err = await postJson("/api/teams", "POST", { name, slug: slug || slugify(name) });
@@ -111,7 +113,9 @@ export function CreateTeamForm() {
           required
         />
       </div>
-      <Button type="submit">{busy ? "Creating…" : "Create team"}</Button>
+      <Button type="submit" disabled={busy}>
+        {busy ? "Creating…" : "Create team"}
+      </Button>
       {error && (
         <span role="alert" className="text-xs text-red-700">
           {error}
@@ -145,6 +149,7 @@ export function TeamAdminControls({
   const candidates = orgUsers.filter((u) => !memberIds.has(u.id));
 
   async function run(key: string, url: string, method: string, body: unknown) {
+    if (busy) return;
     setBusy(key);
     setError("");
     const err = await postJson(url, method, body);
@@ -168,7 +173,7 @@ export function TeamAdminControls({
           </label>
           <Input id={`rename-${teamId}`} value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
-        <Button type="submit" variant="outline">
+        <Button type="submit" variant="outline" disabled={busy !== ""}>
           {busy === "rename" ? "Saving…" : "Rename"}
         </Button>
       </form>
@@ -183,6 +188,7 @@ export function TeamAdminControls({
             <Button
               type="button"
               variant="ghost"
+              disabled={busy !== ""}
               onClick={() =>
                 void run(`admin-${m.userId}`, `/api/teams/${teamId}/members`, "POST", {
                   userId: m.userId,
@@ -196,6 +202,7 @@ export function TeamAdminControls({
             <Button
               type="button"
               variant="ghost"
+              disabled={busy !== ""}
               onClick={() =>
                 void run(`remove-${m.userId}`, `/api/teams/${teamId}/members`, "POST", {
                   userId: m.userId,
@@ -245,7 +252,7 @@ export function TeamAdminControls({
             <input type="checkbox" checked={addAdmin} onChange={(e) => setAddAdmin(e.target.checked)} />
             Team admin
           </label>
-          <Button type="submit" variant="outline">
+          <Button type="submit" variant="outline" disabled={busy !== ""}>
             {busy === "add" ? "Adding…" : "Add"}
           </Button>
         </form>

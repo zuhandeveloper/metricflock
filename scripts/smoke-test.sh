@@ -383,6 +383,15 @@ FAILED_OUT="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/
 FAILED_JOB_ID="$(echo "$FAILED_OUT" | sed -n 's/.*FAILED_JOB_ID=\([A-Za-z0-9_-]*\).*/\1/p')"
 [ -n "$FAILED_JOB_ID" ] || fail "failed-job fixture printed no id ($FAILED_OUT)"
 curl -s -b "$ADMIN_JAR" "$BASE_URL/api/sync/failed" | grep -q "$FAILED_JOB_ID" || fail "DLQ list missing fixture job"
+# A-SEC-01: the DLQ + metrics are tenant-scoped — the attacker org's
+# SUPER_ADMIN must not see the demo org's failed job, must not requeue
+# it (404, indistinguishable from missing), and must see zero failed
+# jobs in its own metrics, while the owner still sees the fixture.
+curl -s -b "$ATTACKER_JAR" "$BASE_URL/api/sync/failed" | grep -q "$FAILED_JOB_ID" && fail "IDOR: attacker DLQ list leaks demo-org failed job"
+code="$(curl -s -o "$TMP/idor-requeue.json" -w "%{http_code}" -b "$ATTACKER_JAR" -H "Content-Type: application/json" -X POST "$BASE_URL/api/sync/requeue" -d "{\"jobId\":\"$FAILED_JOB_ID\"}")"
+[ "$code" = "404" ] || { cat "$TMP/idor-requeue.json"; fail "IDOR: attacker requeue returned $code, expected 404"; }
+curl -s -b "$ATTACKER_JAR" "$BASE_URL/api/metrics" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));if(d.dlq.failed24h!==0){console.error("attacker metrics leak failed jobs",JSON.stringify(d.dlq));process.exit(1)}' || fail "IDOR: attacker metrics count demo-org failed jobs"
+curl -s -b "$ADMIN_JAR" "$BASE_URL/api/metrics" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));if(!(d.dlq.failed24h>=1)){console.error("admin metrics missing fixture failed job",JSON.stringify(d.dlq));process.exit(1)}' || fail "admin metrics missing fixture failed job"
 code="$(curl -s -o "$TMP/requeue.json" -w "%{http_code}" -b "$ADMIN_JAR" -H "Content-Type: application/json" -X POST "$BASE_URL/api/sync/requeue" -d "{\"jobId\":\"$FAILED_JOB_ID\"}")"
 [ "$code" = "200" ] || { cat "$TMP/requeue.json"; fail "requeue returned $code"; }
 curl -s -b "$ADMIN_JAR" "$BASE_URL/api/sync/failed" | grep -q "$FAILED_JOB_ID" && fail "requeued job still in DLQ"

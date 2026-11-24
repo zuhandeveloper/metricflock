@@ -63,7 +63,9 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
             placeholder="My integration"
           />
         </div>
-        <Button onClick={create}>Create API key</Button>
+        <Button onClick={create} disabled={busy}>
+          Create API key
+        </Button>
       </div>
       {newSecret && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950">
@@ -114,7 +116,7 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
                 </td>
                 <td className="py-1">
                   {!k.revokedAt && (
-                    <Button onClick={() => revoke(k.id)} variant="outline">
+                    <Button onClick={() => revoke(k.id)} variant="outline" disabled={busy}>
                       Revoke
                     </Button>
                   )}

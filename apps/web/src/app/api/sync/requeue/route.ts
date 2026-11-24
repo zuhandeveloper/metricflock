@@ -3,6 +3,7 @@ import { withApiErrors, requestIdOf } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
+import { syncJobOrgWhere } from "@/lib/sync-scope";
 import { enqueue, QUEUE_BY_SYNC_TYPE, JOB_PRIORITY } from "@metricflock/jobs";
 import { z } from "zod";
 
@@ -17,7 +18,13 @@ async function post(req: NextRequest) {
   if (auth.user.role !== "SUPER_ADMIN") return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = schema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  const row = await prisma.analyticsSyncJob.findUnique({ where: { id: body.data.jobId } });
+  // A-SEC-01: the org check is part of the lookup itself (findFirst with
+  // the website → organizationId scope), so a foreign jobId is
+  // indistinguishable from a missing one (404) and there is no window
+  // between loading the row and acting on it.
+  const row = await prisma.analyticsSyncJob.findFirst({
+    where: { id: body.data.jobId, ...syncJobOrgWhere(auth.user.organizationId) },
+  });
   if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
   if (row.status !== "FAILED")
     return NextResponse.json({ error: "invalid_state", status: row.status }, { status: 409 });

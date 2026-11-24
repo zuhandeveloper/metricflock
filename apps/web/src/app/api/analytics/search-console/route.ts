@@ -2,6 +2,10 @@ import { NextRequest } from "next/server";
 import { handleAnalyticsRequest } from "@/lib/analytics-handler";
 import { querySearchAnalytics } from "@metricflock/google/search-console";
 import { toCsv } from "@/lib/csv";
+// A-GGL-03: bound the route wall-clock (60s = Vercel Hobby max). Each
+// Google call already times out at 15s; this caps the whole request.
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   return handleAnalyticsRequest(req, {
     permission: "search_console.view",

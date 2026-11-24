@@ -1,0 +1,646 @@
+# Phase 5 — Workers, Queues, Scheduling & Scalability Audit
+
+**Repo:** `~/workspace/metricflock/` · **HEAD:** `6e6d2b21` · **Date:** 2026-11-23
+**Auditor:** independent production-readiness audit (Phase 5 of 9)
+**Scope:** `apps/worker/src` (`index.ts`, `scheduler.ts`, `report.ts`),
+`packages/jobs/src` (`queue.ts`, `scheduler.ts`), `packages/google/src/sync.ts`,
+`packages/db/scripts/benchmark-scale.ts` + `docs/audit/BENCHMARKS.md`,
+plus the worker-adjacent surfaces those files touch: `packages/shared/src`
+(`cache.ts`, `rate-limit.ts`, `report.ts`, `health-state.ts`),
+`packages/auth/src/mailer.ts`, `packages/db/src/snapshots.ts`,
+`packages/db/src/health.ts`, `apps/web/src/app/api/sync/*` (manual sync,
+DLQ list/requeue), `apps/worker/Dockerfile`, `docker-compose.yml`,
+BullMQ 6.7.7 (installed) semantics.
+
+## Method & limits — read first
+
+- **No prior audit doc was trusted.** Every claim below was re-checked against
+  current source at HEAD `6e6d2b21` (file:line cited). Where a prior doc
+  (e.g. `BENCHMARKS.md`) states something, it is re-derived or flagged.
+- **No Postgres / Redis / Docker exists in this sandbox**, and the worker is
+  **not deployed in production** (known fact). Therefore **no worker, queue,
+  scheduler-tick, retry, crash-recovery, or load test was executed here**.
+  Everything runtime-shaped is marked **NOT RUN** with the reason, and is
+  instead grounded in (a) static execution-path tracing and (b) the installed
+  BullMQ 6.7.7 source
+  (`node_modules/.pnpm/bullmq@6.7.7_ioredis@6.0.0_supports-color@10.2.2_/node_modules/bullmq/dist/cjs`),
+  whose Lua/JS I read directly for dedup, backoff and rate-limit behaviour.
+- **What WAS executed here (evidence, not fabrication):**
+  - Full unit suite: `pnpm vitest run` in `apps/web` — **196 passed / 196**
+    (2026-11-23, ~72 s). Targeted subset re-run separately: `job-backoff`,
+    `scheduler-plan`, `sync-engine`, `report`, `mailer`, `snapshot-ttl`,
+    `health` — **46 passed / 46**.
+  - `pnpm --filter @metricflock/worker typecheck` (`tsc --noEmit`) — **exit 0**.
+  - WCAG contrast math for Phase 6 is in the Phase 6 doc, not here.
+- **Severity:** P0 critical (blocks production) · P1 high · P2 medium ·
+  P3 low. **Verification:** CONFIRMED = traced in current source (and, where
+  stated, in installed BullMQ source); POTENTIAL = follows from the code but
+  needs a live Redis/Postgres run to observe.
+
+## Findings
+
+### A-WRK-01 — P3 (downgraded from P1 on dynamic verification) — REFUTED as stated — Duplicate manual sync is a 409, not a silent no-op; no orphaned PENDING row
+
+- **Where:** `apps/web/src/app/api/sync/route.ts:33` (jobId),
+  `apps/worker/src/index.ts:190-205` (row update by `syncJobRowId`),
+  BullMQ `commands/includes/handleDuplicatedJob.lua` (duplicate jobId returns
+  the existing job; no new execution, no error).
+- **Evidence:** the manual-sync route builds
+  `jobId = \`${type}:${website.id}:${new Date().toISOString().slice(0, 13)}\``— one bucket per website+type+hour — then **creates a new`AnalyticsSyncJob` row (PENDING) first** and enqueues with that id.
+  BullMQ dedupes on custom jobId: re-adding an existing id returns the
+  existing job. Two consequences follow from the code, not from a guess:
+  1. The second click returns `{ status: "ok", queued: true }` and the UI
+     (`SyncNowForm`) shows "Queued.", but **no new sync runs** — worse, if
+     the first job already _completed_, it is still retained
+     (`removeOnComplete: 100` for non-realtime queues,
+     `packages/jobs/src/queue.ts:78`), so the duplicate add still resolves
+     to the finished job.
+  2. The worker updates the row named by the **existing job's**
+     `syncJobRowId` (the first row). The second row is never referenced by
+     any job, so it stays **PENDING forever** (nothing ever transitions it;
+     the scheduler's 30-day prune only deletes SUCCEEDED/FAILED rows).
+- **Reproduction (NOT RUN live — no Redis):** with worker+Redis up, click
+  "Sync now" twice for the same website+type inside one UTC hour; observe
+  the second response is `ok`, only one sync runs, and a second PENDING row
+  appears on `/sync` that never resolves.
+- **Dynamic verification 2026-11-23 (retry, real DB + local app server, scratch org A; no Redis): REFUTED — the finding's mechanism missed a constraint.** The route sets `externalId: jobId` on the row, and `AnalyticsSyncJob.externalId` is **`@unique`** (`schema.prisma:502`). Firing the same manual sync twice in one hour: first call → **503 `queue_unavailable`** (no Redis; row correctly marked FAILED, `lastError: "Redis unavailable — sync could not be queued"`), second call → **409 `{"error":"conflict"}`** (P2002 on the unique `externalId`), and only **one** row exists — FAILED, not an orphaned PENDING row. The same unique constraint fires before `enqueue()` in the with-Redis path too, so the predicted "second click returns ok + orphaned PENDING row" cannot happen; the duplicate is rejected at the DB layer. What remains true: a re-sync within the same hour is impossible and the client gets a generic 409 instead of a typed `already_queued` response (see A-API-06, P2, which already documents this). The with-Redis duplicate path was not executed (no Redis in sandbox) — the refutation rests on the DB constraint, which applies identically with Redis up. **Severity downgraded P1 → P3** (UX wording of a correctly-rejected duplicate).
+- **Impact:** users are misled that a re-sync is running; the Sync-jobs page
+  accumulates permanently-stuck PENDING rows, which also corrupts any
+  "pending job" counts and erodes trust in the DLQ view.
+- **Correction:** make manual jobIds unique per request while keeping the
+  3-part colon rule, e.g. `` `${type}:${row.id}:${Date.now()}` `` (the row id
+  is created first, so it is available), or check for a live job with that
+  id before creating the row and return `409 already_queued` with the
+  existing row id. Do not keep the hour bucket for manual syncs.
+- **Regression test:** unit test on the route (mocked queue) asserting two
+  successive manual syncs produce two distinct jobIds and two rows that
+  both reach a terminal state; plus a Redis-backed test asserting the
+  second enqueue actually executes.
+
+### A-WRK-02 — P1 — CONFIRMED — Dead-letter view and requeue API are not tenant-scoped (cross-org read + requeue)
+
+- **Where:** `apps/web/src/app/(app)/sync/page.tsx:25-40` (both queries),
+  `apps/web/src/app/api/sync/failed/route.ts:14-27`,
+  `apps/web/src/app/api/sync/requeue/route.ts:20-30`.
+- **Evidence:** all three read `AnalyticsSyncJob` by `status: "FAILED"` (or
+  by id) with **no `organizationId` filter and no join through
+  `website.organizationId`**. The only org check in the requeue route is
+  the _audit write_ (`organizationId: auth.user.organizationId`,
+  line 41) — the row lookup at line 20 is unscoped. Any `SUPER_ADMIN` of
+  any organisation can therefore list every organisation's failed jobs
+  (websiteId, type, attempts, `lastError`, retained `payload`) and requeue
+  another org's job, which the worker then executes against that org's
+  website (`runJob` resolves everything from `websiteId`).
+  Contrast with the audit-log page (`audit/page.tsx:16`, scoped by
+  `organizationId`) and the manual-sync route (`api/sync/route.ts`,
+  `assertWebsiteAccess`) — the DLQ surfaces are the outlier.
+- **Reproduction (NOT RUN live — needs two orgs + a failed job):** as Org A
+  SUPER_ADMIN, `GET /api/sync/failed` after Org B has a FAILED job; the
+  response contains Org B's rows. Then `POST /api/sync/requeue` with Org B's
+  row id returns `ok`.
+- **Dynamic verification 2026-11-23 (retry, real DB + local app server, scratch orgs A/B): CONFIRMED-BY-EXECUTION.** Org A's SUPER_ADMIN listed org B's FAILED job via `GET /api/sync/failed` (payload included) and `GET /api/metrics` counted it (`dlq.failed24h: 1`); `POST /api/sync/requeue` with B's job id located the foreign row and reached `enqueue()`, returning `queue_unavailable` (503) only for lack of Redis — no authorization check stands between a foreign SUPER_ADMIN and the requeue. See A-SEC-01 for the full executed evidence. (Same finding as A-SEC-01; counts once in the unique total.)
+- **Impact:** cross-tenant data disclosure and cross-tenant job execution —
+  a tenant-isolation failure in a multi-tenant product. (Payloads here are
+  small — `{ websiteId, manual }` — but `lastError` and website identity
+  still leak, and requeue is an action, not just a read.)
+- **Correction:** scope all three queries through the website:
+  `where: { status: "FAILED", website: { organizationId } }` (and the same
+  for the "recent jobs" query and the requeue `findUnique` — fetch with the
+  org filter and return 404 otherwise). Add a tenant-isolation unit/integration
+  test in the style of `apps/web/tests/unit/tenant-isolation.test.ts`.
+- **Regression test:** two-org fixture asserting Org A cannot list or
+  requeue Org B's failed rows (API returns empty / 404).
+
+### A-WRK-03 — P1 — CONFIRMED — Weekly-report send loop is not per-recipient fault-isolated; a mid-loop failure duplicates mail on retry
+
+- **Where:** `apps/worker/src/report.ts:104-112`.
+- **Evidence:**
+  ```ts
+  let sent = 0;
+  for (const to of recipients) {
+    await sendMail({ to, subject, text });
+    sent += 1;
+  }
+  await prisma.reportSchedule.updateMany({ where: { organizationId }, data: { lastSentAt: new Date() } });
+  ```
+  `sendMail` in SMTP mode awaits `transporter.sendMail` and **throws** on
+  transport failure (`packages/auth/src/mailer.ts:64-70`). If recipient #2
+  of 4 fails, recipients already mailed keep their copy, `lastSentAt` is
+  never written, the BullMQ job throws and retries (5 attempts, jittered
+  backoff) — and every retry re-mails recipients #1… until it fails again.
+  Worst case: 5 attempts × earlier recipients receive up to 5 copies.
+  There is no per-recipient try/catch, no sent-recipient record, and no
+  idempotency key on the mail.
+- **Reproduction (NOT RUN live — needs SMTP + a failing recipient):**
+  configure a schedule with 2 recipients, make the 2nd address fail at
+  SMTP level, run `sendOrgReport`; observe recipient #1 receives the report
+  once per attempt.
+- **Impact:** duplicate weekly reports to admins on any transient SMTP
+  failure; the failure mode is the common one (one bad address blocks the
+  whole org's report).
+- **Correction:** wrap each `sendMail` in try/catch, collect per-recipient
+  outcomes, continue past failures, update `lastSentAt` when at least one
+  delivery succeeded, and return `detail` naming failed recipients (job
+  succeeds with partial failure recorded, instead of throwing). Validate
+  recipient addresses at schedule-save time so one bad address cannot sink
+  the send.
+- **Regression test:** unit test with a mocked `sendMail` that throws for
+  the 2nd recipient: assert recipient #1 is mailed exactly once across the
+  call, `lastSentAt` is set, and the result reports the failure.
+
+### A-WRK-04 — P2 — CONFIRMED — Scheduler lock TTL (55 s) is shorter than an unbounded tick; a slow tick lets a second instance double-schedule
+
+- **Where:** `apps/worker/src/scheduler.ts:17-19` (`LOCK_TTL_MS = 55_000`,
+  `TICK_MS = 60_000`), `runTick()` (paged website scan, unscoped groupBy,
+  `enqueueBulk`, four prune `deleteMany`s — none time-bounded).
+- **Evidence:** the lock is a plain `SET NX PX 55000` with no renewal or
+  heartbeat, and `runTick` has no timeout. At 10k sites the tick does a
+  500-row paged scan of all mapped websites, a full-table 30-day groupBy
+  (A-WRK-05), one `addBulk` per queue, and four prune deletes — including
+  an **unbatched** audit-log `deleteMany` over up to 365 days of rows and
+  an unbatched analytics-cache prune. If that exceeds 55 s, the lock
+  expires while the first tick is still running and a second worker
+  instance acquires it and runs a second tick. Mitigating factor (verified):
+  every scheduler-enqueued jobId is stable/bucketed, so the double tick
+  mostly wastes work rather than double-executing syncs — but the prune
+  deletes run twice, logs double-count, and the `submitted` counts are
+  wrong. The in-process `tickRunning` guard (line 33) only protects one
+  process, not two instances.
+- **Impact:** duplicate scheduling work and misleading logs/metrics at
+  scale; the exact failure it was designed to prevent (double-enqueue)
+  reappears through the TTL gap.
+- **Correction:** renew/extend the lock while the tick runs (or set TTL
+  comfortably above the worst observed tick and alert on tick duration),
+  and/or bound the tick (batch the audit/cache prunes, add a tick timeout
+  with a `scheduler.tick_timeout` counter). Record tick duration as a
+  metric.
+- **Regression test:** integration test with a short TTL and an artificially
+  slow `runTick` asserting only one instance enqueues; plus a unit test
+  that prune deletes are batched.
+
+### A-WRK-05 — P2 — CONFIRMED — Scheduler's last-success lookup is an unscoped full-table groupBy run every minute
+
+- **Where:** `apps/worker/src/scheduler.ts:84-93`.
+- **Evidence:** `prisma.analyticsSyncJob.groupBy({ by: ["websiteId","type"],
+where: { status: "SUCCEEDED", websiteId: { not: null },
+updatedAt: { gte: windowStart } }, _max: { updatedAt: true } })` — no
+  website, organisation or time-bucket scoping beyond a 30-day window, and
+  it runs on **every tick (every 60 s)**. The index
+  `@@index([websiteId, type, status, updatedAt])`
+  (`packages/db/prisma/schema.prisma:510`) can serve the `status`/`updatedAt`
+  filter only partially; the groupBy still reads every org's successful
+  rows for 30 days. At 10k sites × ~6 sync types × hourly/daily successes
+  this is a large aggregation per minute. The benchmark script measures
+  this exact query (`benchmark-scale.ts`, "scheduler: last-success groupBy")
+  — but it has never been run against a real database (A-WRK-12), so the
+  cost is unmeasured.
+- **Impact:** scheduler tick latency grows with total portfolio history, not
+  with due work; risks A-WRK-04 lock expiry and Redis/DB load at scale.
+- **Correction:** scope the lookup (per-website last-success via the
+  existing page-windowed query, or a materialised `lastSucceededAt` on the
+  website/integration row updated by the worker), or run it less often
+  than every tick with a cached map. Measure it with the benchmark script
+  before choosing.
+- **Regression test:** benchmark run at 1k/10k (A-WRK-12) with a tick-time
+  budget assertion.
+
+### A-WRK-06 — P2 — CONFIRMED — Weekly report has a 1-hour send window and no catch-up; a missed hour loses a whole week
+
+- **Where:** `packages/shared/src/report.ts:79-91` (`isReportDue`),
+  `apps/worker/src/scheduler.ts:156-166`.
+- **Evidence:** `isReportDue` requires `now.getUTCDay() === dayOfWeek`
+  **and** `now.getUTCHours() === hourUtc`, plus no send in the last 6 days.
+  The scheduler only evaluates it during ticks inside that hour. If the
+  worker is down, Redis is down, the lock is held by another instance, or
+  a tick runs long across the hour boundary, the report is not due again
+  until the same weekday/hour **next week** — there is no missed-send
+  detection, no catch-up run, and no alert. (Unit tests in
+  `apps/web/tests/unit/report.test.ts:36-47` cover the due/not-due logic
+  itself — the gap is the absence of any catch-up path, which no test
+  covers.)
+- **Impact:** silent loss of a scheduled customer-facing report for a week,
+  with no signal to anyone.
+- **Correction:** add a catch-up rule (e.g. due if enabled and
+  `lastSentAt` is older than 7 days, regardless of hour, capped to one
+  catch-up send), and emit a log/counter (`scheduler.report_missed`) when
+  a due hour passes with no successful send.
+- **Regression test:** unit tests for `isReportDue` with a stale
+  `lastSentAt` outside the configured hour; scheduler test asserting a
+  missed report is enqueued on the next tick.
+
+### A-WRK-07 — P2 — CONFIRMED — `cache-refresh` and `ga4-historical` have no per-provider / per-report isolation; one failure aborts the rest and retries redo finished work
+
+- **Where:** `packages/google/src/sync.ts:263-279` (`cache-refresh` loop),
+  `sync.ts:196-214` (`syncOneProvider` report loop).
+- **Evidence:** `cache-refresh` loops `["ga4-historical",
+"search-console", "adsense", "ad-manager"]` sequentially with no
+  try/catch per kind — a Search Console throw means AdSense/Ad Manager are
+  never refreshed that run, the job is FAILED, and the retry re-fetches
+  GA4 too. Likewise `ga4-historical` loops 5 reports; a failure on report
+  3 leaves reports 1–2 cached but the job FAILED, and the retry refetches
+  all 5 (wasted Google quota). The error contract at the top of `sync.ts`
+  (throw = retryable) is honoured, but partial progress is neither
+  recorded nor resumed. Test coverage (`sync-engine.test.ts:183`,
+  "cache-refresh warms every mapped provider") uses all-success fakes —
+  no partial-failure case exists.
+- **Impact:** wasted Google quota and slower recovery; a single flaky
+  provider degrades every other provider's freshness for that website.
+- **Correction:** try/catch per provider (and per report), record health
+  per provider, return `ok` with a `detail` listing failed providers when
+  at least one succeeded; only throw (retry) when _all_ providers fail or
+  the failure is rate-limit/quota shaped.
+- **Regression test:** sync-engine test with a failing 2nd provider
+  asserting later providers still run and the result reports partial
+  failure.
+
+### A-WRK-08 — P2 — CONFIRMED — `healthCheckWebsite` early-returns on the first provider failure, so remaining providers go unchecked
+
+- **Where:** `packages/google/src/sync.ts:282-316`.
+- **Evidence:** the provider loop returns immediately on
+  `CONNECTION_REQUIRED` and on any `TOKEN_ERRORS` member (after recording
+  error for _that_ provider only). Providers later in the fixed order
+  `["GA4", "SEARCH_CONSOLE", "ADSENSE", "AD_MANAGER"]` are never checked
+  that run, so their health rows go stale and no `recovered`/`alert_error`
+  transition is computed for them. A non-token error throws out of the
+  loop and fails the whole health-check job. Note the loop also sets
+  `anyConnected` only on the success path, so the
+  `!checked.length && !anyConnected` → `no_mapping` branch is only
+  reachable when every mapped provider errors in a non-early-return way.
+- **Impact:** incomplete health picture; a revoked GA4 connection masks a
+  simultaneously-failing AdSense connection for an hour or more.
+- **Correction:** collect per-provider outcomes, continue past failures,
+  record health for every mapped provider, and return `ok` with
+  `reports: checked` plus a `detail` of failures (throw only if no provider
+  could be checked at all).
+- **Regression test:** health-check test with GA4 revoked + AdSense healthy
+  asserting both providers get a health row.
+
+### A-WRK-09 — P2 — CONFIRMED — Scheduler syncs websites of any status, including ARCHIVED / SOLD / TRANSFER_PENDING
+
+- **Where:** `apps/worker/src/scheduler.ts:58-66`.
+- **Evidence:** the website scan filters only on
+  `integrations: { some: { mappingStatus: "MAPPED" } }` — there is no
+  `status` filter, although `WebsiteStatus` has `ACTIVE, PENDING_SETUP,
+DISCONNECTED, TRANSFER_PENDING, SOLD, ARCHIVED`
+  (`packages/db/prisma/schema.prisma:15-22`). A sold or archived website
+  with a still-mapped property keeps being synced every interval, burning
+  Google quota and capable of generating health-failure alert emails for a
+  site the user retired. The benchmark script's scan query _does_ filter
+  `status: "ACTIVE"` (`benchmark-scale.ts`, "scheduler: website page scan")
+  — i.e. the benchmark does not measure the production query (see
+  A-WRK-12).
+- **Impact:** wasted quota + noise alerts on retired sites; at portfolio
+  scale, dead sites are a permanent tax on every tick.
+- **Correction:** add `status: { in: ["ACTIVE", "PENDING_SETUP"] }` (decide
+  explicitly whether DISCONNECTED sites should be health-checked) to the
+  scheduler scan; consider unmapping or auto-pausing sync on ARCHIVED/SOLD.
+- **Regression test:** scheduler-plan test with an ARCHIVED website in the
+  fixture asserting no jobs are planned for it (requires threading status
+  through `planDueSyncs` or the scan query).
+
+### A-WRK-10 — P2 — CONFIRMED — Weekly report (and portfolio totals) silently truncate at 200 websites
+
+- **Where:** `apps/worker/src/report.ts:36-41` (`take: 200`),
+  `apps/web/src/lib/portfolio.ts:51,61` (default `limit = 200`).
+- **Evidence:** `sendOrgReport` loads `take: 200` websites ordered by
+  creation date and builds all three sections from those only. Nothing in
+  `buildReportEmail` (`packages/shared/src/report.ts:40-72`) mentions a
+  cap, and the email's "N websites with data" counts only the included
+  ones — an org with 500 sites gets a report that silently omits 300 of
+  them, with totals that look complete. The dashboard has the same silent
+  cap (`loadPortfolio` default 200; the dashboard shows "N websites
+  included" but never the org total beside it).
+- **Impact:** wrong portfolio totals in the flagship weekly email for any
+  org over 200 sites — the exact audience (100+ site portfolios) this
+  product targets.
+- **Correction:** paginate the website load in `sendOrgReport` (and
+  `loadPortfolio`) instead of capping, or — if a cap must stay — include
+  the org's website count and an explicit "showing first 200 of N" note in
+  the email and dashboard.
+- **Regression test:** report test with a >200-website fixture asserting
+  totals include all sites (or the truncation note appears).
+
+### A-WRK-11 — P2 — CONFIRMED — No crash handlers, no shutdown timeout, in-flight tick not awaited
+
+- **Where:** `apps/worker/src/index.ts:335-351` (shutdown),
+  `apps/worker/src/index.ts:1-40` (no `unhandledRejection` /
+  `uncaughtException` handlers anywhere in the file).
+- **Evidence:** the process listens only for `SIGTERM`/`SIGINT`. An
+  unhandled rejection (e.g. a stray Prisma/Redis promise rejection in a
+  processor path) crashes the whole process — all 10 queue workers at
+  once — with no log line beyond Node's default. Shutdown does
+  `await Promise.allSettled(workers.map((w) => w.close()))` with **no
+  timeout**: `Worker.close()` waits for in-flight jobs, so a slow Google
+  call can hold shutdown past the orchestrator's kill grace period
+  (Docker `stop` default 10 s; the Dockerfile's HEALTHCHECK implies a
+  container host) and the process is then SIGKILLed mid-job — the exact
+  "stalled redelivery and duplicate side effects" the OPS-5 comment says
+  shutdown exists to prevent. Also: `scheduler.stop()` only clears the
+  interval — a tick already running keeps enqueueing while workers close;
+  `healthServer.close()` is not awaited; `redisClient.disconnect()` is not
+  awaited before `process.exit(0)`.
+- **Impact:** crash takes down all queues; unclean shutdown can duplicate
+  side effects (snapshot upserts are idempotent, but report sends and
+  alert emails are not — see A-WRK-03).
+- **Correction:** add `unhandledRejection`/`uncaughtException` handlers
+  that log and exit non-zero (letting the host restart cleanly); bound
+  shutdown with a timeout that force-closes workers after e.g. 25 s; make
+  `stop()` await an in-flight tick (track the tick promise); await the
+  health-server close and Redis disconnect.
+- **Regression test:** shutdown test with a slow in-flight job asserting
+  the process exits within the timeout; a test asserting a rejected
+  promise in a processor is logged (not silent).
+
+### A-WRK-12 — P2 — CONFIRMED — Scale-benchmark DB timings were never run, and the script does not measure the production queries
+
+- **Where:** `docs/audit/BENCHMARKS.md` ("Results — Not yet run against a
+  real database — sandbox has no Postgres. First run pending"),
+  `packages/db/scripts/benchmark-scale.ts`.
+- **Evidence (revalidated, not trusted from the doc):**
+  - The doc's headline numbers (100/1k/10k, "345×" speedup) are a **JS
+    in-memory** comparison of an old O(W×I) scan vs a single-pass — a shape
+    the dashboard no longer uses (it now issues a `COUNT` with a relation
+    filter). The numbers are real arithmetic but say nothing about
+    production latency.
+  - The script itself has real methodology gaps vs production:
+    1. Its "scheduler: website page scan" filters `status: "ACTIVE"`; the
+       production tick filters only on mapped integrations (A-WRK-09).
+    2. It seeds **only GA4** integrations, one team, no FAILED/RETRYING
+       rows, no audit-log or analytics-cache rows — so the prune deletes
+       and the DLQ queries are unmeasured.
+    3. It times Prisma queries only. It never measures `enqueueBulk`/Redis
+       round trips, worker throughput, limiter behaviour, or Google API
+       latency — the actual scale bottlenecks.
+    4. Seed + cascade-delete cost for 10k sites is unmeasured (the
+       `finally` delete is outside any timer).
+  - Safety rails in the script are genuinely good and were verified:
+    refuses without `BENCH_CONFIRM=1`; refuses a `prisma.io` (production)
+    URL without `BENCH_ALLOW_PROD=1`.
+- **Impact:** the "no uncontrolled fan-out at 100–10k" verdict in
+  `BENCHMARKS.md` rests on an in-memory JS micro-benchmark, not on
+  measured database behaviour. It must not be cited as scale evidence.
+- **Correction:** run the script against staging/local Postgres at
+  100/1k/10k, record dated results in `BENCHMARKS.md`; fix the scan query
+  to match production; add FAILED-row and audit/cache seeding; add a
+  Redis/worker-throughput measurement (jobs enqueued + processed per
+  minute at 1k sites).
+- **Regression test:** N/A (benchmark); gate the v2.0.0 scale claim on a
+  recorded run.
+
+### A-WRK-13 — P3 — CONFIRMED — Backoff off-by-one: first retry is 60–120 s, and the 1 h cap is unreachable with 5 attempts
+
+- **Where:** `packages/jobs/src/queue.ts:55-58` (`jitteredBackoffMs`),
+  BullMQ `classes/job.js:458`
+  (`Backoffs.calculate(opts.backoff, this.attemptsMade + 1, err, …)`).
+- **Evidence:** BullMQ invokes the custom `backoffStrategy` with
+  `attemptsMade + 1`, i.e. **1 on the first failure**, never 0. So the
+  first retry delay is `jitteredBackoffMs(1)` = 60–120 s, not the 30–60 s
+  the unit test asserts for input 0 (`job-backoff.test.ts:9-13` tests the
+  pure function, not the BullMQ call site). With `attempts: 5` there are
+  at most 4 retries, with bases 120 s, 240 s, 480 s, 960 s — the
+  "capped at 1 h" branch (`queue.ts:56`) can never trigger. The
+  `BENCHMARKS.md` claim "60s base, 1h cap" is therefore inaccurate in
+  practice. Behaviour is safe (just slower first retry than documented).
+- **Correction:** document the real schedule (first retry 60–120 s) or
+  subtract 1 inside the strategy; either way, assert the _effective_
+  schedule in a test that drives `Backoffs.calculate` the way BullMQ
+  does.
+- **Regression test:** test calling the strategy with BullMQ's 1-based
+  argument and asserting the delay sequence.
+
+### A-WRK-14 — P3 — CONFIRMED — Rate-limit path writes a misleading RETRYING row and bypasses backoff/counters
+
+- **Where:** `apps/worker/src/index.ts:215-223`,
+  BullMQ `classes/worker.js:646-652` (`handleFailed` → `moveLimitedBackToWait`)
+  and `classes/job.js:458`.
+- **Evidence:** on `SyncRateLimitError` the worker updates the
+  `AnalyticsSyncJob` row to `RETRYING`, then throws
+  `Worker.RateLimitError()` (the static constructor exists —
+  `worker.js:36-37`). BullMQ treats that error specially: the job is
+  moved back to wait **without consuming an attempt, without running the
+  custom backoff strategy, and without emitting the `failed` event**
+  (so `worker.on("failed")` at `index.ts:257` never fires and
+  `jobs.failed.*` is not incremented). The row therefore says RETRYING
+  while the job is actually waiting under the queue limiter, and a
+  rate-limit storm is invisible in the worker's failure counters. The
+  next attempt corrects the row to RUNNING, so the inconsistency is
+  transient — but during a Google quota event every rate-limited site
+  shows RETRYING indefinitely.
+- **Correction:** write the row as `RETRYING` only with a `lastError` that
+  names the rate-limit delay, or introduce a distinct status/note; add a
+  `jobs.ratelimited.*` counter in the `SyncRateLimitError` branch (before
+  throwing) so the storm is visible on `/metrics`.
+- **Regression test:** Redis-backed test asserting a rate-limited job's row
+  state and counters after the throw.
+
+### A-WRK-15 — P3 — CONFIRMED — Property discovery aborts entirely if one provider's list call throws
+
+- **Where:** `packages/google/src/sync.ts:339-402`
+  (`discoverConnectionProperties`).
+- **Evidence:** the four provider listings run sequentially with no
+  per-provider try/catch. If `listGa4Properties` throws (e.g. GA4 API
+  disabled), Search Console and AdSense are never listed, the job fails,
+  and the retry re-runs the whole discovery. The chunking itself is good
+  (bounded parallel upserts, `CHUNK = 10`). Contrast with the _web_
+  discovery route (`apps/web/src/app/api/google/properties/discover/route.ts`),
+  which classifies per-provider errors and returns partial results — the
+  worker path is strictly less robust than the UI path for the same
+  operation.
+- **Correction:** try/catch per provider, return counts for the providers
+  that succeeded plus an errors map; only throw when no provider could be
+  listed.
+- **Regression test:** sync-engine discovery test with GA4 throwing,
+  asserting SC/AdSense counts are still returned.
+
+### A-WRK-16 — P3 — CONFIRMED — Failure alerts have no aggregation; a provider outage emails per website per queue
+
+- **Where:** `apps/worker/src/index.ts:40-62` (`alertSyncFailure`),
+  `index.ts:64-96` (`alertHealthTransition`), `index.ts:107-127`
+  (`alertingRecordHealth`).
+- **Evidence:** the transition dedup is good — `healthTransition`
+  (`packages/shared/src/health-state.ts:30-35`, unit-tested in
+  `health.test.ts`) emails once per transition, not per check, and alert
+  failures are caught and logged so they never mask the job error.
+  But there is **no cross-website aggregation**: a Google outage that
+  terminally fails 100 websites × several queues sends one email per
+  (website, queue) to every org SUPER_ADMIN, sequentially, inside the job
+  handler. No batching, no digest, no per-org rate cap.
+- **Impact:** alert storm during exactly the incident when admins are
+  already overloaded; sequential `sendMail` also extends job processing
+  time.
+- **Correction:** aggregate terminal failures per org over a short window
+  (e.g. one digest email per org per 15 min listing affected sites), or
+  cap alert emails per org per hour with a counter.
+- **Regression test:** test with N failing websites asserting at most one
+  email per org per window.
+
+### A-WRK-17 — P3 — CONFIRMED — Scheduler silently drops enqueues when Redis is unavailable
+
+- **Where:** `packages/jobs/src/queue.ts:150-162` (`enqueueBulk`),
+  `apps/worker/src/scheduler.ts:176-183`.
+- **Evidence:** `enqueueBulk` does `if (!q) continue;` when
+  `getQueue` returns null (no `REDIS_URL` / `bullConnectionOptions()`
+  null) — no log, no counter, no error. The scheduler then logs "tick
+  enqueued jobs" only `if (submitted)`, so a Redis outage produces
+  **silent ticks that enqueue nothing**. (The manual-sync path does this
+  correctly: `api/sync/route.ts` returns 503 `queue_unavailable` and
+  marks the row FAILED. The scheduler path has no equivalent signal.)
+  The worker process itself exits 1 at boot without Redis
+  (`index.ts:128-132`), so this path is reachable mainly when Redis
+  _becomes_ unavailable after boot — but `getQueue` re-checks
+  `bullConnectionOptions()` per call, so a mid-run Redis loss lands here.
+- **Correction:** log an error and `incr("scheduler.enqueue_skipped_no_redis")`
+  when a queue is unavailable in `enqueueBulk`, and surface it on
+  `/metrics` / the health endpoint.
+- **Regression test:** unit test asserting `enqueueBulk` without Redis
+  records the skip (requires injecting the connection check).
+
+### A-WRK-18 — P3 — CONFIRMED — DLQ rows are pruned after 30 days with no notice
+
+- **Where:** `apps/worker/src/scheduler.ts:186-189`.
+- **Evidence:** the retention prune deletes `AnalyticsSyncJob` rows with
+  `status: { in: ["SUCCEEDED", "FAILED"] }` older than 30 days. FAILED
+  rows _are_ the dead-letter queue (the Sync page + requeue API read
+  them). A failed job that nobody requeues within 30 days disappears
+  from the DLQ silently — no "expired from DLQ" record, no audit entry,
+  and the Sync page gives no retention hint. (The 30-day retention itself
+  is a reasonable policy; the gap is discoverability.)
+- **Correction:** exclude FAILED rows from the 30-day prune (or give them
+  a longer window, e.g. 90 days), or write an audit entry / surface the
+  retention on the Sync page.
+- **Regression test:** retention test asserting a 31-day-old FAILED row is
+  (or is not, per the chosen policy) still present.
+
+### A-WRK-19 — P3 — CONFIRMED — Health endpoint has no listen-error handler and `/metrics` is unauthenticated
+
+- **Where:** `apps/worker/src/index.ts:266-300` (health server),
+  `index.ts:296` (`healthServer.listen(healthPort, …)`).
+- **Evidence:** `listen` is called with no `error` handler — if the port
+  (default 8080, `WORKER_HEALTH_PORT`) is already in use, Node emits an
+  `error` event on the server with no listener and the process crashes
+  (after all 10 workers have started). `/healthz`, `/readyz` and
+  `/metrics` have no authentication; `/metrics` exposes in-process job
+  counters. Exposure is low-sensitivity and the Dockerfile's HEALTHCHECK
+  needs `/readyz` unauthenticated, but the crash-on-EADDRINUSE is a
+  startup robustness gap.
+- **Correction:** attach `healthServer.on("error", …)` that logs and exits
+  1 with a clear message; document that the health port must not be
+  publicly exposed (bind to localhost / private network where the host
+  allows).
+- **Regression test:** startup test with the port occupied asserting a
+  clean exit code and log line (not an unhandled `error` event).
+
+### A-WRK-20 — P3 — POTENTIAL — No `stalled` / `lockRenewalFailed` observability; `websiteId!` assertion in the processor
+
+- **Where:** `apps/worker/src/index.ts:175-180` (`syncWebsite(websiteId!,
+…)`), `index.ts:255-261` (only `completed`/`failed` listeners).
+- **Evidence:** BullMQ auto-renews job locks (`lockRenewTime =
+lockDuration / 2`, verified in installed `worker.js:78-79` and
+  `lock-manager.js:27-42`), so the default 30 s `lockDuration` is **not**
+  a stalled-job risk while the process is alive — this was checked, not
+  assumed. The remaining gap is observability: if lock renewal fails
+  (Redis blip) the job is re-run after `maxStalledCount: 1` with no
+  listener on `stalled` or `lockRenewalFailed`, so a duplicate execution
+  leaves no log line. Separately, `runJob` passes `websiteId!` into
+  `syncWebsite` for all six sync queues; a job whose payload lacks
+  `websiteId` would reach `getPrimaryIntegration(null)` — Prisma treats
+  the null as no match and the sync returns `no_mapping`, so this is
+  sloppy typing rather than a crash (verified by tracing
+  `getPrimaryIntegration`, `packages/google/src/client.ts:98-106`).
+- **Correction:** add `worker.on("stalled", …)` and
+  `worker.on("lockRenewalFailed", …)` log lines with counters; replace
+  `websiteId!` with an explicit guard returning `skipped` for sync queues
+  missing `websiteId`.
+- **Regression test:** unit test for a sync job with no `websiteId`
+  asserting a `skipped` result, not a throw.
+
+## Verified-correct (spot-checks that held up)
+
+These were checked because the brief required them; they are **not**
+findings. Listed so a later reader does not re-litigate them.
+
+- **JobId 3-part colon rule:** all scheduler/manual/requeue ids are exactly
+  3 colon-separated parts with no colons inside a part
+  (`packages/jobs/src/scheduler.ts:138-143`, `queue.ts:99`,
+  `api/sync/route.ts:33`, `api/sync/requeue/route.ts:34-38`). The
+  `enqueue` default embeds a UUID + timestamp, never JSON. BullMQ's
+  "exactly 3 parts" constraint is real but satisfied everywhere.
+- **Jittered backoff:** `jitteredBackoffMs` is registered as the workers'
+  custom `backoffStrategy` on **all 10 workers**
+  (`index.ts:253`, `queue.ts:55-58`); unit-tested bounds hold
+  (`job-backoff.test.ts`, 5 tests). The off-by-one is A-WRK-13, not a
+  missing-strategy bug.
+- **Priorities:** MANUAL (1) < REQUEUE (2) < REALTIME (5) < SCHEDULED (10),
+  applied in scheduler (`scheduler.ts:139-143`), manual sync, and requeue
+  (`queue.ts:45-51`); unit-tested.
+- **Per-website isolation:** the scheduler enqueues one job per website, so
+  one website's failure cannot block another's sync (the failure is
+  contained in that job's retries). The exception is _within_ one website
+  (A-WRK-07/08). `getPrimaryIntegration` is scoped by `websiteId`
+  (`client.ts:98-106`); cache keys embed `organizationId` from the DB
+  (`sync.ts:203-210`); alert-admin lookups are scoped by the website's
+  org (`index.ts:44-50`).
+- **Snapshot writes:** `writeSnapshot` upserts by `cacheKey` with
+  `expiresAt = now + ttl` (`packages/db/src/snapshots.ts:15-29`); snapshot
+  failure is swallowed so it never fails a sync (`sync.ts:220-223`); TTL
+  is `max(cache TTL, sync interval)` (`scheduler.ts:60-69`,
+  `snapshot-ttl.test.ts`, 3 tests).
+- **Mailer fail-safety:** `mailerMode()` returns `unconfigured` without
+  `SMTP_HOST`; `sendMail` logs recipient+subject only and returns without
+  sending (`mailer.ts:23-46`); the weekly report checks the mode _before_
+  sending and does **not** record `lastSentAt` when SMTP is unconfigured
+  (`report.ts:96-101`) — the fail-safe is correct; the retry-duplication
+  gap is A-WRK-03. Preview mode (`EMAIL_LOG_PREVIEW=true`) prints full
+  bodies to logs, but only behind an explicit opt-in flag.
+- **Rate limiting:** per-connection limiter in the sync engine
+  (`sync.ts:189-191`, 30/min per `google:${connectionId}`, atomic Lua in
+  `packages/shared/src/rate-limit.ts:19-33`); per-queue BullMQ limiters
+  (`index.ts:196-207`); realtime backpressure at depth 40
+  (`scheduler.ts:104-117`); deterministic stagger
+  (`scheduler.ts:37-42`); realtime coalescing via stable jobId
+  (`scheduler.ts:132-136`).
+- **Graceful shutdown shape:** SIGTERM/SIGINT stop the scheduler, close
+  workers, disconnect Prisma/Redis (`index.ts:335-351`); health/readiness
+  endpoints exist (`/healthz`, `/readyz` with Redis ping + `SELECT 1`,
+  `/metrics`); Dockerfile runs node as PID 1 in exec form so SIGTERM is
+  delivered (`apps/worker/Dockerfile`). The gaps are A-WRK-11/19.
+- **Worker hosting reality:** `docker-compose.yml` defines only Postgres +
+  Redis (no worker service); the worker runs via `pnpm worker` (tsx) or
+  the provided Dockerfile (`docker build -f apps/worker/Dockerfile`).
+  No worker is deployed — all runtime claims in this doc are therefore
+  static/NOT RUN by construction.
+
+## Per-category verdicts
+
+| Category                                                         | Verdict              | Basis                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Job creation & persistence (bookkeeping rows, payload retention) | **PASS** (with note) | A-WRK-01 REFUTED on dynamic verification 2026-11-23: duplicate manual sync returns 409 via the unique `externalId`, no orphan PENDING rows; the no-Redis path marks the single row FAILED. Residual: the 409 should be a typed `already_queued` (A-API-06). |
+| Retries & backoff                                                | **PASS** (with note) | Custom jittered strategy on all workers, 5 attempts, priorities; A-WRK-13 documents the real (1-based) schedule; A-WRK-14 rate-limit accounting gap                                                                                                         |
+| Idempotency / dedup (jobIds)                                     | **PASS** (with note) | A-WRK-01 REFUTED 2026-11-23: the hour-bucketed jobId + unique `externalId` dedupes duplicates at the DB layer (409); manual re-sync within the hour is impossible by design — see A-API-06 for the UX gap.                                                  |
+| Concurrency & locking (BullMQ locks, scheduler lock)             | **FAIL**             | A-WRK-04 (55 s lock vs unbounded tick); lock renewal verified present in BullMQ defaults                                                                                                                                                                    |
+| Crash recovery & shutdown                                        | **FAIL**             | A-WRK-11 (no crash handlers, no shutdown timeout, tick not awaited)                                                                                                                                                                                         |
+| Queue cleanup & expiration                                       | **PASS** (with note) | `removeOnComplete`/`removeOnFail` bounded; A-WRK-18 DLQ prune after 30 days                                                                                                                                                                                 |
+| Tenant isolation of job data                                     | **FAIL**             | A-WRK-02 (DLQ page + APIs unscoped); job payloads / cache keys / alerts otherwise scoped                                                                                                                                                                    |
+| Health-transition alerting                                       | **PASS** (with note) | Transition-only emails, best-effort send, tested `healthTransition`; A-WRK-16 alert storm at scale                                                                                                                                                          |
+| Scheduled reports (`ReportSchedule`, `isReportDue`)              | **FAIL**             | A-WRK-03 (duplicate mail on retry), A-WRK-06 (no catch-up), A-WRK-10 (200-site silent truncation)                                                                                                                                                           |
+| Mailer fail-safety (SMTP unconfigured)                           | **PASS**             | `mailerMode` gate before send; `lastSentAt` not recorded; no body in logs                                                                                                                                                                                   |
+| Sync engine & per-website isolation                              | **FAIL**             | A-WRK-07/08 (no per-provider isolation within a website); cross-website isolation holds                                                                                                                                                                     |
+| Scale methodology (100/1k/10k)                                   | **NOT RUN**          | A-WRK-12: DB timings never run; in-memory JS numbers are not scale evidence; benchmark script diverges from production queries                                                                                                                              |
+| Worker runtime / load behaviour                                  | **NOT RUN**          | No Redis/Postgres in sandbox; worker not deployed — no live tick, retry, crash or throughput observation was possible                                                                                                                                       |
+
+## NOT RUN (with reason)
+
+- Worker boot, scheduler ticks, enqueue/dequeue, retries, backoff timing,
+  crash recovery, shutdown timing, Redis outage behaviour — **no Redis**.
+- Any Prisma query timing (benchmark script, scheduler groupBy, prune
+  deletes) — **no Postgres**.
+- SMTP delivery, report-send duplication, alert-email volume — **no SMTP,
+  no worker**.
+- Throughput at 100/1k/10k websites — **no database, no worker, no Google
+  credentials**; the benchmark script exists but was not executed.
+- Production health/readiness endpoints — **worker not deployed**.
+
+## Counts
+
+- P0: **0** · P1: **2** (A-WRK-02, -03) · P2: **9** (A-WRK-04…-12) ·
+  P3: **9** (A-WRK-01 downgraded from P1 on dynamic verification 2026-11-23, A-WRK-13…-20) · **Total: 20**

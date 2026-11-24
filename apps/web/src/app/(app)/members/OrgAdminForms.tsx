@@ -13,6 +13,7 @@ export function OrgAdminActions({ orgSlug }: { orgSlug: string }) {
   const [error, setError] = useState("");
 
   async function deleteOrg() {
+    if (busy) return;
     if (
       !window.confirm(
         "Delete this organization permanently? All teams, websites, connections and history will be removed and Google grants revoked. This cannot be undone.",
@@ -66,7 +67,7 @@ export function OrgAdminActions({ orgSlug }: { orgSlug: string }) {
               placeholder={orgSlug}
             />
           </div>
-          <Button type="button" onClick={() => void deleteOrg()}>
+          <Button type="button" disabled={busy} onClick={() => void deleteOrg()}>
             {busy ? "Deleting…" : "Delete organization"}
           </Button>
           {error && (

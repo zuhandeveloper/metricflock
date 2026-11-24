@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { prisma } from "@metricflock/db";
 import type { TransferStatus, User } from "@metricflock/db";
 
@@ -18,18 +19,38 @@ export async function loadTransferInOrg(id: string, organizationId: string) {
   });
 }
 
-/** Lazy expiry: an open transfer past its deadline is closed on first touch. */
+/** Lazy expiry: an open transfer past its deadline is closed on first touch.
+ *  A-DB-01: the flip is a guarded updateMany on the open statuses, so a
+ *  concurrent transition wins instead of being overwritten with EXPIRED;
+ *  when the guard matches 0 rows the caller's view is refreshed from the
+ *  winning state. */
 export async function expireIfStale<T extends { id: string; status: TransferStatus; expiresAt: Date | null }>(
   transfer: T,
 ): Promise<T> {
   if (OPEN_TRANSFER_STATUSES.includes(transfer.status) && transfer.expiresAt && transfer.expiresAt < new Date()) {
-    const updated = await prisma.websiteTransfer.update({
-      where: { id: transfer.id },
+    const result = await prisma.websiteTransfer.updateMany({
+      where: { id: transfer.id, status: { in: OPEN_TRANSFER_STATUSES } },
       data: { status: "EXPIRED" },
     });
-    return { ...transfer, status: updated.status };
+    if (result.count === 0) {
+      const current = await prisma.websiteTransfer.findUnique({
+        where: { id: transfer.id },
+        select: { status: true },
+      });
+      return { ...transfer, status: (current?.status ?? transfer.status) as T["status"] };
+    }
+    return { ...transfer, status: "EXPIRED" as T["status"] };
   }
   return transfer;
+}
+
+/** 409 for a transfer whose status changed under the caller (a guarded
+ *  updateMany matched 0 rows). Mirrors the sequential invalid-state
+ *  contract, including the EXPIRED case, so a race loser gets the same
+ *  stable error a sequential caller would. */
+export function transferStaleStateResponse(status: TransferStatus) {
+  if (status === "EXPIRED") return NextResponse.json({ error: "transfer_expired" }, { status: 409 });
+  return NextResponse.json({ error: "invalid_state", status }, { status: 409 });
 }
 
 /** Destination-side authority: SUPER_ADMIN, or an isAdmin member of the

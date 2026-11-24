@@ -15,6 +15,7 @@ export default function TransferActions({ transferId, status, canDestination, ca
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   async function act(action: string) {
+    if (busy) return;
     setBusy(action);
     setError("");
     const res = await fetch(`/api/transfers/${transferId}/${action}`, { method: "POST" });
@@ -32,21 +33,21 @@ export default function TransferActions({ transferId, status, canDestination, ca
     <div className="flex flex-wrap items-center gap-2">
       {status === "PENDING_ACCEPTANCE" && canDestination && (
         <>
-          <Button type="button" onClick={() => act("accept")}>
+          <Button type="button" disabled={busy !== ""} onClick={() => act("accept")}>
             {busy === "accept" ? "Accepting…" : "Accept"}
           </Button>
-          <Button type="button" variant="outline" onClick={() => act("reject")}>
+          <Button type="button" variant="outline" disabled={busy !== ""} onClick={() => act("reject")}>
             {busy === "reject" ? "Rejecting…" : "Reject"}
           </Button>
         </>
       )}
       {status === "PENDING_CONNECTION" && canDestination && (
-        <Button type="button" onClick={() => act("complete")}>
+        <Button type="button" disabled={busy !== ""} onClick={() => act("complete")}>
           {busy === "complete" ? "Completing…" : "Complete transfer"}
         </Button>
       )}
       {canCancel && (
-        <Button type="button" variant="outline" onClick={() => act("cancel")}>
+        <Button type="button" variant="outline" disabled={busy !== ""} onClick={() => act("cancel")}>
           {busy === "cancel" ? "Cancelling…" : "Cancel"}
         </Button>
       )}

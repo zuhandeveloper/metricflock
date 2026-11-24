@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleAnalyticsRequest } from "@/lib/analytics-handler";
 import { runAdManagerReport, adManagerEnabled } from "@metricflock/google/ad-manager";
+// A-GGL-03: bound the route wall-clock (60s = Vercel Hobby max). Each
+// Google call already times out at 15s; this caps the whole request.
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   if (!adManagerEnabled())
     return NextResponse.json({ status: "disabled", error: "GOOGLE_AD_MANAGER_ENABLED is false" }, { status: 200 });

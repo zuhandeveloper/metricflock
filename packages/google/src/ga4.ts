@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import type { OAuth2Client } from "./auth-types";
+import { GOOGLE_API_TIMEOUT_MS, withGoogleTimeout } from "./timeout";
 // Typed parsers for GA4 Data API responses. No mocked data: every function calls the real client.
 //
 // The Data API is called over REST via googleapis — the same auth path
@@ -74,16 +75,32 @@ export async function runRealtimeReport(client: Ga4Client, propertyId: string) {
   // Each breakdown likewise gets its own single-dimension query so per-value
   // counts are exact. (8 small realtime queries instead of 1 inflated one.)
   const property = `properties/${propertyId}`;
+  // A-GGL-03: every Data API call is bounded — a hung Google endpoint
+  // fails fast with GOOGLE_API_TIMEOUT instead of hanging the request.
+  const timed = <T>(p: Promise<T>, op: string) => withGoogleTimeout(p, `ga4.${op}`);
+  const opts = { timeout: GOOGLE_API_TIMEOUT_MS };
   const [totalsRes, ...breakdownRes] = await Promise.all([
-    client.properties.runRealtimeReport({
-      property,
-      requestBody: { metrics: [{ name: "activeUsers" }, { name: "eventCount" }] },
-    }),
+    timed(
+      client.properties.runRealtimeReport(
+        {
+          property,
+          requestBody: { metrics: [{ name: "activeUsers" }, { name: "eventCount" }] },
+        },
+        opts,
+      ),
+      "runRealtimeReport.totals",
+    ),
     ...REALTIME_BREAKDOWN_DIMENSIONS.map((name) =>
-      client.properties.runRealtimeReport({
-        property,
-        requestBody: { dimensions: [{ name }], metrics: [{ name: "activeUsers" }] },
-      }),
+      timed(
+        client.properties.runRealtimeReport(
+          {
+            property,
+            requestBody: { dimensions: [{ name }], metrics: [{ name: "activeUsers" }] },
+          },
+          opts,
+        ),
+        `runRealtimeReport.${name}`,
+      ),
     ),
   ]);
   const totals = totalsRes.data;
@@ -179,17 +196,23 @@ export async function runHistoricalReport(
   dimensions: { name: string }[] = [{ name: "date" }],
   metrics: string[] = GA4_CORE_METRICS,
 ) {
-  const res = await client.properties.runReport({
-    property: `properties/${propertyId}`,
-    requestBody: {
-      dateRanges: [{ startDate, endDate }],
-      dimensions,
-      metrics: metrics.map((name) => ({ name })),
-      // DATA-8: ask the provider for the TOTAL aggregation so the summary
-      // comes from GA4, not from summing (possibly truncated) detail rows.
-      metricAggregations: ["TOTAL"],
-    },
-  });
+  const res = await withGoogleTimeout(
+    client.properties.runReport(
+      {
+        property: `properties/${propertyId}`,
+        requestBody: {
+          dateRanges: [{ startDate, endDate }],
+          dimensions,
+          metrics: metrics.map((name) => ({ name })),
+          // DATA-8: ask the provider for the TOTAL aggregation so the summary
+          // comes from GA4, not from summing (possibly truncated) detail rows.
+          metricAggregations: ["TOTAL"],
+        },
+      },
+      { timeout: GOOGLE_API_TIMEOUT_MS },
+    ),
+    "ga4.runReport",
+  );
   const data = res.data;
   const totals = (data.totals ?? [])[0] as RowLike | undefined;
   const rows = parseReportRows((data.rows ?? []) as RowLike[], metrics);

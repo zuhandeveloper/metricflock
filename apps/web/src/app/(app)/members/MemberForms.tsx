@@ -23,6 +23,7 @@ export function InviteForm() {
   const [inviteUrl, setInviteUrl] = useState("");
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     setInviteUrl("");
@@ -64,7 +65,9 @@ export function InviteForm() {
             <option value="TEAM_ADMIN">Team admin</option>
           </select>
         </div>
-        <Button type="submit">{busy ? "Inviting…" : "Send invite"}</Button>
+        <Button type="submit" disabled={busy}>
+          {busy ? "Inviting…" : "Send invite"}
+        </Button>
         {error && (
           <span role="alert" className="text-xs text-red-700">
             {error}
@@ -86,6 +89,7 @@ export function RevokeInviteButton({ inviteId }: { inviteId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function act() {
+    if (busy) return;
     setBusy(true);
     setError("");
     const { error: err } = await sendJson(`/api/members/invite/${inviteId}`, "DELETE");
@@ -95,7 +99,7 @@ export function RevokeInviteButton({ inviteId }: { inviteId: string }) {
   }
   return (
     <span className="inline-flex items-center gap-2">
-      <Button type="button" variant="ghost" onClick={() => void act()}>
+      <Button type="button" variant="ghost" disabled={busy} onClick={() => void act()}>
         {busy ? "Revoking…" : "Revoke"}
       </Button>
       {error && (
@@ -112,6 +116,7 @@ export function DeleteMemberButton({ memberId, memberEmail }: { memberId: string
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function act() {
+    if (busy) return;
     if (
       !window.confirm(
         `Delete member "${memberEmail}"? Their sessions and access end immediately. This cannot be undone.`,
@@ -133,7 +138,7 @@ export function DeleteMemberButton({ memberId, memberEmail }: { memberId: string
   }
   return (
     <span className="inline-flex items-center gap-2">
-      <Button type="button" variant="ghost" onClick={() => void act()}>
+      <Button type="button" variant="ghost" disabled={busy} onClick={() => void act()}>
         {busy ? "Deleting…" : "Delete"}
       </Button>
       {error && (
@@ -159,6 +164,7 @@ export function RoleSelect({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function change(next: string) {
+    if (busy) return;
     setValue(next);
     setBusy(true);
     setError("");

@@ -116,8 +116,10 @@ export function ReportScheduleForm({ initial }: { initial: Schedule }) {
       )}
       {notice && <p className="text-sm text-green-700">{notice}</p>}
       <div className="flex gap-2">
-        <Button onClick={save}>Save schedule</Button>
-        <Button onClick={sendTest} variant="outline">
+        <Button onClick={save} disabled={busy}>
+          Save schedule
+        </Button>
+        <Button onClick={sendTest} variant="outline" disabled={busy}>
           Send test report to me
         </Button>
       </div>

@@ -12,17 +12,41 @@ export default defineConfig({
       // alias, vi.mock("ioredis") silently misses and tests hit a real
       // Redis when one is listening (CI service container).
       ioredis: path.resolve(__dirname, "../../packages/shared/node_modules/ioredis"),
+      // Same for bullmq (@metricflock/worker's dependency): without the
+      // alias, vi.mock("bullmq") resolves a different pnpm copy than the
+      // worker imports and silently misses (real Workers then try to
+      // connect to Redis).
+      bullmq: path.resolve(__dirname, "../../apps/worker/node_modules/bullmq"),
     },
   },
   test: {
     environment: "node",
-    include: ["tests/unit/**/*.test.ts"],
+    include: ["tests/unit/**/*.test.{ts,tsx}"],
+    // jest-dom matchers for component tests (jsdom). Loaded for every test
+    // file; it only extends expect, so node-env unit tests are unaffected.
+    // Component tests opt into jsdom with a per-file
+    // `// @vitest-environment jsdom` docblock.
+    setupFiles: ["./tests/setup.ts"],
     coverage: {
       provider: "v8",
-      // Scope = modules exercised by the unit suite (pure logic:
-      // parsers, crypto, tenant policy, sync engine). Route-level and
-      // DB-backed coverage comes from the CI smoke suite
-      // (scripts/smoke-test.sh), not from unit coverage.
+      // A-COV-01 (Stage 1, row 14): the gate must measure the repo, not
+      // just the 8 lib files the unit suite happens to import. `include`
+      // names every measured file set — routes, packages and the worker —
+      // and `allowExternal` is required because packages/worker live
+      // outside this config's root (apps/web). (Vitest 5 removed the old
+      // `coverage.all` flag; `include` + `allowExternal` is its
+      // replacement.) Thresholds are NOT lowered.
+      // Globs are relative to this config (apps/web): packages/worker
+      // live two levels up, hence the ../../ prefixes. NOTE: vitest
+      // matches coverage globs against path.relative(root, file), which
+      // is the SHORTEST relative path — for apps/worker that is
+      // "../worker/..." (one "..": apps/web -> apps), NOT
+      // "../../apps/worker/..." (picomatch does not normalize "..", so
+      // the two-".." form never matched and worker files were silently
+      // absent from coverage). Packages need "../../packages/..." because
+      // they live outside apps/.
+      include: ["src/**/*.ts", "src/**/*.tsx", "../../packages/*/src/**/*.ts", "../worker/src/**/*.ts"],
+      allowExternal: true,
       // Thresholds set just below measured values (2026-11-21:
       // 97.7% stmts / 91.7% branch / 100% funcs / 100% lines) so a
       // regression in a tested module fails CI (CI-5).

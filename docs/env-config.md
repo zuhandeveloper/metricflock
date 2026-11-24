@@ -9,11 +9,11 @@ Runtime: Node ≥ 26, pnpm 12.21.0.
 
 ## Core
 
-| Variable              | Required | Default                | Purpose                                                                                                                          |
-| --------------------- | -------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | ✅       | —                      | PostgreSQL connection string                                                                                                     |
-| `REDIS_URL`           | —        | unset = Redis disabled | Cache, rate limits, BullMQ queues, refresh locks. Without it, dashboards still work; manual sync returns `503 queue_unavailable` |
-| `NEXT_PUBLIC_APP_URL` | ✅       | —                      | Public app URL (used in links/emails)                                                                                            |
+| Variable              | Required | Default                | Purpose                                                                                                                                                                                                                                                                 |
+| --------------------- | -------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | ✅       | —                      | PostgreSQL connection string                                                                                                                                                                                                                                            |
+| `REDIS_URL`           | —        | unset = Redis disabled | Cache, rate limits, BullMQ queues, refresh locks. Without it, dashboards still work; manual sync returns `503 queue_unavailable`. **No-Redis is dev-only:** in production (`NODE_ENV=production`) token refresh fails closed without Redis — set `REDIS_URL` (A-GGL-02) |
+| `NEXT_PUBLIC_APP_URL` | ✅       | —                      | Public app URL (used in links/emails)                                                                                                                                                                                                                                   |
 
 ## Auth
 

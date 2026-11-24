@@ -1,21 +1,29 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { deriveHealthState, healthTransition, HEALTH_STALE_AFTER_MS } from "@metricflock/shared";
 import { loadHealthOverview } from "@/lib/health";
+import { GET as readinessGet } from "@/app/api/health/ready/route";
 
 const mocks = vi.hoisted(() => ({
   healthCount: vi.fn(),
   healthFindMany: vi.fn(),
   integrationCount: vi.fn(),
   listAccessibleWebsiteIds: vi.fn(),
+  queryRaw: vi.fn(),
+  getRedis: vi.fn(),
 }));
 
 vi.mock("@metricflock/db", () => ({
   prisma: {
     integrationHealth: { count: mocks.healthCount, findMany: mocks.healthFindMany },
     websiteIntegration: { count: mocks.integrationCount },
+    $queryRaw: mocks.queryRaw,
   },
 }));
 vi.mock("@metricflock/auth", () => ({ listAccessibleWebsiteIds: mocks.listAccessibleWebsiteIds }));
+vi.mock("@metricflock/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@metricflock/shared")>();
+  return { ...actual, getRedis: mocks.getRedis };
+});
 
 // Phase 7.2: health-state derivation + transition alerting rules.
 describe("deriveHealthState", () => {
@@ -88,5 +96,56 @@ describe("loadHealthOverview", () => {
         where: { website: { organizationId: "org1", id: { in: ["w1"] } } },
       }),
     );
+  });
+});
+
+// A-LIVE-01 (Stage 1, row 18 — code-side part only): the readiness logic
+// reports redis:"disabled" (not a failure) when REDIS_URL is unset, so a
+// no-Redis instance is ready; a configured-but-down Redis is 503. The
+// production fix itself is operational (restore Redis or remove
+// REDIS_URL in Vercel) — this test pins the code behaviour.
+describe("GET /api/health/ready", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.queryRaw.mockResolvedValue([{ "?column?": 1 }]);
+  });
+
+  it("reports redis:disabled and 200 ready when REDIS_URL is unset", async () => {
+    mocks.getRedis.mockReturnValue(null);
+    const res = await readinessGet();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: "ready",
+      checks: { db: "ok", redis: "disabled" },
+    });
+  });
+  it("reports 503 not_ready when a configured Redis is down (db ok)", async () => {
+    mocks.getRedis.mockReturnValue({ ping: async () => "FAIL" });
+    const res = await readinessGet();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      status: "not_ready",
+      checks: { db: "ok", redis: "down" },
+    });
+  });
+  it("reports 503 not_ready when Redis ping throws", async () => {
+    mocks.getRedis.mockReturnValue({
+      ping: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+    });
+    const res = await readinessGet();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ status: "not_ready", checks: { redis: "down" } });
+  });
+  it("reports 503 not_ready when the database check fails", async () => {
+    mocks.getRedis.mockReturnValue(null);
+    mocks.queryRaw.mockRejectedValue(new Error("db down"));
+    const res = await readinessGet();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      status: "not_ready",
+      checks: { db: "down", redis: "disabled" },
+    });
   });
 });

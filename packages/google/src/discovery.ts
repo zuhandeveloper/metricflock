@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import type { OAuth2Client } from "./auth-types";
+import { GOOGLE_API_TIMEOUT_MS, withGoogleTimeout } from "./timeout";
 
 // Discovery listing with real pagination (F-3.3): every list call follows
 // nextPageToken up to a page cap, guards against token loops, and reports
@@ -34,8 +35,13 @@ export async function listGa4Properties(
   auth: OAuth2Client,
 ): Promise<DiscoveryResult<Ga4DiscoveredProperty> & { errors: string[] }> {
   const admin = google.analyticsadmin({ version: "v1beta", auth });
+  const opts = { timeout: GOOGLE_API_TIMEOUT_MS };
   const accounts = await paginate(async (pageToken) => {
-    const res = await admin.accounts.list({ pageSize: 200, pageToken });
+    // A-GGL-03: bounded like every other googleapis call (see timeout.ts).
+    const res = await withGoogleTimeout(
+      admin.accounts.list({ pageSize: 200, pageToken }, opts),
+      "discovery.ga4.accounts.list",
+    );
     return { items: res.data.accounts ?? [], nextPageToken: res.data.nextPageToken };
   });
   const out: Ga4DiscoveredProperty[] = [];
@@ -44,7 +50,10 @@ export async function listGa4Properties(
   for (const acc of accounts.items) {
     try {
       const props = await paginate(async (pageToken) => {
-        const res = await admin.properties.list({ filter: `parent:${acc.name}`, pageSize: 200, pageToken });
+        const res = await withGoogleTimeout(
+          admin.properties.list({ filter: `parent:${acc.name}`, pageSize: 200, pageToken }, opts),
+          "discovery.ga4.properties.list",
+        );
         return { items: res.data.properties ?? [], nextPageToken: res.data.nextPageToken };
       });
       if (props.truncated) truncated = true;
@@ -65,7 +74,10 @@ export async function listGa4Properties(
 
 export async function listSearchConsoleSites(auth: OAuth2Client) {
   const sc = google.searchconsole({ version: "v1", auth });
-  const res = await sc.sites.list();
+  const res = await withGoogleTimeout(
+    sc.sites.list(undefined, { timeout: GOOGLE_API_TIMEOUT_MS }),
+    "discovery.search-console.sites.list",
+  );
   // The Search Console sites.list API has no pagination — one call is complete.
   return {
     items: (res.data.siteEntry ?? []).map((s) => ({
@@ -79,7 +91,10 @@ export async function listSearchConsoleSites(auth: OAuth2Client) {
 export async function listAdSenseAccounts(auth: OAuth2Client) {
   const adsense = google.adsense({ version: "v2", auth });
   const result = await paginate(async (pageToken) => {
-    const res = await adsense.accounts.list({ pageSize: 50, pageToken });
+    const res = await withGoogleTimeout(
+      adsense.accounts.list({ pageSize: 50, pageToken }, { timeout: GOOGLE_API_TIMEOUT_MS }),
+      "discovery.adsense.accounts.list",
+    );
     return { items: res.data.accounts ?? [], nextPageToken: res.data.nextPageToken };
   });
   return {

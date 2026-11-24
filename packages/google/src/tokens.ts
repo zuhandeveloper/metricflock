@@ -12,6 +12,7 @@ import {
   createLogger,
 } from "@metricflock/shared";
 import { getOAuthClient } from "./oauth";
+import { isGoogleTimeoutError, withGoogleTimeout } from "./timeout";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = createLogger("token-refresh");
@@ -23,10 +24,20 @@ const log = createLogger("token-refresh");
 // Fail-closed policy: when Redis is configured, a refresh that cannot
 // acquire the lock (Redis error, or contention past the deadline) throws
 // TOKEN_REFRESH_LOCK_UNAVAILABLE — a retryable error — instead of
-// refreshing unlocked and risking a rotated-token clobber. Unlocked
-// refresh happens only in explicit no-Redis mode (single-instance dev),
-// and is counted + logged. A fencing check before the DB write covers
-// the lock-TTL-expiry race (see getValidAccessToken).
+// refreshing unlocked and risking a rotated-token clobber. A fencing check
+// before the DB write covers the lock-TTL-expiry race (see
+// getValidAccessToken).
+//
+// No-Redis is a DEV-ONLY posture (A-GGL-02): without Redis there is no
+// lock at all, and on multi-instance production (Vercel/serverless) two
+// concurrent refreshes can both read the old refresh token and the loser
+// overwrites the winner's rotated token — or the now-invalid old one —
+// leaving the stored refresh token invalid. So when REDIS_URL is unset
+// AND NODE_ENV is production, refresh fails closed with
+// TOKEN_REFRESH_LOCK_UNAVAILABLE instead of refreshing unlocked.
+// In non-production, unlocked refresh is still allowed (single-instance
+// dev), counted + logged. Production without Redis is unsupported —
+// see docs/deployment.md and docs/env-config.md.
 type RedisLike = {
   set(key: string, value: string, mode: string, ttl: number, nx: string): Promise<string | null>;
   get(key: string): Promise<string | null>;
@@ -61,8 +72,21 @@ async function withRefreshLock<T>(
 ): Promise<T> {
   const redis = getRedis();
   if (!redis) {
+    // A-GGL-02: no-Redis is dev-only. In production there is no lock and
+    // no fencing (lockHeld is hard-wired true below), so concurrent
+    // refreshes can clobber a rotated refresh token — fail closed.
+    if (process.env.NODE_ENV === "production") {
+      incr("token_refresh.no_redis_production");
+      log.error(
+        "Redis not configured in production — token refresh fails closed; set REDIS_URL (no-Redis is dev-only)",
+        { connectionId },
+      );
+      throw new Error("TOKEN_REFRESH_LOCK_UNAVAILABLE");
+    }
     incr("token_refresh.unlocked_no_redis");
-    log.warn("Redis not configured — token refresh runs unlocked (single-instance mode)", { connectionId });
+    log.warn("Redis not configured — token refresh runs unlocked (single-instance dev mode only)", {
+      connectionId,
+    });
     return fn(async () => true);
   }
   const key = `lock:token-refresh:${connectionId}`;
@@ -131,7 +155,11 @@ export async function getValidAccessToken(connectionId: string): Promise<string>
     const client = getOAuthClient();
     client.setCredentials({ refresh_token: refreshToken });
     try {
-      const { credentials } = await client.refreshAccessToken();
+      // A-GGL-03: the refresh exchange is bounded (google-auth-library
+      // takes no timeout option, so the race in withGoogleTimeout is
+      // the bound). A timeout is rethrown unchanged by the catch below
+      // so it stays classifiable as temporarily_unavailable.
+      const { credentials } = await withGoogleTimeout(client.refreshAccessToken(), "oauth.refreshAccessToken");
       if (!credentials.access_token) throw new Error("TOKEN_REFRESH_FAILED");
       // Fencing (F-3.2): if our lock expired mid-refresh and another
       // refresher already stored a (possibly rotated) refresh token, do
@@ -170,6 +198,12 @@ export async function getValidAccessToken(connectionId: string): Promise<string>
       });
       return credentials.access_token;
     } catch (err: unknown) {
+      // A-GGL-03: a refresh timeout is transient, not a token failure —
+      // let GOOGLE_API_TIMEOUT through unchanged (it is not in the sync
+      // engine's TOKEN_ERRORS set, so it retries; and the analytics
+      // classifier maps it to temporarily_unavailable). Collapsing it
+      // into TOKEN_REFRESH_FAILED would mislabel it as terminal.
+      if (isGoogleTimeoutError(err)) throw err;
       if (isInvalidGrant(err)) {
         await prisma.googleConnection.update({
           where: { id: connectionId },
@@ -197,7 +231,8 @@ export async function revokeConnection(connectionId: string): Promise<void> {
   try {
     const client = getOAuthClient();
     const refreshToken = decryptToken(conn.encryptedRefreshToken, connectionAad(conn));
-    await client.revokeToken(refreshToken);
+    // A-GGL-03: bounded like the refresh exchange; revoke is best-effort.
+    await withGoogleTimeout(client.revokeToken(refreshToken), "oauth.revokeToken");
   } catch {
     /* revoke is best-effort; still clear local tokens */
   }

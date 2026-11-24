@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "MetricFlock background worker — BullMQ job consumer and sync scheduler.",
   "private": true,
+  "exports": {
+    "./index": "./src/index.ts",
+    "./report": "./src/report.ts",
+    "./scheduler": "./src/scheduler.ts"
+  },
   "scripts": {
     "dev": "cross-env DOTENV_CONFIG_PATH=../web/.env tsx --watch src/index.ts",
     "start": "cross-env DOTENV_CONFIG_PATH=../web/.env tsx src/index.ts",

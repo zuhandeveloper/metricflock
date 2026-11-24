@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import type { OAuth2Client } from "./auth-types";
+import { GOOGLE_API_TIMEOUT_MS, withGoogleTimeout } from "./timeout";
 // AdSense figures are ESTIMATED earnings, not finalized payments.
 export const ADSENSE_ESTIMATED_NOTE = "AdSense figures are estimated earnings, not finalized payments.";
 export function parseAdSenseRows(rows: { cells?: { value?: string }[] }[] | undefined, headers: string[]) {
@@ -51,18 +52,25 @@ export async function runAdSenseReport(
   const adsense = google.adsense({ version: "v2", auth });
   const s = dateParts(startDate);
   const e = dateParts(endDate);
-  const res = await adsense.accounts.reports.generate({
-    account: `accounts/${accountId}`,
-    dateRange: "CUSTOM",
-    "startDate.year": s.year,
-    "startDate.month": s.month,
-    "startDate.day": s.day,
-    "endDate.year": e.year,
-    "endDate.month": e.month,
-    "endDate.day": e.day,
-    dimensions,
-    metrics,
-  });
+  // A-GGL-03: bounded like every other googleapis call (see timeout.ts).
+  const res = await withGoogleTimeout(
+    adsense.accounts.reports.generate(
+      {
+        account: `accounts/${accountId}`,
+        dateRange: "CUSTOM",
+        "startDate.year": s.year,
+        "startDate.month": s.month,
+        "startDate.day": s.day,
+        "endDate.year": e.year,
+        "endDate.month": e.month,
+        "endDate.day": e.day,
+        dimensions,
+        metrics,
+      },
+      { timeout: GOOGLE_API_TIMEOUT_MS },
+    ),
+    "adsense.reports.generate",
+  );
   const headers = (res.data.headers ?? []).map((h: { name?: string | null }) => h.name ?? "");
   const rows = parseAdSenseRows(res.data.rows as { cells?: { value?: string }[] }[] | undefined, headers);
   const totals =

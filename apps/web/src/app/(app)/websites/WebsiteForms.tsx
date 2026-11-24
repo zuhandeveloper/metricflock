@@ -21,6 +21,7 @@ export function AddWebsiteForm({ teams }: { teams: TeamOption[] }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     const res = await fetch("/api/websites", {
@@ -98,7 +99,9 @@ export function AddWebsiteForm({ teams }: { teams: TeamOption[] }) {
           ))}
         </select>
       </div>
-      <Button type="submit">{busy ? "Adding…" : "Add website"}</Button>
+      <Button type="submit" disabled={busy}>
+        {busy ? "Adding…" : "Add website"}
+      </Button>
       {error && (
         <span role="alert" className="text-xs text-red-700">
           {error}

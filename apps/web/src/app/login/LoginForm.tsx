@@ -11,6 +11,7 @@ export default function LoginForm() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function google() {
+    if (busy) return;
     setError("");
     setBusy(true);
     const res = await signIn.social({ provider: "google", callbackURL: "/dashboard" });
@@ -22,6 +23,7 @@ export default function LoginForm() {
   }
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setError("");
     setBusy(true);
     const res = await fetch("/api/auth/login", {
@@ -44,6 +46,7 @@ export default function LoginForm() {
   }
   async function submitCode(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setError("");
     setBusy(true);
     const res = await fetch("/api/auth/two-factor/verify-totp", {
@@ -82,7 +85,7 @@ export default function LoginForm() {
               {error}
             </p>
           )}
-          <Button type="submit" className="w-full justify-center">
+          <Button type="submit" className="w-full justify-center" disabled={busy}>
             {busy ? "Verifying…" : "Verify and sign in"}
           </Button>
         </form>
@@ -91,7 +94,7 @@ export default function LoginForm() {
   }
   return (
     <Card className="p-6">
-      <Button type="button" variant="outline" className="w-full justify-center" onClick={google}>
+      <Button type="button" variant="outline" className="w-full justify-center" disabled={busy} onClick={google}>
         Continue with Google
       </Button>
       <div className="my-4 flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
@@ -133,7 +136,7 @@ export default function LoginForm() {
             {error}
           </p>
         )}
-        <Button type="submit" className="w-full justify-center">
+        <Button type="submit" className="w-full justify-center" disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
         </Button>
         <p className="text-center text-sm">

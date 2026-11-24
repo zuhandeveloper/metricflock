@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors } from "@/lib/api-error";
-import { requireApiAuth, assertConnectionVisible } from "@metricflock/auth";
+import { requireApiAuth, requireFreshSession, assertConnectionVisible } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { revokeConnection } from "@metricflock/google/tokens";
 import { writeAudit } from "@metricflock/db/audit";
@@ -11,6 +11,10 @@ const schema = z.object({ connectionId: z.string().min(1) });
 async function post(req: NextRequest) {
   const auth = await requireApiAuth("google.connection.manage");
   if ("error" in auth) return auth.error;
+  // A-SEC-02: disconnecting revokes the org's live Google grant — a
+  // destructive action that requires a fresh session.
+  const fresh = await requireFreshSession();
+  if ("error" in fresh) return fresh.error;
   const body = schema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   const conn = await prisma.googleConnection.findFirst({

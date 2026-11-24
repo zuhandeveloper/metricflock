@@ -8,6 +8,7 @@ export function AcceptInviteButton({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function act() {
+    if (busy) return;
     setBusy(true);
     setError("");
     const res = await fetch("/api/invites/accept", {
@@ -26,7 +27,7 @@ export function AcceptInviteButton({ token }: { token: string }) {
   }
   return (
     <div className="space-y-2">
-      <Button type="button" onClick={() => void act()}>
+      <Button type="button" disabled={busy} onClick={() => void act()}>
         {busy ? "Joining…" : "Accept invite"}
       </Button>
       {error && (

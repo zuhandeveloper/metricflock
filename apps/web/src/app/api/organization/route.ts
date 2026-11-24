@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors } from "@/lib/api-error";
-import { requireApiAuth } from "@metricflock/auth";
+import { requireApiAuth, requireFreshSession } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { createLogger } from "@metricflock/shared";
 import { revokeConnection } from "@metricflock/google/tokens";
@@ -18,6 +18,10 @@ const schema = z.object({ confirmSlug: z.string().min(1) });
 async function del(req: NextRequest) {
   const auth = await requireApiAuth("organization.manage");
   if ("error" in auth) return auth.error;
+  // A-SEC-02: deleting the whole organization is destructive — require
+  // a fresh session (re-authentication), not a 30-day-old cookie.
+  const fresh = await requireFreshSession();
+  if ("error" in fresh) return fresh.error;
   const body = schema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
 

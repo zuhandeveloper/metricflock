@@ -359,3 +359,7 @@ All workflows SHA-pinned with least-privilege `permissions:`; gitleaks + `pnpm a
   by Kai); `pnpm sbom` script added (CycloneDX via cdxgen 12.9.3,
   output gitignored). Verified: format/lint ✓, turbo 10/10 ✓
   (156 unit tests), `pnpm audit --prod` clean.
+  **Update 2026-11-22: pushed (1b01b0c2) — CI #189 failed at the
+  Format check only (this file unformatted); fix pushed (02d96e56) —
+  CI #190 SUCCESS (30 files/156 tests, smoke ALL CHECKS PASSED,
+  e2e 5/5). Phase 6 closed.**

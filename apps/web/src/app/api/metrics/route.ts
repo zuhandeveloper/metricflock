@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { counterSnapshot } from "@metricflock/shared";
+import { syncJobOrgWhere } from "@/lib/sync-scope";
 import { getQueue, QUEUE_NAMES } from "@metricflock/jobs";
 
 // Operational metrics (Stage 8). SUPER_ADMIN only — queue depths and
 // failure counts are internal operational data, not public. In-process
 // counters (cache/provider/api) reset on restart; the durable numbers
 // (sync success, DLQ depth) come from AnalyticsSyncJob rows.
+// A-SEC-01: the durable numbers are scoped to the caller's organization
+// via website — another tenant's failures must not show up here.
 export async function GET(_req: NextRequest) {
   const auth = await requireApiAuth();
   if ("error" in auth) return auth.error;
@@ -23,11 +26,11 @@ export async function GET(_req: NextRequest) {
   const [byStatus, oldestFailed] = await Promise.all([
     prisma.analyticsSyncJob.groupBy({
       by: ["status"],
-      where: { updatedAt: { gte: since } },
+      where: { updatedAt: { gte: since }, ...syncJobOrgWhere(auth.user.organizationId) },
       _count: { _all: true },
     }),
     prisma.analyticsSyncJob.findFirst({
-      where: { status: "FAILED" },
+      where: { status: "FAILED", ...syncJobOrgWhere(auth.user.organizationId) },
       orderBy: { updatedAt: "asc" },
       select: { updatedAt: true },
     }),

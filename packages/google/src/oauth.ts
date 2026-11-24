@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { CodeChallengeMethod } from "google-auth-library";
 import { prisma } from "@metricflock/db";
 import { hmacState, verifyHmacState, hashToken } from "@metricflock/shared";
+import { GOOGLE_API_TIMEOUT_MS, withGoogleTimeout } from "./timeout";
 export const GA4_SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"];
 export const GSC_SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"];
 export const ADSENSE_SCOPES = ["https://www.googleapis.com/auth/adsense.readonly"];
@@ -139,7 +140,14 @@ export async function getGoogleAccountProfile(
   client: InstanceType<typeof google.auth.OAuth2>,
 ): Promise<{ email: string; id: string | null }> {
   const oauth2 = google.oauth2({ version: "v2", auth: client });
-  const me = await oauth2.userinfo.get();
+  // A-GGL-03: the userinfo call is bounded like every other googleapis
+  // call. NOTE: the token exchange itself (`client.getToken`) is invoked
+  // by the OAuth callback route, which this row does not cover — that
+  // call site still has no timeout and needs its own fix.
+  const me = await withGoogleTimeout(
+    oauth2.userinfo.get(undefined, { timeout: GOOGLE_API_TIMEOUT_MS }),
+    "oauth.userinfo.get",
+  );
   return { email: me.data.email ?? "unknown@google", id: me.data.id ?? null };
 }
 export async function buildAuthUrl(

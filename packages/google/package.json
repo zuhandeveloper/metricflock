@@ -13,6 +13,7 @@
     "./oauth": "./src/oauth.ts",
     "./search-console": "./src/search-console.ts",
     "./sync": "./src/sync.ts",
+    "./timeout": "./src/timeout.ts",
     "./tokens": "./src/tokens.ts"
   },
   "scripts": {

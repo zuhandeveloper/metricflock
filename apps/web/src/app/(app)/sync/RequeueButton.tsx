@@ -8,6 +8,7 @@ export function RequeueButton({ jobId }: { jobId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function act() {
+    if (busy) return;
     setBusy(true);
     setError("");
     const res = await fetch("/api/sync/requeue", {
@@ -25,7 +26,7 @@ export function RequeueButton({ jobId }: { jobId: string }) {
   }
   return (
     <span className="inline-flex items-center gap-2">
-      <Button type="button" variant="outline" onClick={() => void act()}>
+      <Button type="button" variant="outline" disabled={busy} onClick={() => void act()}>
         {busy ? "Requeueing…" : "Requeue"}
       </Button>
       {error && (

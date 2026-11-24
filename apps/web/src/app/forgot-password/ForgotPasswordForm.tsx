@@ -9,6 +9,7 @@ export default function ForgotPasswordForm() {
   const [busy, setBusy] = useState(false);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     // better-auth always returns 200 here (no account enumeration); the
     // reset email is only sent when the account exists.
@@ -50,7 +51,7 @@ export default function ForgotPasswordForm() {
               autoComplete="email"
             />
           </div>
-          <Button type="submit" className="w-full justify-center">
+          <Button type="submit" className="w-full justify-center" disabled={busy}>
             {busy ? "Sending…" : "Send reset link"}
           </Button>
           <p className="text-center text-sm">

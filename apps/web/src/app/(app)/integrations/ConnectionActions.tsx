@@ -19,6 +19,7 @@ export function DisconnectButton({ connectionId }: { connectionId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function act() {
+    if (busy) return;
     if (!window.confirm("Disconnect this Google account? Mapped properties will stop syncing.")) return;
     setBusy(true);
     setError("");
@@ -29,7 +30,7 @@ export function DisconnectButton({ connectionId }: { connectionId: string }) {
   }
   return (
     <span className="inline-flex items-center gap-2">
-      <Button type="button" variant="outline" onClick={() => void act()}>
+      <Button type="button" variant="outline" disabled={busy} onClick={() => void act()}>
         {busy ? "Disconnecting…" : "Disconnect"}
       </Button>
       {error && (
@@ -48,6 +49,7 @@ export function DiscoverButton({ connectionId }: { connectionId: string }) {
   const [summary, setSummary] = useState("");
   const [providerErrors, setProviderErrors] = useState<string[]>([]);
   async function act() {
+    if (busy) return;
     setBusy(true);
     setError("");
     setSummary("");
@@ -76,7 +78,7 @@ export function DiscoverButton({ connectionId }: { connectionId: string }) {
   }
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
-      <Button type="button" variant="outline" onClick={() => void act()}>
+      <Button type="button" variant="outline" disabled={busy} onClick={() => void act()}>
         {busy ? "Discovering…" : "Discover properties"}
       </Button>
       {summary && <span className="text-xs text-emerald-700">{summary}</span>}
@@ -122,6 +124,7 @@ export function MapPropertyForm({
   }
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     const { error: err } = await sendJson("/api/google/properties/map", {
@@ -161,7 +164,7 @@ export function MapPropertyForm({
         <input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} />
         Primary
       </label>
-      <Button type="submit" variant="outline">
+      <Button type="submit" variant="outline" disabled={busy}>
         {busy ? "Mapping…" : "Map"}
       </Button>
       {done && <span className="text-xs text-emerald-700">Mapped.</span>}

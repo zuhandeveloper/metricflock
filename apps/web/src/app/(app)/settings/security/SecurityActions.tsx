@@ -27,12 +27,14 @@ export function SessionActions({ sessions }: { sessions: SessionRow[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState("");
   async function revoke(token: string) {
+    if (busy) return;
     setBusy(token);
     await postJson("/api/auth/revoke-session", { token });
     setBusy("");
     router.refresh();
   }
   async function revokeOthers() {
+    if (busy) return;
     setBusy("others");
     await postJson("/api/auth/revoke-other-sessions", {});
     setBusy("");
@@ -54,7 +56,7 @@ export function SessionActions({ sessions }: { sessions: SessionRow[] }) {
               </p>
             </div>
             {!s.current && (
-              <Button type="button" variant="outline" onClick={() => revoke(s.token)}>
+              <Button type="button" variant="outline" disabled={busy !== ""} onClick={() => revoke(s.token)}>
                 {busy === s.token ? "Revoking…" : "Revoke"}
               </Button>
             )}
@@ -62,7 +64,7 @@ export function SessionActions({ sessions }: { sessions: SessionRow[] }) {
         ))}
       </ul>
       {sessions.length > 1 && (
-        <Button type="button" variant="outline" onClick={revokeOthers}>
+        <Button type="button" variant="outline" disabled={busy !== ""} onClick={revokeOthers}>
           {busy === "others" ? "Revoking…" : "Sign out all other devices"}
         </Button>
       )}
@@ -80,6 +82,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
 
   async function enable(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setError("");
     setBusy(true);
     const { ok, data } = await postJson("/api/auth/two-factor/enable", { password });
@@ -95,6 +98,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
   }
   async function verify(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setError("");
     setBusy(true);
     const { ok } = await postJson("/api/auth/two-factor/verify-totp", { code: code.trim() });
@@ -108,6 +112,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
   }
   async function disable(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setError("");
     setBusy(true);
     const { ok } = await postJson("/api/auth/two-factor/disable", { password });
@@ -144,7 +149,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
             {error}
           </p>
         )}
-        <Button type="submit" variant="outline">
+        <Button type="submit" variant="outline" disabled={busy}>
           {busy ? "Disabling…" : "Disable two-factor"}
         </Button>
       </form>
@@ -193,7 +198,9 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
             {error}
           </p>
         )}
-        <Button type="submit">{busy ? "Verifying…" : "Verify and enable"}</Button>
+        <Button type="submit" disabled={busy}>
+          {busy ? "Verifying…" : "Verify and enable"}
+        </Button>
       </form>
     );
   }
@@ -222,7 +229,9 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
           {error}
         </p>
       )}
-      <Button type="submit">{busy ? "Starting…" : "Enable two-factor"}</Button>
+      <Button type="submit" disabled={busy}>
+        {busy ? "Starting…" : "Enable two-factor"}
+      </Button>
     </form>
   );
 }

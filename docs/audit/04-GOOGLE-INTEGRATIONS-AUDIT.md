@@ -1,0 +1,288 @@
+# Phase 4 — Google Integrations Audit
+
+- **Repo:** `~/workspace/metricflock/` (Next.js 16 monorepo, Prisma 7), main HEAD `6e6d2b21` (per task brief; the sandbox copy has no `.git`, so HEAD could not be re-verified — see §8).
+- **Scope:** `packages/google/src/{oauth,tokens,client,discovery,ga4,search-console,adsense,ad-manager,sync}.ts` + `apps/web/src/app/api/google/**` + `apps/web/src/lib/analytics-handler.ts` (+ `analytics-response.ts`, `portfolio.ts`, `packages/shared/src/portfolio-aggregate.ts` for the aggregation math).
+- **Method:** independent revalidation from current source only. Earlier audit docs were **not** trusted. Aggregation math was recomputed from the code, not from comments. A behaviour counts as verified only where the code path plus a passing unit test (run in the sandbox, §7) actually asserts it.
+- **Live-data status:** **Search Console was verified live 2026-11-21 per repo history; GA4 and AdSense were not.** No fresh in-repo evidence of live verification was found for any provider in this audit (no new live-test logs, fixtures from real accounts, or prod data in the repo), so **all live-provider behaviour below is UNVERIFIED** except where a unit test with mocked clients pins a pure function. Ad Manager is additionally marked unverified in its own source comments.
+
+## 1. Per-provider summary
+
+| Provider       | Auth path                         | Discovery                                                        | Fetch path                                                                 | Aggregation                                                                         | Live status                                                                                    |
+| -------------- | --------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| GA4            | OAuth2 + refresh lock             | `listGa4Properties` (paginated, per-account isolation)           | `runRealtimeReport` (8 queries), `runHistoricalReport` (TOTAL aggregation) | Provider totals; portfolio sums + recomputed rates                                  | **UNVERIFIED** (was not live-verified 2026-11-21)                                              |
+| Search Console | Same                              | `listSearchConsoleSites` (no pagination — correct, API has none) | `querySearchAnalytics` (dimension-less totals query + paged detail)        | Impression-weighted position; CTR recomputed                                        | **UNVERIFIED by this audit** (live-verified 2026-11-21 per history; no fresh evidence in-repo) |
+| AdSense        | Same                              | `listAdSenseAccounts` (paginated)                                | `runAdSenseReport` (single `reports.generate`)                             | Provider totals row; portfolio recomputes CTR/CPC/RPM — **with one bug (A-GGL-05)** | **UNVERIFIED**                                                                                 |
+| Ad Manager     | Same (REST, no googleapis client) | `listAdManagerNetworks` (paginated)                              | `runAdManagerReport` — **wrong endpoint shape (A-GGL-01)**                 | CTR recomputed from clicks/impressions (correct _if_ rows ever arrived)             | **UNVERIFIED — and almost certainly non-functional**                                           |
+
+## 2. Findings
+
+Severity: **P0** critical/exploitable/data corruption · **P1** high · **P2** medium · **P3** low.
+Status: **CONFIRMED** = traced in current source; **POTENTIAL** = reachable but needs a live Google account / prod run to prove.
+
+### A-GGL-01 — Ad Manager reporting calls a non-existent endpoint shape; reports can never return rows · P1 · CONFIRMED (code + vendor docs)
+
+- **Evidence:** `packages/google/src/ad-manager.ts:130-158` (`runAdManagerReport`): `POST https://admanager.googleapis.com/v1/networks/{networkCode}/reports:run` with body `{ report: { dimensions, metrics, dateRange } }`, then `parseAdManagerReport` expects inline `rows` of `{dimensionValues, metricValues}`.
+- Google's Ad Manager REST API v1 has **no such endpoint**. Per Google's own documentation ("Create and run reports", developers.google.com/ad-manager/api/beta/reports; REST reference `v1.networks.reports`): the flow is (1) `POST /v1/networks/{networkCode}/reports` to **create** a Report definition, (2) `POST /v1/networks/{networkCode}/reports/{report}:run` to run an **existing** report, which returns a long-running **Operation**, (3) poll `networks.operations.reports.runs.get` until `done: true`, (4) fetch rows via `networks.reports.results:fetchRows` (paginated). There is no `POST /networks/{code}/reports:run` with an inline report definition, and no synchronous rows response.
+- **Consequence:** against the real API the call returns 404/400 → `admFetch` (`ad-manager.ts:30-62`) treats non-429/5xx as non-transient and throws `AD_MANAGER_API_ERROR_404` immediately. Even if it returned an `Operation` object, `parseAdManagerReport` would find no `rows` array and return `{ parsed: false, rows: [], totals: {} }` — the "no metrics were derived" note. Either way the Ad Manager dashboard/sync can never show data. The module's own header comment (`ad-manager.ts:77-83`) admits the shape is "not yet verified against a real Ad Manager network".
+- **Impact:** an entire advertised provider (gated by `GOOGLE_AD_MANAGER_ENABLED`) is dead on arrival; worker `ad-manager` syncs fail every run (FAILED + BullMQ retries, burning attempts on a deterministic error).
+- **Correction:** reimplement to the documented flow (create → run → poll with bounded total wait → fetchRows with pagination), or remove Ad Manager reporting from the product surface until it is implemented. Gate the sync job off until then so it returns `disabled`/`skipped`, not FAILED.
+- **Regression test:** contract test against a stubbed Ad Manager API returning an Operation + fetchRows pages; assert rows flow through. **Live verification required:** run against a real Ad Manager network before claiming support.
+- **Verification status:** UNVERIFIED live (no live account in sandbox); CONFIRMED as a defect by code-vs-vendor-docs comparison.
+- **Dynamic verification 2026-11-23 (retry): CONFIRMED-BY-EXECUTION of the parser half.** A realistic `reports:run` Operation response (name `networks/12345678/operations/reports/runs/6485392645`, `done: true`, `response.reportResult: "networks/12345678/reports/4555265029/results/1"`, per Google's own example) was fed through the app's own `parseAdManagerReport` in a scratch vitest run: result `{"parsed":false,"rows":[],"totals":{}}` — no metrics derived, exactly the "no metrics were derived" branch. The request-shape half (the POST itself) cannot be executed without a live Ad Manager network, so live verification remains NOT RUN. Scratch test file deleted afterwards.
+
+### A-GGL-02 — Token refresh runs unlocked whenever `REDIS_URL` is unset — and no-Redis is a documented deployment shape · P1 · CONFIRMED
+
+- **Evidence:** `packages/google/src/tokens.ts:62-75` (`withRefreshLock`): `if (!redis) { incr("token_refresh.unlocked_no_redis"); log.warn("…single-instance mode"); return fn(async () => true); }`. `packages/shared/src/cache.ts:9-10` (`getRedis` returns `null` when `REDIS_URL` is unset). `docs/env-config.md:15`: "`REDIS_URL` — unset = Redis disabled | Cache, rate limits, BullMQ queues, refresh locks. Without it, dashboards still work".
+- The "single-instance" assumption is therefore false in production: Vercel/serverless runs many concurrent instances, and `docs/env-config.md` presents no-Redis as a working deployment. Two concurrent refreshes of the same connection can both read the old refresh token, both call Google (Google rotates the refresh token on use), and the **loser overwrites the winner's rotated token with its own rotated token** — or worse, with the now-invalid old token — leaving the stored refresh token invalid. The fencing check (`tokens.ts:163-180`) only runs when a lock was held; in no-Redis mode `lockHeld` is hard-wired `() => true`, so fencing is disabled exactly when it is needed.
+- **Impact:** connections randomly end up `REVOKED` (`invalid_grant` on the next refresh, `tokens.ts:181-196`) after concurrent dashboard loads; users must re-connect. Intermittent, hard to reproduce, and the metric `token_refresh.unlocked_no_redis` is the only signal.
+- **Correction:** make Redis mandatory in production (fail startup / fail refresh closed when `REDIS_URL` is unset and `NODE_ENV=production`), or implement a DB-backed lock (`SELECT … FOR UPDATE` on the connection row / advisory lock) as the fallback so multi-instance deployments are safe without Redis. At minimum, surface a loud prod warning and document that no-Redis is dev-only.
+- **Regression test:** two concurrent `getValidAccessToken` calls with no Redis and a rotating-token stub; assert exactly one refresh-token write wins and the stored token stays valid.
+
+### A-GGL-03 — No timeout on any googleapis call (GA4 / Search Console / AdSense / OAuth) · P1 · CONFIRMED
+
+- **Evidence:** `grep` for `timeout|AbortController|signal` across `packages/google/src/` (excluding `ad-manager.ts`) and `apps/web/src/lib/analytics-handler.ts` returns **nothing** — the only timeouts in the Google stack are `ADM_TIMEOUT_MS = 15_000` in `ad-manager.ts:14` and the refresh-lock deadline. `getOAuthClient` (`oauth.ts:40-47`) builds a plain `google.auth.OAuth2`; `getToken`, `getGoogleAccountProfile`, `runHistoricalReport`, `querySearchAnalytics`, `runAdSenseReport`, and all discovery calls use googleapis defaults. No `maxDuration` is set on any `apps/web/src/app/api/**` route either.
+- **Impact:** a hung Google endpoint (or a stalled connection) hangs the dashboard request until the platform kills it, and hangs worker sync jobs (BullMQ attempts burn on the platform timeout, not on a controlled error). The single-flight lock in `analytics-handler.ts` is 30 s, but a fetch that outlives it just leaves the next waiter to start a second fetch — the stampede protection degrades under exactly the conditions it exists for.
+- **Correction:** set an explicit timeout on every provider call (googleapis supports `fetch` options / a wrapping `AbortSignal.timeout`; Ad Manager's 15 s pattern is the template) and a `maxDuration` on the analytics routes; classify timeouts as retryable/transient in `classifyAnalyticsError`.
+- **Regression test:** stubbed provider that never resolves; assert the request fails fast with a transient error instead of hanging (fake timers).
+
+### A-GGL-04 — `SCOPE_MISSING` is treated as retryable by the sync engine · P2 · CONFIRMED
+
+- **Evidence:** `packages/google/src/sync.ts:196-213` (`TOKEN_ERRORS = {CONNECTION_REVOKED, TOKEN_REFRESH_FAILED, MISSING_REFRESH_TOKEN, CONNECTION_NOT_FOUND}`) — `SCOPE_MISSING` (thrown by `getAuthorizedClientForIntegration`, `packages/google/src/client.ts:82-84`) is **not** in the set, so it falls through to `throw e` → worker records FAILED and BullMQ retries with exponential backoff. Same in `healthCheckWebsite` (`sync.ts:326-340`): non-`TOKEN_ERRORS` errors are rethrown after recording health. Retrying can never grant a scope; only a user re-connect can.
+- **Impact:** every sync/health-check cycle for a scope-deficient connection burns BullMQ attempts and logs FAILED noise until attempts are exhausted, then the job is dead-lettered — while the actionable state ("re-connect to grant scope") is never surfaced as a stable status.
+- **Correction:** add `SCOPE_MISSING` (and `CONNECTION_REQUIRED`-adjacent permanent states) to the non-retryable set; return `skipped` with detail `SCOPE_MISSING` and record health `status: "needs_reauth"` so the UI can prompt re-connect.
+- **Regression test:** sync with a scope-deficient stubbed connection; assert status `skipped`, zero BullMQ retries scheduled.
+
+### A-GGL-05 — Portfolio AdSense RPM invents `0` when earnings are missing · P2 · CONFIRMED (recomputed from code)
+
+- **Evidence:** `packages/shared/src/portfolio-aggregate.ts:90-91`:
+  ```ts
+  PAGE_RPM: pageViews ? ((earnings ?? 0) / pageViews) * 1000 : null,
+  IMPRESSION_RPM: impressions ? ((earnings ?? 0) / impressions) * 1000 : null,
+  ```
+  vs the neighbouring lines (`:88-89`): `CTR: ratio(clicks, impressions)`, `CPC: ratio(earnings, clicks)`, where `ratio` returns `null` when either operand is `null`.
+- **Recomputation:** site A earnings `null` (provider totals missing), `PAGE_VIEWS = 1500` → `PAGE_RPM = (0/1500)*1000 = 0`. The same payload yields `CTR = null`, `CPC = null` — inconsistent, and `0` is indistinguishable from "this portfolio earned nothing". The file's own contract is "leaves underivable metrics null — never invents numbers" (`portfolio-aggregate.ts:1-6`); the `?? 0` breaks it. The positive-path test (`apps/web/tests/unit/portfolio.test.ts:99`, `PAGE_RPM ≈ (15.75/1500)*1000`) passes, but no test covers the null-earnings case (the all-null test at `:69-70` only covers the GA4 overview branch).
+- **Impact:** portfolio/report pages can display "Page RPM: 0.00" for sites whose earnings are unknown, understating revenue performance and contradicting the `null` shown for CTR/CPC on the same card.
+- **Correction:** `PAGE_RPM: ratio(earnings, pageViews) === null ? null : ratio(earnings, pageViews)! * 1000` (same for impression RPM) — i.e. null propagates. Add a unit test with `ESTIMATED_EARNINGS: null, PAGE_VIEWS: 1500` asserting `PAGE_RPM === null`.
+- **Regression test:** as above, plus the existing positive case must keep passing.
+
+### A-GGL-06 — Disconnect leaves `MAPPED` integrations pointing at a dead connection · P2 · CONFIRMED
+
+- **Evidence:** `revokeConnection` (`packages/google/src/tokens.ts:196-216`) sets `DISCONNECTED` and clears tokens; the `WebsiteIntegration.googleConnectionId` FK is `ON DELETE SET NULL`, but disconnect is an _update_, not a delete — so integrations keep `mappingStatus: "MAPPED"` with a `googleConnectionId` that now points at a DISCONNECTED connection. `getAuthorizedClientForIntegration` (`client.ts:74-105`) then rejects that connection (`status` not in `ACTIVE/EXPIRED/NEEDS_REAUTH` → `CONNECTION_REQUIRED`) **only if `googleConnectionId` is still set** — but if the connection row is later deleted, the FK nulls it and the legacy fallback (A-DB-12) can serve the property under a different connection.
+- **Impact:** after a disconnect, dashboards report `not_connected` (correct) but the mapping still claims `MAPPED`; a later re-connect of a _different_ Google account can silently re-activate the stale mapping under the wrong account (see A-DB-12). No UI state distinguishes "mapped but its connection was disconnected".
+- **Correction:** on disconnect, set affected integrations to `mappingStatus: "UNMAPPED"` (or `DISCONNECTED`-equivalent) in the same operation, and surface them for re-mapping; audit the change.
+- **Regression test:** connect → map → disconnect; assert no integration remains `MAPPED` against the disconnected connection.
+
+### A-GGL-07 — Search Console date ranges are never clamped for the 2–3 day data delay · P2 · CONFIRMED
+
+- **Evidence:** `packages/google/src/search-console.ts:3` declares `GSC_DATA_DELAY_NOTE` ("delayed by approximately 2-3 days and is not real-time"), but `querySearchAnalytics` (`:40-75`) and the handler (`apps/web/src/lib/analytics-handler.ts:95-105`, `resolveRange` in `analytics-response.ts:62-76`) query the requested range verbatim — including today and yesterday. `resolveRange("28d")` ends today.
+- **Impact:** every default 28-day SC view silently covers ~25 days of real data; totals (clicks/impressions) undercount the nominal range, and day-by-day rows end in zeros that look like a traffic collapse. The delay _note_ is returned in the payload, but nothing labels the _range_ as short.
+- **Correction:** clamp SC `endDate` to 3 days ago (or to the latest date the totals query returns data for) and reflect the effective range in the response envelope; do the same in `sync.ts` `last28Days` for the `search-console` kind.
+- **Regression test:** SC query for `28d` asserts the requested `endDate ≤ today − 3d` and the envelope range matches the effective range.
+
+### A-GGL-08 — AdSense date parsing slices strings without validation · P2 · CONFIRMED
+
+- **Evidence:** `packages/google/src/adsense.ts:34-36` (`dateParts`): `Number(d.slice(0,4))` etc., with no regex or range check. `runAdSenseReport` (`:38-72`) passes the parts straight to `adsense.accounts.reports.generate`. Contrast `ad-manager.ts:120-134` (`parseAdManagerDate`), which strictly validates `YYYY-MM-DD` and impossible dates.
+- **Recomputation:** `"2026-1-5"` → `slice(5,7) = "1-"` → `month = NaN`; `"2026-02-30"` → `{2026, 2, 30}` passed to Google; `"not-a-date"` → `{NaN, NaN, NaN}`. The API then fails with a generic provider error (classified `google_api_error`, 502) instead of a clean 400. The handler's `dateRangeSchema` (`packages/shared/src/validation.ts:2-12`) only regex-checks `^\d{4}-\d{2}-\d{2}$`, which admits `2026-02-30` and `2026-13-45`.
+- **Impact:** malformed or impossible custom ranges produce confusing 502s instead of 400 `invalid_input`; inconsistent with Ad Manager, which rejects them properly.
+- **Correction:** reuse `parseAdManagerDate`-style strict validation for AdSense (and for the shared `dateRangeSchema` / `resolveRange` custom branch) — reject non-existent dates and `startDate > endDate` before any provider call.
+- **Regression test:** `runAdSenseReport` with `"2026-02-30"`, `"2026-1-5"`, `"2026-13-01"` → throws a client-side validation error; no provider call is made.
+
+### A-GGL-09 — AdSense report has no row-count / truncation detection · P2 · CONFIRMED
+
+- **Evidence:** `runAdSenseReport` (`adsense.ts:38-72`) returns `{ headers, rows, totals, totalsByMetric }` with no `rowCount`, no `truncated`, and no pagination — a single `reports.generate` call. GA4 flags truncation (`ga4.ts:236-243`, `truncated: rowCount > rows.length`) and Search Console pages with a `truncated` flag (`search-console.ts:52-64`); AdSense does neither. The AdSense API caps report rows (default page sizes apply); a large account's daily rows can silently exceed the returned set while `totalsByMetric` (provider-computed over the full range) disagrees with the sum of the returned rows — with no signal to the caller.
+- **Impact:** charts/tables built from `rows` can silently omit the tail; totals-vs-rows inconsistency is undetectable by the UI.
+- **Correction:** request/observe the report's row count (or page with `pageToken` if the API returns one) and add a `truncated` flag mirroring GA4/SC; if the API cannot report a count, document the cap and the risk.
+- **Regression test:** stubbed AdSense response with more rows than the page returns; assert `truncated: true`.
+
+### A-GGL-10 — Web discover route omits Ad Manager networks and upserts sequentially, with no stale-property pruning · P2 · CONFIRMED
+
+- **Evidence:** `apps/web/src/app/api/google/properties/discover/route.ts:73-113` — only GA4, Search Console, AdSense are attempted (three parallel `attempt()` calls); Ad Manager networks are never listed, even when `GOOGLE_AD_MANAGER_ENABLED=true`. The sync engine's `discoverConnectionProperties` (`packages/google/src/sync.ts:396-412`) _does_ list them. The route then upserts each property with a sequential `await` per row.
+- **Impact:** the Integrations page can never discover/map an Ad Manager network through the UI flow (the only discover path a user clicks); a large account's discovery is N sequential round-trips; properties removed at Google (or unshared) remain in `GoogleProperty`/`SearchConsoleProperty`/`AdSenseAccount` forever and stay mappable (no prune step exists in either discover path).
+- **Correction:** add the Ad Manager attempt to the web route (gated by `adManagerEnabled()`), chunk the upserts 10-at-a-time like the sync engine, and delete discovered-property rows for the connection that no longer appear in the fresh listing (or at least mark them stale).
+- **Regression test:** discover with Ad Manager enabled; assert networks appear; re-discover after removing a property at the stub; assert the stale row is gone.
+
+### A-GGL-11 — Health check aborts on the first provider whose connection is missing · P2 · CONFIRMED
+
+- **Evidence:** `healthCheckWebsite` (`packages/google/src/sync.ts:302-344`): inside the per-provider loop, `if (msg === "CONNECTION_REQUIRED") return { status: "not_connected", … }` — an immediate **return**, not a `continue`. If the GA4 integration's connection is gone but Search Console/AdSense are healthy, the check reports `not_connected` and never records health for the remaining providers.
+- **Impact:** health dashboard shows a single misleading status; healthy providers lose their `lastSuccessAt` updates; a site with one broken provider looks entirely unconnected.
+- **Correction:** record per-provider `not_connected` health and `continue`; return an aggregate status (e.g. `ok` with a per-provider breakdown, or `partial`).
+- **Regression test:** website with GA4 unconnected + SC healthy; assert SC health is recorded `ok` and the result lists both providers' states.
+
+### A-GGL-12 — `cache-refresh` sync aborts on the first provider that throws · P2 · CONFIRMED
+
+- **Evidence:** `syncWebsite` (`packages/google/src/sync.ts:285-298`): the `cache-refresh` branch loops `["ga4-historical", "search-console", "adsense", "ad-manager"]` calling `syncOneProvider` with **no try/catch per provider**. A real API error (quota, 5xx) from GA4 propagates out of `syncWebsite`, so Search Console/AdSense/Ad Manager caches are never warmed that tick — even though their data was fetchable.
+- **Impact:** one provider's outage starves all providers' caches; dashboards for healthy providers go stale/live-fetch (spending quota) instead of being served from warm cache.
+- **Correction:** catch per provider, record health + the error, continue with the rest; return per-provider results and only throw/FAIL if _all_ providers failed (or return a `partial` status).
+- **Regression test:** stub GA4 to throw, SC/AdSense to succeed; assert SC/AdSense caches are written and the result reports GA4 failed + others ok.
+
+### A-GGL-13 — `discoverConnectionProperties` has no per-provider isolation and no stale pruning · P2 · CONFIRMED
+
+- **Evidence:** `packages/google/src/sync.ts:347-414`: GA4 → SC → AdSense → (Ad Manager) run **sequentially with no try/catch** — a throw from `listGa4Properties` (e.g. Analytics Admin API not enabled) aborts the whole discovery, so SC/AdSense properties are never refreshed. This is the opposite of the web discover route, which isolates per provider (`discover/route.ts:55-72`, `attempt()`). Counts are also optimistic: `counts.ga4 += Math.min(CHUNK, …)` counts _attempted_ upserts, and a mid-chunk upsert failure throws away the counts entirely.
+- **Impact:** one disabled API blocks discovery for all providers on the worker path; reported counts can overstate what was stored.
+- **Correction:** wrap each provider block in try/catch (collect per-provider errors like the web route), count only successful upserts, and prune stale rows per connection (see A-GGL-10).
+- **Regression test:** stub GA4 discovery to throw; assert SC/AdSense counts are still returned and stored.
+
+### A-GGL-14 — A corrupt cached access token bricks the connection instead of falling back to refresh · P2 · CONFIRMED
+
+- **Evidence:** `getValidAccessToken` (`packages/google/src/tokens.ts:137-147`): the fast path `if (conn.encryptedAccessToken && tokenExpiresAt > now + 60s) return decryptToken(...)` — if `decryptToken` throws (truncated ciphertext, unknown key id after a rotation where the previous key was dropped, AAD mismatch after an owner change), the error propagates immediately; the refresh path (which would work if the _refresh_ token is intact) is never attempted. The same applies inside the lock's double-check (`:151-158`).
+- **Impact:** a single corrupt access-token ciphertext (bad write, partial migration, key-rotation misstep) makes every fetch fail with `TOKEN_KEY_UNKNOWN`/decrypt errors until the access token _expires_ — up to an hour — even though a valid refresh token exists. The error is also not classified as a token error in the sync engine, so it retries as a generic failure.
+- **Correction:** wrap the fast-path decrypt in try/catch and fall through to the refresh flow on decrypt failure (logging the failure); only throw if _both_ the access-token decrypt and the refresh fail.
+- **Regression test:** connection with corrupt `encryptedAccessToken` + valid refresh token stub; assert `getValidAccessToken` returns a fresh token.
+
+### A-GGL-15 — Analytics handler returns a raw 502 for authorisation failures instead of the classified envelope · P2 · CONFIRMED
+
+- **Evidence:** `apps/web/src/lib/analytics-handler.ts:140-153`: the `getAuthorizedClientForIntegration` call is wrapped in its own try/catch that returns `NextResponse.json({ error: m || "connection_error" }, { status: 502 })` — bypassing `classifyAnalyticsError` (`:40-70`), which _does_ map `SCOPE_MISSING` → `scope_missing` and `TOKEN_REFRESH_LOCK_UNAVAILABLE` → `temporarily_unavailable`. So a scope-deficient connection yields `{ error: "SCOPE_MISSING" }` with HTTP 502, while the same condition surfacing from the fetch path yields `{ error: "scope_missing" }` — two contracts for one state, and the 502 mislabels a user-fixable condition as a server error.
+- **Impact:** the UI cannot reliably prompt re-connect (it keys on `scope_missing`); monitoring counts these as provider 502s.
+- **Correction:** route the authorisation catch through `classifyAnalyticsError` and return the same stable codes/statuses as the fetch catch (e.g. `scope_missing` → 403/422 per the API's convention, `temporarily_unavailable` → 429/503).
+- **Regression test:** handler with a scope-deficient stubbed connection; assert the response error code is `scope_missing`, not the raw `SCOPE_MISSING` string at 502.
+
+### A-GGL-16 — GA4 realtime fails entirely if any one breakdown query fails · P3 · CONFIRMED
+
+- **Evidence:** `runRealtimeReport` (`packages/google/src/ga4.ts:109-132`): `Promise.all([totals, ...7 breakdowns])` with no per-query isolation. One `INVALID_ARGUMENT` (e.g. a dimension Google rejects for this property) or one transient 5xx rejects the whole `Promise.all`, so the dashboard gets no realtime data at all — not even the totals.
+- **Impact:** total loss of the realtime panel for a partial provider failure; contrasts with discovery, which isolates per-account failures (`discovery.ts:55-67`).
+- **Correction:** `Promise.allSettled` per breakdown; return totals + whichever breakdowns succeeded, with a `partial` flag listing failed dimensions.
+- **Regression test:** stub one breakdown dimension to throw; assert totals + other breakdowns are still returned.
+
+### A-GGL-17 — OAuth callback swallows all errors silently; an empty granted-scope list creates an ACTIVE scope-less connection · P3 · CONFIRMED
+
+- **Evidence:** `apps/web/src/app/api/google/oauth/callback/route.ts:108-121`: the whole exchange/profile/upsert block is wrapped in `catch { return redirect(…?oauth=failed) }` — no logging, no error code, no distinction between token-exchange failure, profile failure, and DB failure. Separately, `:91-97`: `scopes: tokens.scope ? tokens.scope.split(" ") : []` — if Google returns no `scope` in the token response, the connection is stored `status: "ACTIVE"` with `scopes: []`. Every later fetch then throws `SCOPE_MISSING` (A-GGL-04/15).
+- **Impact:** callback failures are undebuggable from logs (only the user's `oauth=failed` redirect is visible); scope-less ACTIVE connections look healthy in the UI until the first fetch fails.
+- **Correction:** log the classified error server-side (with `requestId`/connection context, never the token) and return distinct redirect reasons; reject the callback (or mark the connection `NEEDS_REAUTH`) when `tokens.scope` is empty.
+- **Regression test:** token exchange stub returning no `scope`; assert the connection is not stored as `ACTIVE` with empty scopes.
+
+### A-GGL-18 — `getGoogleAccountProfile` falls back to a fake email that can collide two accounts · P3 · CONFIRMED
+
+- **Evidence:** `packages/google/src/oauth.ts:150-157`: `email: me.data.email ?? "unknown@google"`. The callback upserts on the unique key `(organizationId, ownerType, ownerId, googleAccountEmail)` (`callback/route.ts:78-107`). Two different Google accounts whose userinfo responses both lack an email would upsert onto the **same** `unknown@google` row — the second connect silently overwrites the first account's tokens.
+- **Impact:** low probability (the `email` identity scope is always requested, `oauth.ts:15`), but the failure mode is silent cross-account token overwrite.
+- **Correction:** throw (fail the callback with `oauth=profile_failed`) when `me.data.email` is missing instead of inventing an address.
+- **Regression test:** userinfo stub with no email; assert the callback fails and no connection row is created.
+
+### A-GGL-19 — Worker sync rate limit degrades fail-open on Redis errors · P3 · CONFIRMED
+
+- **Evidence:** `packages/google/src/sync.ts:250-252`: `deps.rateLimit(`google:${connectionId}`, 30, 60_000)` is called **without** `{ failClosed: true }`. `packages/shared/src/rate-limit.ts:78-93`: on Redis error without `failClosed`, it logs and falls back to the **per-process** in-memory limiter. On a multi-instance worker fleet the 30/min/connection quota guard multiplies per instance — the exact failure the fail-closed policy (F-3.1) was written to prevent on sensitive endpoints.
+- **Impact:** during a Redis outage, Google quota (which is per-project, not per-instance) can be exceeded N× faster, turning a Redis blip into a Google-side quota ban.
+- **Correction:** pass `{ failClosed: true }` for the sync rate limit (throwing `SyncRateLimitError` is already the handled path), or treat Redis-error as "skip this tick" rather than "proceed unthrottled".
+- **Regression test:** Redis-error stub; assert the sync is delayed/skipped, not executed unthrottled.
+
+### A-GGL-20 — Over-scoped connect + Ad Manager network pagination silently drops repeats · P3 · CONFIRMED
+
+- **Evidence:** (a) `buildAuthUrl` (`packages/google/src/oauth.ts:159-175`) always requests `ALL_SCOPES` (openid, email, GA4, Search Console, AdSense) plus Ad Manager when enabled — even for a user connecting a single provider. Only Ad Manager was made incremental (F-2.1b, `connect/route.ts:44-47`); the other three are all-or-nothing. (b) `listAdManagerNetworks` (`ad-manager.ts:64-81`): `if (!next || seen.has(next)) break;` — a repeated page token breaks the loop with **no `truncated` flag**, unlike `discovery.ts` `paginate`, which returns `truncated: true` on a loop.
+- **Impact:** (a) users grant AdSense readonly access when they only wanted GA4 — unnecessary data-access surface and a wider blast radius if a refresh token leaks. (b) A looping page token silently truncates the network list.
+- **Correction:** request only the scopes for the provider(s) being connected (incremental auth per provider, as already done for Ad Manager); return `truncated` from `listAdManagerNetworks` on loop/cap.
+- **Regression test:** connect URL for a GA4-only intent contains no `adsense.readonly` scope; stubbed looping page token yields `truncated: true`.
+
+### A-GGL-21 — Refresh-lock unit test is timing-flaky (60 ms deadline vs 5 ms poll) · P3 · CONFIRMED (observed in sandbox)
+
+- **Evidence:** `apps/web/tests/unit/refresh-lock.test.ts:40-54` (`acquires after the holder releases mid-wait`): `opts = { ttlMs: 1000, deadlineMs: 60, pollMs: 5 }`, fake Redis returns `"OK"` on the 3rd `set` call. In the 12-file parallel vitest run (2026-11-23, sandbox, 1.5 shared CPUs) this test failed once — `expected 'timeout' to be 'acquired'` — because the 3rd poll landed after the 60 ms `Date.now()` deadline under load. Re-run in isolation: **4/4 passed**. The production code (`acquireRefreshLock`, `tokens.ts:39-59`) is a straightforward `while (Date.now() < deadline)` poll loop; the failure is in the test's margins, not the lock. Note the production defaults (`deadlineMs: 15_000`, `pollMs: 250`) have far more headroom.
+- **Impact:** flaky CI signal for the refresh-lock suite; a red run here does not indicate a production regression, but it erodes trust in the suite that guards A-GGL-02's mechanism.
+- **Correction:** raise the test deadline (e.g. 500 ms) or drive the fake clock instead of wall-clock time.
+- **Regression test:** the test itself, run under parallel load, passes reliably.
+
+### A-GGL-22 — Custom date ranges accept impossible dates · P3 · CONFIRMED
+
+- **Evidence:** `dateRangeSchema` (`packages/shared/src/validation.ts:2-12`) regex-checks `^\d{4}-\d{2}-\d{2}$` only — `2026-02-30` and `2026-13-45` pass. `resolveRange` (`apps/web/src/lib/analytics-response.ts:62-76`) returns custom ranges verbatim with no `start ≤ end` check. Only Ad Manager validates strictly (A-GGL-08).
+- **Impact:** impossible ranges reach GA4/SC/AdSense and fail as provider `INVALID_ARGUMENT` (502 `invalid_request`) instead of a clean 400.
+- **Correction:** shared strict date validation (as in A-GGL-08) applied once in `resolveRange`/the schema.
+- **Regression test:** `analyticsQuerySchema` with `startDate: "2026-02-30"` or `startDate > endDate` → validation failure, no provider call.
+
+## 3. Aggregation math — recomputed from code (not comments)
+
+| Computation                   | Code                                                                                                                                                                                                           | Recomputed                                                                                                                                                                                                                     | Verdict           |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
+| GA4 realtime totals           | `ga4.ts:35-44` — first row of a **dimension-less** query                                                                                                                                                       | Correct: summing multi-dimension rows would double-count users (DATA-1). Breakdowns are separate single-dimension queries.                                                                                                     | PASS              |
+| GA4 historical summary        | `ga4.ts:140-152` — provider `TOTAL` aggregation row; missing row → `null` per metric, never 0                                                                                                                  | Correct; `parseHistoricalSummary` maps absent values to `null`.                                                                                                                                                                | PASS              |
+| GA4 sampling                  | `ga4.ts:170-196` — `sampled = samplesRead < samplingSpaceSize`                                                                                                                                                 | Correct; surfaced, not hidden.                                                                                                                                                                                                 | PASS              |
+| GA4 truncation                | `ga4.ts:236-243` — `truncated: rowCount > rows.length`                                                                                                                                                         | Correct; totals unaffected (TOTAL aggregation).                                                                                                                                                                                | PASS              |
+| SC totals                     | `search-console.ts:21-34` — `avgCtr = clicks/impressions`; `avgPosition = Σ(position×impressions)/Σimpressions`, `null` when no impressions                                                                    | Correct impression-weighted position (DATA-2). Provider totals query used when present (`:58-68`); fallback recomputes from rows.                                                                                              | PASS              |
+| SC detail pagination          | `search-console.ts:46-64` — `startRow` pages, cap 5 × `rowLimit` (default 1000), `truncated` on cap                                                                                                            | Correct; breaks when a short page arrives. Edge: exactly 5000 rows → `truncated: true` (correct — a 6th page may exist).                                                                                                       | PASS              |
+| AdSense rows/totals           | `adsense.ts:6-33` — positional cells keyed by header names                                                                                                                                                     | Correct mapping (DATA-9); empty string stays a string, numeric strings coerced.                                                                                                                                                | PASS              |
+| AdSense portfolio RPM/CTR/CPC | `portfolio-aggregate.ts:80-94` — `CTR = clicks/impressions`, `CPC = earnings/clicks`, `RPM = earnings/views × 1000`                                                                                            | **FAIL on RPM only (A-GGL-05):** `?? 0` invents 0 RPM when earnings are null; CTR/CPC correctly yield null.                                                                                                                    | FAIL (one branch) |
+| Ad Manager CTR                | `ad-manager.ts:100-110` — totals summed per metric, then `CTR = clicks/impressions` (0 when no impressions)                                                                                                    | Correct recompute (summing per-row CTRs would be meaningless) — but unreachable while A-GGL-01 stands.                                                                                                                         | PASS (inert)      |
+| GA4 portfolio                 | `portfolio-aggregate.ts:28-51` — additive metrics summed; `engagementRate = engaged/sessions`; `bounceRate = 1 − engagementRate`; `sessionConversionRate = keyEvents/sessions`; `averageEngagementTime = null` | Correct; GA4 defines bounce rate as 1 − engagement rate. `totalUsers` correctly **excluded** from the additive list (cannot dedupe across properties). Note in the payload is honest about double-counted users.               | PASS              |
+| SC portfolio                  | `portfolio-aggregate.ts:54-72` — clicks/impressions summed; `avgCtr` recomputed; `avgPosition` impression-weighted across properties                                                                           | Correct in practice: a site contributes to the weighted sum only when `avgPosition` is non-null, and `avgPosition` is null only when that site has 0 impressions (per `computeGscTotals`), so the denominator is not inflated. | PASS              |
+| Insights blended RPM          | `apps/web/src/lib/insights.ts:116` — `ads.totals?.PAGE_RPM`                                                                                                                                                    | Inherits A-GGL-05: a null-earnings portfolio shows blended RPM 0.00 instead of null.                                                                                                                                           | FAIL (inherited)  |
+
+## 4. OAuth lifecycle — traced end to end
+
+| Step                | Evidence                                                                                                                                                                                                                                                        | Verdict                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Scopes requested    | `oauth.ts:7-18` — GA4/SC/AdSense always; Ad Manager only when enabled (`connect/route.ts:44-47`)                                                                                                                                                                | PASS except over-scoping (A-GGL-20)                             |
+| PKCE                | `oauth.ts:52-59` — S256, 32-byte verifier, stored server-side in `OAuthState.codeVerifier`                                                                                                                                                                      | PASS                                                            |
+| State               | `oauth.ts:62-96` — HMAC-signed nonce (`hmacState`/`verifyHmacState`, constant-time, `SESSION_SECRET` ≥ 32 chars enforced in `crypto.ts`), SHA-256 `nonceHash` stored, 10-min TTL                                                                                | PASS                                                            |
+| Single-use consume  | `oauth.ts:122-138` — atomic `updateMany({ nonceHash, consumedAt: null, expiresAt: { gt: now } })`, `count === 1` wins                                                                                                                                           | PASS (one callback wins; replay gets null)                      |
+| Session binding     | `callback/route.ts:33-39` — callback must arrive in the starter's session; org re-checked (`:50-53`); owner access re-validated (`:57-59`)                                                                                                                      | PASS                                                            |
+| Token exchange      | `callback/route.ts:40-47` — `getToken({ code, codeVerifier })`; missing refresh token → `oauth=no_refresh_token` (no unusable connection stored)                                                                                                                | PASS except no timeout (A-GGL-03) and silent catch (A-GGL-17)   |
+| Token storage       | `callback/route.ts:78-107` — AES-256-GCM envelope `v1:<keyId>:<base64(iv\|tag\|data)>`, AAD bound to `(org, ownerType, ownerId, email)` (`crypto.ts:29-56`); key rotation via `GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS` + lazy re-encryption (`tokens.ts:173-178`) | PASS                                                            |
+| Refresh + rotation  | `tokens.ts:131-195` — 60 s expiry skew, double-check under lock, rotated refresh token persisted, `invalid_grant` → `REVOKED` + audit, transient errors leave status untouched                                                                                  | PASS except A-GGL-02 (no-Redis) and A-GGL-14 (decrypt fallback) |
+| Refresh lock        | `tokens.ts:39-120` — Redis `SET NX PX 30s`, 15 s deadline, 250 ms poll, token-checked release via Lua, fencing check before refresh-token write                                                                                                                 | PASS (mechanism sound; test flaky, A-GGL-21)                    |
+| Revoke / disconnect | `tokens.ts:196-216` — best-effort `revokeToken`, then clears tokens, `DISCONNECTED`, empty-string refresh sentinel (never a fake ciphertext)                                                                                                                    | PASS except A-GGL-06 (stale MAPPED integrations)                |
+| Scope checks        | `client.ts:82-84` (`SCOPE_MISSING` fail-fast per provider), `oauth.ts:22-36` (`missingScopesForProvider` / `providersMissingScopes`)                                                                                                                            | PASS as a check; mishandled downstream (A-GGL-04, A-GGL-15)     |
+| Rate limits (OAuth) | `connect/route.ts:15-18` (10/min/user, fail-closed), `callback/route.ts:19-23` (20/min/IP, fail-closed)                                                                                                                                                         | PASS                                                            |
+
+## 5. Discovery, sync, error classification
+
+- **Discovery pagination:** GA4 accounts/properties and AdSense accounts use `paginate` (`discovery.ts:13-31`, cap 10 pages, loop guard, `truncated` flag) — PASS. SC `sites.list` has no pagination by API design — PASS. Ad Manager networks paginate with a cap + loop guard but no `truncated` signal — A-GGL-20.
+- **Discovery isolation:** web route isolates per-provider failures (`discover/route.ts:55-72`) — PASS. Worker discovery does not — A-GGL-13.
+- **Sync error contract** (`sync.ts:9-22`): expected states return, real API errors throw, rate limits throw `SyncRateLimitError` — the contract is implemented, but `SCOPE_MISSING` escapes it (A-GGL-04) and fetch-time quota errors are generic throws rather than `SyncRateLimitError` (only the pre-check uses the rate limiter; a 429 mid-fetch is a plain FAILED + backoff, not a BullMQ delay).
+- **Error classification** (`analytics-handler.ts:40-70` `classifyAnalyticsError`): covers `api_not_enabled`, `scope_missing`, `temporarily_unavailable`, `google_quota_exceeded` (incl. gRPC code 8), `permission_denied` (7), `unauthorized` (16), `invalid_request` (3). Sound for REST shapes; the gap is that it is bypassed on the authorisation path (A-GGL-15). The discover route's classifier (`discover/route.ts:20-38`) duplicates a subset (no quota branch — a quota failure during discovery is reported as generic `provider_error`).
+- **Timeouts/retries/backoff:** only Ad Manager has them (15 s timeout, 3 attempts, exp backoff + jitter, `ad-manager.ts:14-62`) — PASS for that module. googleapis paths have **no** timeout, retry, or backoff of their own (A-GGL-03); retries come only from BullMQ at the job level. The worker's per-connection rate limit (30/min, `sync.ts:250-252`) is the only quota guard, and it is fail-open (A-GGL-19).
+- **Single-flight fetch lock** (`analytics-handler.ts:196-236`): Redis `SET NX PX 30s`, 5 s waiter poll (10 × 500 ms), token-checked release — PASS as a mechanism; degraded when the provider hangs (A-GGL-03).
+- **Empty responses:** GA4 missing totals → `null` (not 0); SC missing totals → recompute from rows (possibly empty → zeros with `avgPosition: null`); AdSense empty rows → empty totals object; Ad Manager unrecognised shape → `parsed: false` with an explicit note — all honest, PASS.
+- **Stale-while-revalidate:** handler serves stale Redis/snapshot on provider error, labelled `stale` (`analytics-handler.ts:253-283`) — PASS; snapshot fallback is labelled `snapshot`, never `live` — PASS.
+- **Date ranges:** `resolveRange` (`analytics-response.ts:62-76`) — `today/yesterday/7d/28d/90d/12m(=365d)`; `last28Days` in sync matches the web 28d window (`sync.ts:151-157`) — PASS except SC delay (A-GGL-07) and impossible-date validation (A-GGL-22).
+
+## 6. Connection resolution correctness (DATA-5)
+
+- `resolveConnectionForWebsite` (`client.ts:12-52`): website connection first, then team, never merging credentials; org-scoped lookups — PASS.
+- `getAuthorizedClientForIntegration` (`client.ts:74-105`): uses the mapping's own connection + scope check — PASS when `googleConnectionId` is set; falls back to website→team resolution when NULL — the A-DB-12 finding (cross-connection fallback).
+- `getPrimaryIntegration` (`client.ts:107-114`): `MAPPED` only, `isPrimary DESC, updatedAt DESC` — PASS (single-primary index is the backstop; race is A-DB-03).
+
+## 7. Tests run (sandbox, 2026-11-23)
+
+Same run as the Phase 3 doc: `vitest run` in `apps/web`, 12 files, **77 passed / 1 failed out of 78**. Google-relevant files:
+
+| File                              | Result                                    | What it actually asserts                                                                                                                                                                               |
+| --------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ga4-parse.test.ts` (7 tests)     | PASS                                      | Dimension-less totals, breakdown parsing, TOTAL-aggregation summary, sampling metadata                                                                                                                 |
+| `search-console-parse.test.ts`    | PASS                                      | Impression-weighted position, CTR recompute, totals fallback                                                                                                                                           |
+| `adsense-parse.test.ts` (3 tests) | PASS                                      | Header-keyed row/totals parsing                                                                                                                                                                        |
+| `ad-manager-parse.test.ts`        | PASS                                      | `parseAdManagerReport` shape handling + CTR recompute **on synthetic fixtures** — asserts the parser, not the live API shape (the fixture shape is the one the real API does not return; see A-GGL-01) |
+| `discovery-pagination.test.ts`    | PASS                                      | `paginate` cap + loop guard + `truncated`                                                                                                                                                              |
+| `oauth-state.test.ts`             | PASS                                      | State sign/verify, single-use consume semantics                                                                                                                                                        |
+| `oauth-scopes.test.ts`            | PASS                                      | `missingScopesForProvider` / `providersMissingScopes`                                                                                                                                                  |
+| `refresh-lock.test.ts`            | 3/4 in parallel run, **4/4 in isolation** | Lock outcomes; the one failure is the flaky-timing test A-GGL-21                                                                                                                                       |
+| `sync-engine.test.ts`             | PASS                                      | Sync engine with mocked Google clients (error contract, rate-limit error type)                                                                                                                         |
+| `portfolio.test.ts`               | PASS                                      | Aggregation incl. all-null stays null — but **no null-earnings AdSense case** (A-GGL-05)                                                                                                               |
+
+No test in the repo exercises a live Google account; all provider tests use fixtures/mocks. The 2026-11-21 live Search Console verification is history, not a test — no artefact of it exists in the repo that this audit could re-check.
+
+## 8. Limits and NOT RUN items
+
+1. **No live Google account, no network calls to Google in the sandbox** — every provider behaviour (token exchange, discovery, report shapes, quota/429 handling, SC delay, Ad Manager) is UNVERIFIED live. A-GGL-01 is established by code-vs-vendor-docs, not by a live call.
+2. **No Redis/Postgres** — refresh-lock contention, single-flight behaviour, and token rotation under concurrency are NOT RUN against real infrastructure (unit tests use fakes).
+3. **HEAD not re-verified** — no `.git` in the sandbox copy.
+4. **Out of scope:** the better-auth Google sign-in flow (separate from the connect flow audited here), mailer/report rendering, and the worker's BullMQ configuration beyond the sync error contract.
+
+## 9. Verdict table
+
+| Category                                                 | Verdict                                        | Basis                                                                                |
+| -------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------ |
+| OAuth lifecycle (PKCE, state, session binding, rotation) | **PASS**                                       | §4; gaps are A-GGL-02, A-GGL-14, A-GGL-17/18 (edge cases)                            |
+| Token refresh lock                                       | **PASS** (mechanism) / **FAIL** (deployment)   | Lock + fencing sound; unlocked when no Redis (A-GGL-02)                              |
+| Token envelope / encryption                              | **PASS**                                       | AES-256-GCM + AAD + rotation                                                         |
+| Revoke / disconnect                                      | **FAIL**                                       | A-GGL-06 (stale MAPPED integrations)                                                 |
+| Discovery pagination                                     | **PASS**                                       | Caps + loop guards + `truncated`, except A-GGL-10/20                                 |
+| Discovery completeness                                   | **FAIL**                                       | A-GGL-10 (no Ad Manager in web route), A-GGL-13 (no isolation/stale prune in worker) |
+| GA4 math (totals, sampling, truncation)                  | **PASS**                                       | §3 recomputation                                                                     |
+| Search Console math                                      | **PASS**                                       | §3; range handling FAIL (A-GGL-07)                                                   |
+| AdSense math (provider)                                  | **PASS**                                       | §3                                                                                   |
+| AdSense portfolio math                                   | **FAIL**                                       | A-GGL-05 (RPM `?? 0`)                                                                |
+| Ad Manager reporting                                     | **FAIL**                                       | A-GGL-01 (wrong endpoint shape — non-functional)                                     |
+| Error classification                                     | **PASS** (classifier) / **FAIL** (application) | A-GGL-04 (retryable scope errors), A-GGL-15 (raw 502)                                |
+| Timeouts / retries / backoff                             | **FAIL**                                       | A-GGL-03 (no timeouts outside Ad Manager)                                            |
+| Quota handling                                           | **FAIL**                                       | A-GGL-19 (fail-open rate limit); fetch-time 429 not converted to delayed retry       |
+| Sync engine (per-provider isolation)                     | **FAIL**                                       | A-GGL-11 (health early-return), A-GGL-12 (cache-refresh abort)                       |
+| Empty-response handling                                  | **PASS**                                       | Nulls, not invented zeros                                                            |
+| Live verification (GA4 / AdSense / Ad Manager)           | **NOT RUN**                                    | No live account; SC live status rests on 2026-11-21 history only                     |
+
+**Counts: P0 0 · P1 3 (A-GGL-01–03) · P2 12 (A-GGL-04–15) · P3 7 (A-GGL-16–22).**

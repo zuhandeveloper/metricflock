@@ -23,6 +23,18 @@ test("create a website from the Websites page", async ({ page }) => {
   await expect(page.getByText(`e2e-${stamp}.example.com`)).toBeVisible();
 });
 
+// A-FE-01: double-clicking "Add website" must create exactly one website —
+// the submit button is disabled while the request is in flight.
+test("double-clicking Add website creates exactly one website", async ({ page }) => {
+  await page.goto("/websites");
+  const domain = `e2e-dbl-${stamp}.example.com`;
+  await page.getByLabel("Website name", { exact: true }).fill(`E2E Double ${stamp}`);
+  await page.getByLabel("Domain", { exact: true }).fill(domain);
+  await page.getByRole("button", { name: /add website|create website/i }).dblclick();
+  await expect(page.getByText(domain)).toBeVisible();
+  await expect(page.getByRole("row", { name: domain })).toHaveCount(1);
+});
+
 test("create and revoke an API key", async ({ page }) => {
   await page.goto("/settings/api-keys");
   await page.getByLabel(/key name/i).fill(`E2E key ${stamp}`);

@@ -4,7 +4,18 @@
 import { prisma } from "../src/client";
 
 async function main() {
-  const website = await prisma.website.findFirst({ select: { id: true } });
+  // Pin the fixture to the demo (main) org: the smoke test's A-SEC-01
+  // IDOR checks assert the attacker org must NOT see this job, which
+  // is only deterministic when the job belongs to the demo org.
+  const demo = await prisma.user.findUnique({
+    where: { email: "demo@example.com" },
+    select: { organizationId: true },
+  });
+  if (!demo) throw new Error("demo admin not found for failed-job fixture");
+  const website = await prisma.website.findFirst({
+    where: { organizationId: demo.organizationId },
+    select: { id: true },
+  });
   if (!website) throw new Error("no website found for failed-job fixture");
   const row = await prisma.analyticsSyncJob.create({
     data: {

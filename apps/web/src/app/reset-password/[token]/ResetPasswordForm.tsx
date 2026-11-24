@@ -15,6 +15,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
       setError("Password must be at least 12 characters.");
       return;
     }
+    if (busy) return;
     setBusy(true);
     const res = await fetch("/api/auth/reset-password", {
       method: "POST",
@@ -60,7 +61,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
               {error}
             </p>
           )}
-          <Button type="submit" className="w-full justify-center">
+          <Button type="submit" className="w-full justify-center" disabled={busy}>
             {busy ? "Resetting…" : "Reset password"}
           </Button>
         </form>

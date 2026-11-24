@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors, apiError } from "@/lib/api-error";
-import { requireApiAuth } from "@metricflock/auth";
+import { requireApiAuth, requireFreshSession } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
 
@@ -9,6 +9,9 @@ import { writeAudit } from "@metricflock/db/audit";
 async function del(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("organization.manage");
   if ("error" in auth) return auth.error;
+  // A-SEC-02: revoking a persistent org credential requires a fresh session.
+  const fresh = await requireFreshSession();
+  if ("error" in fresh) return fresh.error;
   const { id } = await ctx.params;
   const key = await prisma.apiKey.findFirst({
     where: { id, organizationId: auth.user.organizationId },

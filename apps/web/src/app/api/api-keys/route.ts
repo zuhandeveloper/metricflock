@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors, apiError } from "@/lib/api-error";
-import { requireApiAuth } from "@metricflock/auth";
+import { requireApiAuth, requireFreshSession } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
 import { generateApiKey, apiKeyDisplayPrefix, hashToken } from "@metricflock/shared";
@@ -23,6 +23,10 @@ async function get() {
 async function post(req: NextRequest) {
   const auth = await requireApiAuth("organization.manage");
   if ("error" in auth) return auth.error;
+  // A-SEC-02: minting a persistent org-wide credential requires a
+  // fresh session — a stale session must re-authenticate first.
+  const fresh = await requireFreshSession();
+  if ("error" in fresh) return fresh.error;
   const body = (await req.json().catch(() => ({}))) as { name?: unknown };
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name || name.length > 80) return apiError("invalid_name", 400, { message: "name is required (max 80 chars)." });

@@ -55,6 +55,7 @@ export function EditWebsiteForm({
   const [saved, setSaved] = useState(false);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     setSaved(false);
@@ -116,7 +117,7 @@ export function EditWebsiteForm({
           ))}
         </select>
       </div>
-      <Button type="submit" variant="outline">
+      <Button type="submit" variant="outline" disabled={busy}>
         {busy ? "Saving…" : "Save changes"}
       </Button>
       {saved && <span className="text-xs text-emerald-700">Saved.</span>}
@@ -130,6 +131,7 @@ export function DeleteWebsiteButton({ websiteId, domain }: { websiteId: string; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function act() {
+    if (busy) return;
     if (
       !window.confirm(
         `Delete website ${domain}? Its integrations, assignments, transfers and sync history will be removed.`,
@@ -150,7 +152,7 @@ export function DeleteWebsiteButton({ websiteId, domain }: { websiteId: string; 
   }
   return (
     <span className="inline-flex items-center gap-2">
-      <Button type="button" variant="outline" onClick={() => void act()}>
+      <Button type="button" variant="outline" disabled={busy} onClick={() => void act()}>
         {busy ? "Deleting…" : "Delete website"}
       </Button>
       <ErrorText error={error} />
@@ -174,6 +176,7 @@ export function AssignForm({
   const assignedIds = new Set(assignments.map((a) => a.userId));
   const candidates = orgUsers.filter((u) => !assignedIds.has(u.id));
   async function run(key: string, body: unknown) {
+    if (busy) return;
     setBusy(key);
     setError("");
     const err = await sendJson(`/api/websites/${websiteId}/assign`, "POST", body);
@@ -193,6 +196,7 @@ export function AssignForm({
               <Button
                 type="button"
                 variant="ghost"
+                disabled={busy !== ""}
                 onClick={() => void run(a.userId, { userId: a.userId, action: "remove" })}
               >
                 {busy === a.userId ? "Removing…" : "Remove"}
@@ -228,7 +232,7 @@ export function AssignForm({
               ))}
             </select>
           </div>
-          <Button type="submit" variant="outline">
+          <Button type="submit" variant="outline" disabled={busy !== ""}>
             {busy === "assign" ? "Assigning…" : "Assign"}
           </Button>
         </form>
@@ -259,6 +263,7 @@ export function TransferForm({
   }
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     const err = await sendJson(`/api/websites/${websiteId}/transfer`, "POST", {
@@ -296,7 +301,7 @@ export function TransferForm({
         </label>
         <Input id="transfer-reason" value={reason} onChange={(e) => setReason(e.target.value)} />
       </div>
-      <Button type="submit" variant="outline">
+      <Button type="submit" variant="outline" disabled={busy}>
         {busy ? "Starting…" : "Start transfer"}
       </Button>
       {done && <span className="text-xs text-emerald-700">Transfer started — destination team must accept.</span>}
@@ -320,6 +325,7 @@ export function SyncNowForm({ websiteId }: { websiteId: string }) {
   const [done, setDone] = useState(false);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     setDone(false);
@@ -347,7 +353,7 @@ export function SyncNowForm({ websiteId }: { websiteId: string }) {
           ))}
         </select>
       </div>
-      <Button type="submit" variant="outline">
+      <Button type="submit" variant="outline" disabled={busy}>
         {busy ? "Queueing…" : "Sync now"}
       </Button>
       {done && <span className="text-xs text-emerald-700">Queued.</span>}

@@ -50,6 +50,10 @@ export function classifyAnalyticsError(e: unknown): string {
   if (/SERVICE_DISABLED|has not been used|is disabled|not been enabled/i.test(full)) return "api_not_enabled";
   if (/SCOPE_MISSING/.test(msg)) return "scope_missing";
   if (/TOKEN_REFRESH_LOCK_UNAVAILABLE/.test(msg)) return "temporarily_unavailable";
+  // A-GGL-03: timeouts (googleapis race in timeout.ts, Ad Manager poll
+  // timeout, or an aborted fetch) are transient, never a client error.
+  if (/GOOGLE_API_TIMEOUT|TIMEOUT/i.test(msg) || (e as { name?: string } | null)?.name === "AbortError")
+    return "temporarily_unavailable";
   if (/quota|rateLimitExceeded|RESOURCE_EXHAUSTED/i.test(full) || anyE?.code === 8) return "google_quota_exceeded";
   if (
     data?.status === "PERMISSION_DENIED" ||
