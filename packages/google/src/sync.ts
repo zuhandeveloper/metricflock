@@ -172,6 +172,21 @@ const TOKEN_ERRORS = new Set([
   "CONNECTION_NOT_FOUND",
 ]);
 
+/** Permanent auth failures that only a user re-connect can fix (A-GGL-04):
+ *  SCOPE_MISSING means the connection was granted without this provider's
+ *  scope — no amount of retrying can grant a scope, so the sync engine
+ *  must not burn BullMQ attempts on it. Recorded as health
+ *  "needs_reauth" so the UI can prompt re-connect. */
+const NEEDS_REAUTH_ERRORS = new Set(["SCOPE_MISSING"]);
+
+/** Health status for a permanent auth error, or null when the error is
+ *  retryable (real API errors throw and BullMQ retries them). */
+function authErrorHealthStatus(msg: string): "error" | "needs_reauth" | null {
+  if (NEEDS_REAUTH_ERRORS.has(msg)) return "needs_reauth";
+  if (TOKEN_ERRORS.has(msg)) return "error";
+  return null;
+}
+
 async function fetchReport(
   deps: SyncDeps,
   kind: string,
@@ -228,11 +243,12 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
         reports: [],
         detail: "No active Google connection for this website or its team.",
       };
-    if (TOKEN_ERRORS.has(msg)) {
+    const authStatus = authErrorHealthStatus(msg);
+    if (authStatus) {
       await deps.recordHealth({
         websiteId,
         provider: spec.provider,
-        status: "error",
+        status: authStatus,
         lastError: sanitizeProviderError(e),
       });
       return { status: "skipped", reports: [], detail: msg };
@@ -332,8 +348,14 @@ export async function healthCheckWebsite(websiteId: string, deps: SyncDeps = def
           reports: [],
           detail: "No active Google connection for this website or its team.",
         };
-      await deps.recordHealth({ websiteId, provider, status: "error", lastError: sanitizeProviderError(e) });
-      if (TOKEN_ERRORS.has(msg)) return { status: "skipped", reports: checked, detail: msg };
+      const authStatus = authErrorHealthStatus(msg);
+      await deps.recordHealth({
+        websiteId,
+        provider,
+        status: authStatus ?? "error",
+        lastError: sanitizeProviderError(e),
+      });
+      if (authStatus) return { status: "skipped", reports: checked, detail: msg };
       throw e;
     }
   }
@@ -350,7 +372,7 @@ export async function refreshConnection(connectionId: string, deps: SyncDeps = d
     return { status: "ok", reports: [] };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (TOKEN_ERRORS.has(msg)) return { status: "skipped", reports: [], detail: msg };
+    if (authErrorHealthStatus(msg)) return { status: "skipped", reports: [], detail: msg };
     throw e;
   }
 }

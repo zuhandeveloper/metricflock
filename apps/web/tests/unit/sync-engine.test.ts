@@ -180,6 +180,46 @@ describe("sync engine (mocked Google clients)", () => {
     ]);
   });
 
+  it("SCOPE_MISSING returns skipped with needs_reauth health (A-GGL-04, no retry burn)", async () => {
+    const { deps, health, cacheWrites } = fakeDeps({
+      getAuthorizedClientForIntegration: vi.fn(async () => {
+        throw new Error("SCOPE_MISSING");
+      }),
+    });
+    const r = await syncWebsite("site-1", "ga4-historical", deps);
+    expect(r).toEqual({ status: "skipped", reports: [], detail: "SCOPE_MISSING" });
+    expect(cacheWrites).toEqual([]);
+    expect(deps.ga4.runHistoricalReport).not.toHaveBeenCalled();
+    expect(health).toEqual([
+      expect.objectContaining({ provider: "GA4", status: "needs_reauth", lastError: "SCOPE_MISSING" }),
+    ]);
+  });
+
+  it("health check returns skipped with needs_reauth health on SCOPE_MISSING (A-GGL-04)", async () => {
+    const { deps, health } = fakeDeps({
+      getAuthorizedClientForIntegration: vi.fn(async () => {
+        throw new Error("SCOPE_MISSING");
+      }),
+    });
+    const r = await syncWebsite("site-1", "health-check", deps);
+    expect(r.status).toBe("skipped");
+    expect(r.detail).toBe("SCOPE_MISSING");
+    expect(health).toEqual([
+      expect.objectContaining({ provider: "GA4", status: "needs_reauth", lastError: "SCOPE_MISSING" }),
+    ]);
+  });
+
+  it("refreshConnection: skipped on SCOPE_MISSING (A-GGL-04)", async () => {
+    const bad = fakeDeps({
+      tokens: {
+        getValidAccessToken: vi.fn(async () => {
+          throw new Error("SCOPE_MISSING");
+        }),
+      },
+    });
+    expect((await refreshConnection("conn-1", bad.deps)).status).toBe("skipped");
+  });
+
   it("cache-refresh warms every mapped provider", async () => {
     const { deps, cacheWrites } = fakeDeps();
     const r = await syncWebsite("site-1", "cache-refresh", deps);
