@@ -82,6 +82,12 @@ echo "smoke: migrate (deploy) + seed"
 # service per CI run), so generate a throwaway password when the caller
 # did not set one. Never hardcode a password here.
 export SEED_DEMO_ADMIN_PASSWORD="${SEED_DEMO_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
+# Later CI steps (e2e) sign in as the same demo admin, so hand the
+# generated password to them via GITHUB_ENV (same job) and mask it in logs.
+if [ -n "${GITHUB_ENV:-}" ]; then
+  echo "::add-mask::$SEED_DEMO_ADMIN_PASSWORD"
+  echo "SEED_DEMO_ADMIN_PASSWORD=$SEED_DEMO_ADMIN_PASSWORD" >> "$GITHUB_ENV"
+fi
 # The seeded demo admin's password IS the generated one — the old default
 # no longer exists, so sign in with it (CI #210 failed here with 401).
 ADMIN_PASSWORD="$SEED_DEMO_ADMIN_PASSWORD"
