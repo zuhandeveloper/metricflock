@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
@@ -21,8 +21,8 @@ function toSection(r: PortfolioResult): ReportSection {
   };
 }
 
-async function post() {
-  const auth = await requireApiAuth("organization.manage");
+async function post(req: NextRequest) {
+  const auth = await requireApiAuth("organization.manage", { req, rateLimit: "strict" });
   if ("error" in auth) return auth.error;
   const org = await prisma.organization.findUnique({
     where: { id: auth.user.organizationId },

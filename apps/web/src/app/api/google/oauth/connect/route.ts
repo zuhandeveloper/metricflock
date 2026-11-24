@@ -6,7 +6,7 @@ import { rateLimit } from "@metricflock/shared";
 import { z } from "zod";
 const q = z.object({ ownerType: z.enum(["TEAM", "WEBSITE"]), ownerId: z.string().min(1) });
 export async function GET(req: NextRequest) {
-  const auth = await requireApiAuth("google.connection.manage");
+  const auth = await requireApiAuth("google.connection.manage", { req });
   if ("error" in auth) return auth.error;
   // Bound connect attempts per user (OAUTH-12, Redis-backed since Stage 5),
   // fail-closed when Redis is configured but down (F-3.1).

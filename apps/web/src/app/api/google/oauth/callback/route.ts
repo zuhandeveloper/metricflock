@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
     await writeAudit({
       organizationId: user.organizationId,
       actorId: user.id,
-      ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+      ipAddress: clientIpFromHeaders(req.headers),
       action: "google.connection.created",
       entityType: "GoogleConnection",
       details: { ownerType: flow.ownerType, ownerId: flow.ownerId, googleAccountEmail: email },

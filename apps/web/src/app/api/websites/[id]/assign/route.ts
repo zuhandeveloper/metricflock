@@ -4,12 +4,12 @@ import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertWebsiteManageAccess } from "@metricflock/auth";
 import { writeAudit } from "@metricflock/db/audit";
-import { invalidateWebsiteCache } from "@metricflock/shared";
+import { invalidateWebsiteCache, clientIpFromHeaders } from "@metricflock/shared";
 import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
 import { z } from "zod";
 const schema = z.object({ userId: z.string().min(1), action: z.enum(["assign", "remove"]).default("assign") });
 async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("website.assign");
+  const auth = await requireApiAuth("website.assign", { req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   // Manage-level access: an assigned viewer must not grant/revoke access.
@@ -33,7 +33,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: `website.${body.data.action}`,
     entityType: "Website",
     entityId: id,

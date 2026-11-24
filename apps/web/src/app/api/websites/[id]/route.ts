@@ -3,11 +3,11 @@ import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertWebsiteAccess, assertWebsiteManageAccess, assertTeamManageAccess } from "@metricflock/auth";
-import { websiteCreateSchema, invalidateWebsiteCache } from "@metricflock/shared";
+import { websiteCreateSchema, invalidateWebsiteCache, clientIpFromHeaders } from "@metricflock/shared";
 import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
 import { writeAudit } from "@metricflock/db/audit";
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("website.view");
+  const auth = await requireApiAuth("website.view", { req: _req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   const website = await assertWebsiteAccess(auth.user, id).catch(() => null);
@@ -24,7 +24,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   return NextResponse.json({ website: full });
 }
 async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("website.manage");
+  const auth = await requireApiAuth("website.manage", { req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   // Manage-level access (SUPER_ADMIN or isAdmin of the website's team).
@@ -83,7 +83,7 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "website.updated",
     entityType: "Website",
     entityId: id,
@@ -95,7 +95,7 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
 export const PATCH = withApiErrors("websites/[id]", patch);
 
 async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("website.manage");
+  const auth = await requireApiAuth("website.manage", { req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   // Manage-level access only — an assigned viewer must never delete (F-1.1).
@@ -107,7 +107,7 @@ async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "website.deleted",
     entityType: "Website",
     entityId: id,

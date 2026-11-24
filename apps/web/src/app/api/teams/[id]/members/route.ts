@@ -4,6 +4,7 @@ import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertTeamAccess } from "@metricflock/auth";
 import { writeAudit } from "@metricflock/db/audit";
+import { clientIpFromHeaders } from "@metricflock/shared";
 import { z } from "zod";
 const schema = z.object({
   userId: z.string().min(1),
@@ -11,7 +12,7 @@ const schema = z.object({
   action: z.enum(["add", "remove"]).default("add"),
 });
 async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("member.manage");
+  const auth = await requireApiAuth("member.manage", { req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   const team = await assertTeamAccess(auth.user, id).catch(() => null);
@@ -59,7 +60,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: `team.member.${body.data.action}`,
     entityType: "Team",
     entityId: id,

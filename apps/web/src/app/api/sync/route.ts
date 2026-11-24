@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors } from "@/lib/api-error";
-import { getSessionUser } from "@metricflock/auth";
+import { getSessionUser, requireAuthedRateLimit } from "@metricflock/auth";
 import { hasPermission } from "@metricflock/auth";
 import { assertWebsiteAccess } from "@metricflock/auth";
 import { enqueue, SYNC_TYPE_BY_QUEUE, JOB_PRIORITY } from "@metricflock/jobs";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
+import { clientIpFromHeaders } from "@metricflock/shared";
 import { z } from "zod";
 const schema = z.object({
   websiteId: z.string().min(1),
@@ -21,6 +22,11 @@ async function post(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   if (!hasPermission(user.role, "analytics.view")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  // A-SEC-07: manual sync is a quota-burn vector (a viewer can enqueue
+  // provider work) — strict per-user-per-route limit before any row is
+  // created or job enqueued.
+  const limited = await requireAuthedRateLimit(req, user, "strict");
+  if ("error" in limited) return limited.error;
   const body = schema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
   const website = await assertWebsiteAccess(user, body.data.websiteId).catch(() => null);
@@ -55,7 +61,7 @@ async function post(req: NextRequest) {
   await writeAudit({
     organizationId: user.organizationId,
     actorId: user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "sync.triggered",
     entityType: "Website",
     entityId: website.id,

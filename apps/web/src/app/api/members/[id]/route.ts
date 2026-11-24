@@ -3,7 +3,7 @@ import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth, requireFreshSession } from "@metricflock/auth";
 import { prisma, type Prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
-import { memberRoleSchema } from "@metricflock/shared";
+import { memberRoleSchema, clientIpFromHeaders } from "@metricflock/shared";
 
 /** A-DB-02: lock the org's SUPER_ADMIN rows (SELECT … FOR UPDATE) and
  *  count them inside `tx`. A plain $transaction at Read Committed does
@@ -17,7 +17,7 @@ async function countSuperAdminsLocked(tx: Prisma.TransactionClient, organization
 }
 
 async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("member.manage");
+  const auth = await requireApiAuth("member.manage", { req });
   if ("error" in auth) return auth.error;
   // A-SEC-02: role change is privilege-minting — require a fresh session.
   const fresh = await requireFreshSession();
@@ -63,7 +63,7 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "member.role_changed",
     entityType: "User",
     entityId: id,
@@ -80,7 +80,7 @@ export const PATCH = withApiErrors("members/[id]", patch);
 // recorded as creator of Google connections or initiator of transfers
 // (Restrict FKs) so ownership history is never silently orphaned.
 async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("member.manage");
+  const auth = await requireApiAuth("member.manage", { req });
   if ("error" in auth) return auth.error;
   // A-SEC-02: member deletion is destructive — require a fresh session.
   const fresh = await requireFreshSession();
@@ -124,7 +124,7 @@ async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "member.deleted",
     entityType: "User",
     entityId: id,

@@ -3,6 +3,7 @@ import { withApiErrors, requestIdOf } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
+import { clientIpFromHeaders } from "@metricflock/shared";
 import { syncJobOrgWhere } from "@/lib/sync-scope";
 import { enqueue, QUEUE_BY_SYNC_TYPE, JOB_PRIORITY } from "@metricflock/jobs";
 import { z } from "zod";
@@ -13,7 +14,7 @@ const schema = z.object({ jobId: z.string().min(1) });
 // re-enqueues the retained payload and flips the bookkeeping row back
 // to PENDING so the worker updates the same row (syncJobRowId).
 async function post(req: NextRequest) {
-  const auth = await requireApiAuth();
+  const auth = await requireApiAuth(undefined, { req });
   if ("error" in auth) return auth.error;
   if (auth.user.role !== "SUPER_ADMIN") return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = schema.safeParse(await req.json().catch(() => ({})));
@@ -47,7 +48,7 @@ async function post(req: NextRequest) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     requestId: requestIdOf(req),
     action: "sync.job.requeued",
     entityType: "AnalyticsSyncJob",

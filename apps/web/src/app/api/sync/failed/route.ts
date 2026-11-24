@@ -10,7 +10,7 @@ import { syncJobOrgWhere } from "@/lib/sync-scope";
 // A-SEC-01: scoped to the caller's organization via website —
 // websiteId = null rows are visible to no tenant.
 export async function GET(req: NextRequest) {
-  const auth = await requireApiAuth();
+  const auth = await requireApiAuth(undefined, { req });
   if ("error" in auth) return auth.error;
   if (auth.user.role !== "SUPER_ADMIN") return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { limit, offset } = parsePagination(req);

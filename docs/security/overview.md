@@ -30,6 +30,27 @@ flowchart TD
 - Auth endpoints are rate-limited (better-auth defaults + Redis
   limiter on OAuth connect/callback).
 
+## Rate limiting & proxy trust
+
+- Every authenticated API route is rate-limited per user + route
+  template: **60/min** by default, **20/min (strict)** for
+  Google-touching or expensive routes (the nine analytics routes,
+  property discovery, org export, manual sync, report test sends).
+  The limit is fail-closed when Redis is configured and returns
+  `429 rate_limited`. API keys have their own 120/min per-key limit.
+- Unauthenticated sensitive endpoints (login, OAuth connect/callback,
+  invite creation) are limited per client IP instead.
+- **Proxy trust (A-SEC-05):** `x-real-ip` / `x-forwarded-for` are
+  trusted only when the deployment is behind a proxy that overwrites
+  them — an explicit `TRUST_PROXY=1`, or Vercel (`VERCEL=1` is set by
+  the platform; its edge overwrites `x-real-ip` from the TCP
+  connection). An explicit `TRUST_PROXY=0` always wins. When the proxy
+  is not trusted the headers are ignored entirely (callers share one
+  `unknown` bucket) — Next.js route handlers expose no socket address,
+  so there is no better untrusted-mode identifier. Audit rows store
+  only the trusted address (`clientIpFromHeaders`), never the raw
+  header chain.
+
 ## Tenancy & authorization
 
 - Every resource belongs to an organization. Route handlers resolve

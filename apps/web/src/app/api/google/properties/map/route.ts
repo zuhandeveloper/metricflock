@@ -7,7 +7,7 @@ import {
   assertConnectionScopeForWebsite,
 } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
-import { mapPropertySchema } from "@metricflock/shared";
+import { mapPropertySchema, clientIpFromHeaders } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateWebsiteCache } from "@metricflock/shared";
 import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
@@ -60,7 +60,7 @@ async function resolveDiscoveredProperty(
 }
 
 async function post(req: NextRequest) {
-  const auth = await requireApiAuth("google.connection.manage");
+  const auth = await requireApiAuth("google.connection.manage", { req });
   if ("error" in auth) return auth.error;
   const body = mapPropertySchema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
@@ -142,7 +142,7 @@ async function post(req: NextRequest) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "google.property.mapped",
     entityType: "Website",
     entityId: website.id,

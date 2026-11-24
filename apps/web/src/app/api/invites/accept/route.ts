@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withApiErrors } from "@/lib/api-error";
-import { getSessionUser } from "@metricflock/auth";
+import { getSessionUser, requireAuthedRateLimit } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
-import { hashToken } from "@metricflock/shared";
+import { hashToken, clientIpFromHeaders } from "@metricflock/shared";
 
 const schema = z.object({ token: z.string().min(1) });
 
@@ -16,6 +16,9 @@ const schema = z.object({ token: z.string().min(1) });
 async function post(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  // A-SEC-07: authenticated brake (default tier) on this mutation.
+  const limited = await requireAuthedRateLimit(req, user);
+  if ("error" in limited) return limited.error;
   const body = schema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
 
@@ -54,7 +57,7 @@ async function post(req: NextRequest) {
   await writeAudit({
     organizationId: invite.organizationId,
     actorId: user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "member.invite_accepted",
     entityType: "OrganizationInvite",
     entityId: invite.id,

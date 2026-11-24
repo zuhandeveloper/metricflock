@@ -4,6 +4,7 @@ import { canActForDestination, expireIfStale, loadTransferInOrg, transferStaleSt
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
+import { clientIpFromHeaders } from "@metricflock/shared";
 
 // Destination accepts the transfer: PENDING_ACCEPTANCE -> PENDING_CONNECTION.
 // Nothing moves yet — the destination team now connects its own Google
@@ -12,7 +13,7 @@ import { writeAudit } from "@metricflock/db/audit";
 // clause), so two concurrent accepts — or an accept racing a cancel —
 // cannot both succeed: the loser matches 0 rows and gets 409.
 async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth();
+  const auth = await requireApiAuth(undefined, { req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   const found = await loadTransferInOrg(id, auth.user.organizationId);
@@ -36,7 +37,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "website.transfer.accepted",
     entityType: "Website",
     entityId: transfer.websiteId,

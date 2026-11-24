@@ -3,9 +3,10 @@ import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
+import { clientIpFromHeaders } from "@metricflock/shared";
 
 async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("member.manage");
+  const auth = await requireApiAuth("member.manage", { req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   const invite = await prisma.organizationInvite.findFirst({
@@ -16,7 +17,7 @@ async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "member.invite_revoked",
     entityType: "OrganizationInvite",
     entityId: id,

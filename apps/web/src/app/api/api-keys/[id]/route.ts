@@ -7,7 +7,7 @@ import { writeAudit } from "@metricflock/db/audit";
 // Revoke an API key (Phase 7.5). Sets revokedAt; the row stays for
 // audit history. Revoking an already-revoked key is a no-op success.
 async function del(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("organization.manage");
+  const auth = await requireApiAuth("organization.manage", { req: _req });
   if ("error" in auth) return auth.error;
   // A-SEC-02: revoking a persistent org credential requires a fresh session.
   const fresh = await requireFreshSession();

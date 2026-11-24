@@ -366,8 +366,8 @@ describe("analytics routes (session auth + shared handler)", () => {
 describe("remaining unexercised routes", () => {
   it("GET /api/insights: unauthenticated → 401; valid → 200 insights shape", async () => {
     mocks.getSessionUser.mockResolvedValueOnce(null);
-    expect((await insightsGet()).status).toBe(401);
-    const res = await insightsGet();
+    expect((await insightsGet(new NextRequest("http://localhost/api/insights"))).status).toBe(401);
+    const res = await insightsGet(new NextRequest("http://localhost/api/insights"));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ summary: { strikingDistanceQueries: 0 } });
     expect(mocks.loadInsights).toHaveBeenCalledWith(expect.objectContaining({ organizationId: "org1" }));
@@ -381,12 +381,16 @@ describe("remaining unexercised routes", () => {
   });
   it("POST /api/reports/send-test: unauthenticated → 401; forbidden → 403; valid → 200 {ok, to}", async () => {
     mocks.requireApiAuth.mockResolvedValueOnce(unauthApiKey());
-    expect((await sendTestPost()).status).toBe(401);
+    expect(
+      (await sendTestPost(new NextRequest("http://localhost/api/reports/send-test", { method: "POST" }))).status,
+    ).toBe(401);
     mocks.requireApiAuth.mockResolvedValueOnce({
       error: NextResponse.json({ error: "forbidden" }, { status: 403 }),
     });
-    expect((await sendTestPost()).status).toBe(403);
-    const res = await sendTestPost();
+    expect(
+      (await sendTestPost(new NextRequest("http://localhost/api/reports/send-test", { method: "POST" }))).status,
+    ).toBe(403);
+    const res = await sendTestPost(new NextRequest("http://localhost/api/reports/send-test", { method: "POST" }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, to: "admin@example.com" });
     expect(mocks.sendMail).toHaveBeenCalledWith(

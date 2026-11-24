@@ -4,13 +4,14 @@ import { expireIfStale, loadTransferInOrg, OPEN_TRANSFER_STATUSES, transferStale
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
+import { clientIpFromHeaders } from "@metricflock/shared";
 
 // Initiator (or SUPER_ADMIN) withdraws an open transfer -> CANCELLED.
 // A-DB-01: the transition is a guarded updateMany (status in the where
 // clause), so a cancel racing a complete/accept cannot resurrect — or
 // overwrite — the winning state: the loser matches 0 rows and gets 409.
 async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth();
+  const auth = await requireApiAuth(undefined, { req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   const found = await loadTransferInOrg(id, auth.user.organizationId);
@@ -34,7 +35,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "website.transfer.cancelled",
     entityType: "Website",
     entityId: transfer.websiteId,

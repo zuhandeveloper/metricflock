@@ -3,11 +3,11 @@ import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { listAccessibleWebsiteIds, assertTeamManageAccess } from "@metricflock/auth";
-import { websiteCreateSchema } from "@metricflock/shared";
+import { websiteCreateSchema, clientIpFromHeaders } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 import { parsePagination } from "@/lib/pagination";
 export async function GET(req: NextRequest) {
-  const auth = await requireApiAuth("website.view");
+  const auth = await requireApiAuth("website.view", { req });
   if ("error" in auth) return auth.error;
   const q = req.nextUrl.searchParams.get("q") ?? "";
   const status = req.nextUrl.searchParams.get("status") ?? undefined;
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ websites, pagination: { total, limit, offset } });
 }
 async function post(req: NextRequest) {
-  const auth = await requireApiAuth("website.manage");
+  const auth = await requireApiAuth("website.manage", { req });
   if ("error" in auth) return auth.error;
   const body = websiteCreateSchema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
@@ -76,7 +76,7 @@ async function post(req: NextRequest) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "website.created",
     entityType: "Website",
     entityId: website.id,

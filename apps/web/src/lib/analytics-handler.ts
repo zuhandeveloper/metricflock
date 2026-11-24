@@ -84,7 +84,10 @@ export async function handleAnalyticsRequest(
     fetchFn: (ctx: AnalyticsFetchContext) => Promise<unknown>;
   },
 ): Promise<NextResponse> {
-  const auth = await requireApiAuth(opts.permission);
+  // A-SEC-07: the nine analytics routes are the cheapest Google-quota
+  // burn vector — strict per-user-per-route limit (20/min) before any
+  // provider call is attempted.
+  const auth = await requireApiAuth(opts.permission, { req, rateLimit: "strict" });
   if ("error" in auth) return auth.error;
   const parsed = analyticsQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams.entries()));
   if (!parsed.success)

@@ -5,7 +5,7 @@ import { providersMissingScopes } from "@metricflock/google/oauth";
 import { adManagerEnabled } from "@metricflock/google/ad-manager";
 import { parsePagination } from "@/lib/pagination";
 export async function GET(req: NextRequest) {
-  const auth = await requireApiAuth("google.connection.view");
+  const auth = await requireApiAuth("google.connection.view", { req });
   if ("error" in auth) return auth.error;
   const { user } = auth;
   const { limit, offset } = parsePagination(req);

@@ -3,7 +3,7 @@ import { withApiErrors } from "@/lib/api-error";
 import { OPEN_TRANSFER_STATUSES, TRANSFER_TTL_MS } from "@/lib/transfers";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
-import { transferSchema } from "@metricflock/shared";
+import { transferSchema, clientIpFromHeaders } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 // Two-sided ownership transfer (Stage 7, API-4/DB-4). Initiating only
 // RECORDS the intent: the destination team's admin must accept, then
@@ -11,7 +11,7 @@ import { writeAudit } from "@metricflock/db/audit";
 // and integrations move at completion, never before. OAuth tokens are
 // NEVER transferred between owners.
 async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("website.transfer");
+  const auth = await requireApiAuth("website.transfer", { req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   const body = transferSchema.safeParse(await req.json().catch(() => ({})));
@@ -60,7 +60,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "website.transfer.initiated",
     entityType: "Website",
     entityId: id,

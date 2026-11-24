@@ -5,12 +5,12 @@ import { requireApiAuth } from "@metricflock/auth";
 import { sendMail } from "@metricflock/auth/mailer";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
-import { hashToken, inviteCreateSchema, rateLimit } from "@metricflock/shared";
+import { hashToken, inviteCreateSchema, rateLimit, clientIpFromHeaders } from "@metricflock/shared";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function post(req: NextRequest) {
-  const auth = await requireApiAuth("member.manage");
+  const auth = await requireApiAuth("member.manage", { req });
   if ("error" in auth) return auth.error;
   // Invite creation sends email + mints credentials-equivalent links:
   // rate-limit per inviter, fail-closed (F-3.1).
@@ -73,7 +73,7 @@ async function post(req: NextRequest) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "member.invited",
     entityType: "OrganizationInvite",
     entityId: invite.id,

@@ -29,8 +29,8 @@ function shape(s: {
   };
 }
 
-async function get() {
-  const auth = await requireApiAuth("organization.manage");
+async function get(req: NextRequest) {
+  const auth = await requireApiAuth("organization.manage", { req });
   if ("error" in auth) return auth.error;
   const schedule = await prisma.reportSchedule.findUnique({
     where: { organizationId: auth.user.organizationId },
@@ -39,7 +39,7 @@ async function get() {
 }
 
 async function put(req: NextRequest) {
-  const auth = await requireApiAuth("organization.manage");
+  const auth = await requireApiAuth("organization.manage", { req });
   if ("error" in auth) return auth.error;
   const body = (await req.json().catch(() => ({}))) as {
     enabled?: unknown;

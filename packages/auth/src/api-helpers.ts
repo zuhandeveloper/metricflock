@@ -2,11 +2,51 @@ import { NextResponse } from "next/server";
 import { getSession, getSessionUser } from "./server";
 import { hasPermission, type Permission } from "./permissions";
 import type { User } from "@metricflock/db";
-export async function requireApiAuth(permission?: Permission): Promise<{ user: User } | { error: NextResponse }> {
+import { AUTH_RATE_LIMIT_TIERS, authedRateLimitKey, rateLimit, type AuthRateLimitTier } from "@metricflock/shared";
+
+/** Minimal request shape the authed limiter needs: only the route path.
+ *  Kept structural (instead of NextRequest) so this package does not
+ *  depend on next/server types. */
+export type RateLimitRequest = { nextUrl: { pathname: string } };
+
+/** Authenticated rate limit (A-SEC-07 / A-API-05): per user + route
+ *  template, fail-closed when Redis is configured (same policy as
+ *  login — a Redis outage must not silently lift the brake). Returns
+ *  `{ error }` (429 `rate_limited`) when the bucket is empty, so the
+ *  client can back off; `{ ok: true }` otherwise. */
+export async function requireAuthedRateLimit(
+  req: RateLimitRequest,
+  user: { id: string },
+  tier: AuthRateLimitTier = "default",
+): Promise<{ ok: true } | { error: NextResponse }> {
+  const { limit, windowMs } = AUTH_RATE_LIMIT_TIERS[tier];
+  const res = await rateLimit(authedRateLimitKey(user.id, req.nextUrl.pathname), limit, windowMs, {
+    failClosed: true,
+  });
+  if (res.allowed) return { ok: true };
+  return {
+    error: NextResponse.json(
+      { error: "rate_limited", message: `Rate limit is ${limit} requests/minute for this route.` },
+      { status: 429 },
+    ),
+  };
+}
+
+export async function requireApiAuth(
+  permission?: Permission,
+  opts: { req?: RateLimitRequest; rateLimit?: AuthRateLimitTier | false } = {},
+): Promise<{ user: User } | { error: NextResponse }> {
   const user = await getSessionUser().catch(() => null);
   if (!user) return { error: NextResponse.json({ error: "unauthenticated" }, { status: 401 }) };
   if (permission && !hasPermission(user.role, permission))
     return { error: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
+  // A-SEC-07: when the caller passes its request, the authenticated
+  // brake applies (per user + route). Callers that do not pass `req`
+  // are unthrottled — pass it on every route handler.
+  if (opts.req && opts.rateLimit !== false) {
+    const limited = await requireAuthedRateLimit(opts.req, user, opts.rateLimit ?? "default");
+    if ("error" in limited) return limited;
+  }
   return { user };
 }
 

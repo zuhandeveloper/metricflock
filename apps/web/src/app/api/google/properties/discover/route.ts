@@ -30,7 +30,7 @@ function classifyProviderError(e: unknown): string {
   return "provider_error";
 }
 async function post(req: NextRequest) {
-  const auth = await requireApiAuth("google.connection.manage");
+  const auth = await requireApiAuth("google.connection.manage", { req, rateLimit: "strict" });
   if ("error" in auth) return auth.error;
   const body = schema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });

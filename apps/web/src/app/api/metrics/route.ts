@@ -12,7 +12,7 @@ import { getQueue, QUEUE_NAMES } from "@metricflock/jobs";
 // A-SEC-01: the durable numbers are scoped to the caller's organization
 // via website — another tenant's failures must not show up here.
 export async function GET(_req: NextRequest) {
-  const auth = await requireApiAuth();
+  const auth = await requireApiAuth(undefined, { req: _req });
   if ("error" in auth) return auth.error;
   if (auth.user.role !== "SUPER_ADMIN") return NextResponse.json({ error: "forbidden" }, { status: 403 });
 

@@ -8,8 +8,8 @@ import { generateApiKey, apiKeyDisplayPrefix, hashToken } from "@metricflock/sha
 // API key management (Phase 7.5). SUPER_ADMIN only
 // (organization.manage). The plaintext secret is returned exactly
 // once, in the POST response; only its SHA-256 hash is stored.
-async function get() {
-  const auth = await requireApiAuth("organization.manage");
+async function get(req: NextRequest) {
+  const auth = await requireApiAuth("organization.manage", { req });
   if ("error" in auth) return auth.error;
   const keys = await prisma.apiKey.findMany({
     where: { organizationId: auth.user.organizationId },
@@ -21,7 +21,7 @@ async function get() {
 }
 
 async function post(req: NextRequest) {
-  const auth = await requireApiAuth("organization.manage");
+  const auth = await requireApiAuth("organization.manage", { req });
   if ("error" in auth) return auth.error;
   // A-SEC-02: minting a persistent org-wide credential requires a
   // fresh session — a stale session must re-authenticate first.

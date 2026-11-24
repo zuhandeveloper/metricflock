@@ -4,12 +4,12 @@ import { requireApiAuth, requireFreshSession, assertConnectionVisible } from "@m
 import { prisma } from "@metricflock/db";
 import { revokeConnection } from "@metricflock/google/tokens";
 import { writeAudit } from "@metricflock/db/audit";
-import { invalidateOrgCache } from "@metricflock/shared";
+import { invalidateOrgCache, clientIpFromHeaders } from "@metricflock/shared";
 import { invalidateOrgSnapshots } from "@metricflock/db/snapshots";
 import { z } from "zod";
 const schema = z.object({ connectionId: z.string().min(1) });
 async function post(req: NextRequest) {
-  const auth = await requireApiAuth("google.connection.manage");
+  const auth = await requireApiAuth("google.connection.manage", { req });
   if ("error" in auth) return auth.error;
   // A-SEC-02: disconnecting revokes the org's live Google grant — a
   // destructive action that requires a fresh session.
@@ -32,7 +32,7 @@ async function post(req: NextRequest) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "google.connection.disconnected",
     entityType: "GoogleConnection",
     entityId: conn.id,

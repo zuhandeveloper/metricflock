@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrors } from "@/lib/api-error";
-import { getSessionUser, hasPermission } from "@metricflock/auth";
+import { getSessionUser, hasPermission, requireAuthedRateLimit } from "@metricflock/auth";
 import { loadHealthOverview } from "@/lib/health";
 
 // Phase 7.2 — integration health overview (JSON). Same data the
@@ -9,6 +9,9 @@ async function get(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   if (!hasPermission(user.role, "analytics.view")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  // A-SEC-07: authenticated brake (default tier) on this read route.
+  const limited = await requireAuthedRateLimit(req, user);
+  if ("error" in limited) return limited.error;
   const page = Math.max(1, Number.parseInt(req.nextUrl.searchParams.get("page") ?? "1", 10) || 1);
   const overview = await loadHealthOverview(user, page);
   return NextResponse.json(overview);

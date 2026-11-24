@@ -337,9 +337,9 @@ describe("DELETE /api/members/[id]", () => {
 describe("GET /api/reports/schedule", () => {
   it("unauthenticated → 401; no schedule → defaults; with schedule → shaped", async () => {
     mocks.requireApiAuth.mockResolvedValueOnce(unauth());
-    expect((await scheduleGet()).status).toBe(401);
+    expect((await scheduleGet(new NextRequest("http://localhost/api/reports/schedule"))).status).toBe(401);
     mocks.scheduleFindUnique.mockResolvedValue(null);
-    const def = await scheduleGet();
+    const def = await scheduleGet(new NextRequest("http://localhost/api/reports/schedule"));
     expect(await def.json()).toEqual({
       schedule: { enabled: false, dayOfWeek: 1, hourUtc: 8, recipients: [], lastSentAt: null },
     });
@@ -350,7 +350,7 @@ describe("GET /api/reports/schedule", () => {
       recipients: ["a@example.com", 42, "b@example.com"],
       lastSentAt: new Date("2026-11-20T08:00:00.000Z"),
     });
-    const res = await scheduleGet();
+    const res = await scheduleGet(new NextRequest("http://localhost/api/reports/schedule"));
     expect(await res.json()).toEqual({
       schedule: {
         enabled: true,
@@ -651,11 +651,11 @@ describe("DELETE /api/organization (remaining branches)", () => {
 describe("GET /api/api-keys", () => {
   it("unauthenticated → 401; valid → 200 keys list", async () => {
     mocks.requireApiAuth.mockResolvedValueOnce(unauth());
-    expect((await apiKeysGet()).status).toBe(401);
+    expect((await apiKeysGet(new NextRequest("http://localhost/api/api-keys"))).status).toBe(401);
     mocks.apiKeyFindMany.mockResolvedValue([
       { id: "k1", name: "CI", prefix: "mf_abc", lastUsedAt: null, revokedAt: null, createdAt: new Date() },
     ]);
-    const res = await apiKeysGet();
+    const res = await apiKeysGet(new NextRequest("http://localhost/api/api-keys"));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ keys: [{ id: "k1", name: "CI" }] });
   });

@@ -16,7 +16,7 @@ const schema = z.object({ confirmSlug: z.string().min(1) });
 // archive is needed), so the deletion itself is recorded in server
 // logs, not the audit table.
 async function del(req: NextRequest) {
-  const auth = await requireApiAuth("organization.manage");
+  const auth = await requireApiAuth("organization.manage", { req });
   if ("error" in auth) return auth.error;
   // A-SEC-02: deleting the whole organization is destructive — require
   // a fresh session (re-authentication), not a 30-day-old cookie.

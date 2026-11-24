@@ -81,16 +81,76 @@ export async function rateLimit(
   }
 }
 
-/** Client IP for rate-limit keys (F-3.1). Prefers `x-real-ip`, which the
- * hosting platform (Vercel) sets from the actual connection and clients
- * cannot spoof through it; falls back to the FIRST `x-forwarded-for`
- * entry (the original client as appended by the first trusted proxy).
- * Never key on the raw header value — a client-supplied multi-entry
- * header would otherwise mint a fresh bucket per spoofed prefix. */
-export function clientIpFromHeaders(headers: { get(name: string): string | null }): string {
+/** Whether proxy headers may be trusted for client identity (A-SEC-05).
+ *  Trust only when the deployment sits behind a proxy that overwrites
+ *  them: an explicit `TRUST_PROXY=1`/`true`, or Vercel (`VERCEL=1` is set
+ *  by the platform itself — Vercel's edge overwrites `x-real-ip` from
+ *  the TCP connection, so clients cannot spoof through it). An explicit
+ *  `TRUST_PROXY=0`/`false` always wins over the Vercel default. */
+export function isProxyTrusted(env: NodeJS.ProcessEnv = process.env): boolean {
+  const flag = env.TRUST_PROXY?.trim().toLowerCase();
+  if (flag === "1" || flag === "true") return true;
+  if (flag === "0" || flag === "false") return false;
+  return env.VERCEL === "1";
+}
+
+/** Client IP for rate-limit keys (F-3.1, A-SEC-05). When the proxy is
+ *  trusted, prefers `x-real-ip`, which the hosting platform sets from
+ *  the actual connection; falls back to the FIRST `x-forwarded-for`
+ *  entry (the original client as appended by the first trusted proxy).
+ *  Never key on the raw header value — a client-supplied multi-entry
+ *  header would otherwise mint a fresh bucket per spoofed prefix.
+ *
+ *  When the proxy is NOT trusted (self-host without a proxy in front),
+ *  both headers are client-spoofable and are ignored entirely: every
+ *  caller keys on `"unknown"` (one shared bucket) instead of a forgeable
+ *  per-request identity. Next.js route handlers expose no socket
+ *  address, so there is no better untrusted-mode identifier — the
+ *  shared bucket fails closed (abuse is throttled) at the cost of
+ *  shared-bucket contention on unauthenticated endpoints. Set
+ *  `TRUST_PROXY=1` only when a proxy that overwrites these headers
+ *  actually sits in front of the app. */
+export function clientIpFromHeaders(
+  headers: { get(name: string): string | null },
+  opts: { trustProxy?: boolean } = {},
+): string {
+  const trust = opts.trustProxy ?? isProxyTrusted();
+  if (!trust) return "unknown";
   const realIp = headers.get("x-real-ip")?.trim();
   if (realIp) return realIp;
   const xff = headers.get("x-forwarded-for");
   const first = xff?.split(",")[0]?.trim();
   return first || "unknown";
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Collapse ID-like path segments to `{id}` so a rate-limit key is per
+ *  route template, not per concrete resource — otherwise varying the id
+ *  in the URL would mint a fresh bucket per request (same spoof class
+ *  as A-SEC-05). IDs in this app are cuid (25 chars), nanoid (21) or
+ *  UUID (36); every static segment of the API is ≤ 16 chars, so the
+ *  length rule cannot collapse a real static segment — and if a future
+ *  static segment ever exceeds it, the failure mode is over-limiting
+ *  (buckets merge), never under-limiting. */
+export function normalizeRateLimitPath(pathname: string): string {
+  return pathname
+    .split("/")
+    .map((seg) => (seg.length > 16 || UUID_RE.test(seg) ? "{id}" : seg))
+    .join("/");
+}
+
+/** Per-user-per-route limits for authenticated API routes (A-SEC-07 /
+ *  A-API-05): default 60/min for ordinary reads/writes; strict 20/min
+ *  for Google-touching or otherwise expensive routes (analytics,
+ *  property discovery, org export, manual sync, report test sends). */
+export type AuthRateLimitTier = "default" | "strict";
+export const AUTH_RATE_LIMIT_TIERS: Record<AuthRateLimitTier, { limit: number; windowMs: number }> = {
+  default: { limit: 60, windowMs: 60_000 },
+  strict: { limit: 20, windowMs: 60_000 },
+};
+
+/** Bucket key for the authenticated limiter: per user + route template. */
+export function authedRateLimitKey(userId: string, pathname: string): string {
+  return `authed:${userId}:${normalizeRateLimitPath(pathname)}`;
 }

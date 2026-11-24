@@ -179,7 +179,7 @@ describe("GET /api/v1/portfolio (remaining branch)", () => {
 describe("POST /api/reports/send-test (mail failure branch)", () => {
   it("sendMail throws → 200 {ok: false} (audit still records delivered: false)", async () => {
     mocks.sendMail.mockRejectedValueOnce(new Error("smtp down"));
-    const res = await sendTestPost();
+    const res = await sendTestPost(new NextRequest("http://localhost/api/reports/send-test", { method: "POST" }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: false, to: "admin@example.com" });
     expect(mocks.writeAudit).toHaveBeenCalledWith(
@@ -201,7 +201,7 @@ describe("forbidden branches (role without analytics.view)", () => {
   });
   it("GET /api/insights: no permission → 403", async () => {
     mocks.getSessionUser.mockResolvedValue({ ...admin, role: undefined });
-    const res = await insightsGet();
+    const res = await insightsGet(new NextRequest("http://localhost/api/insights"));
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ error: "forbidden" });
   });

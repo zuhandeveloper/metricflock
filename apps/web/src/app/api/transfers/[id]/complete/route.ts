@@ -4,7 +4,7 @@ import { canActForDestination, expireIfStale, loadTransferInOrg, transferStaleSt
 import { requireApiAuth, requireFreshSession } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
-import { invalidateWebsiteCache } from "@metricflock/shared";
+import { invalidateWebsiteCache, clientIpFromHeaders } from "@metricflock/shared";
 import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
 
 // Completes an accepted transfer. This is the ONLY step that moves
@@ -14,7 +14,7 @@ import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
 // own). Requires the destination team to have an ACTIVE Google
 // connection first, so the site is never handed over blind.
 async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth();
+  const auth = await requireApiAuth(undefined, { req });
   if ("error" in auth) return auth.error;
   // A-SEC-02: completing a transfer moves a website between teams —
   // require a fresh session.
@@ -69,7 +69,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "website.transfer.completed",
     entityType: "Website",
     entityId: transfer.websiteId,

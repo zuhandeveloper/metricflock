@@ -3,6 +3,7 @@ import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
+import { clientIpFromHeaders } from "@metricflock/shared";
 
 // Organization data export (Phase 4, F-4.3 —
 // docs/security/data-lifecycle.md). SUPER_ADMIN only
@@ -11,7 +12,7 @@ import { writeAudit } from "@metricflock/db/audit";
 // Credentials are NEVER included — no password hashes, no encrypted
 // Google tokens, no session data.
 async function get(req: NextRequest) {
-  const auth = await requireApiAuth("organization.manage");
+  const auth = await requireApiAuth("organization.manage", { req, rateLimit: "strict" });
   if ("error" in auth) return auth.error;
   const orgId = auth.user.organizationId;
 
@@ -99,7 +100,7 @@ async function get(req: NextRequest) {
   await writeAudit({
     organizationId: orgId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "organization.exported",
     entityType: "Organization",
     entityId: orgId,

@@ -3,10 +3,10 @@ import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertTeamAccess } from "@metricflock/auth";
-import { teamCreateSchema } from "@metricflock/shared";
+import { teamCreateSchema, clientIpFromHeaders } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("team.manage");
+  const auth = await requireApiAuth("team.manage", { req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   const team = await assertTeamAccess(auth.user, id).catch(() => null);
@@ -20,7 +20,7 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
 export const PATCH = withApiErrors("teams/[id]", patch);
 
 async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiAuth("team.manage");
+  const auth = await requireApiAuth("team.manage", { req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
   const team = await assertTeamAccess(auth.user, id).catch(() => null);
@@ -36,7 +36,7 @@ async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+    ipAddress: clientIpFromHeaders(req.headers),
     action: "team.deleted",
     entityType: "Team",
     entityId: id,
