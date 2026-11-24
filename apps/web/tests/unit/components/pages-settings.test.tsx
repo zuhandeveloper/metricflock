@@ -132,6 +132,8 @@ describe("ApiKeysPage", () => {
         prefix: "mf_live_abc",
         lastUsedAt: new Date("2026-11-22T10:00:00.000Z"),
         revokedAt: null,
+        expiresAt: null,
+        scopes: [],
         createdAt: new Date("2026-11-20T10:00:00.000Z"),
       },
     ]);

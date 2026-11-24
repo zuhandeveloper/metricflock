@@ -38,6 +38,9 @@ flowchart TD
   property discovery, org export, manual sync, report test sends).
   The limit is fail-closed when Redis is configured and returns
   `429 rate_limited`. API keys have their own 120/min per-key limit.
+  Keys may also carry an optional expiry (max 1 year) and per-key v1
+  scopes (A-SEC-09); an expired key is rejected with 401 and a key
+  used outside its scopes with 403 `insufficient_scope`.
 - Unauthenticated sensitive endpoints (login, OAuth connect/callback,
   invite creation) are limited per client IP instead.
 - **Proxy trust (A-SEC-05):** `x-real-ip` / `x-forwarded-for` are

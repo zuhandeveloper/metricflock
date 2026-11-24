@@ -14,7 +14,16 @@ export default async function ApiKeysPage() {
   if (user.role !== "SUPER_ADMIN") redirect("/dashboard");
   const keys = await prisma.apiKey.findMany({
     where: { organizationId: user.organizationId },
-    select: { id: true, name: true, prefix: true, lastUsedAt: true, revokedAt: true, createdAt: true },
+    select: {
+      id: true,
+      name: true,
+      prefix: true,
+      lastUsedAt: true,
+      revokedAt: true,
+      expiresAt: true,
+      scopes: true,
+      createdAt: true,
+    },
     orderBy: { createdAt: "desc" },
     take: 100,
   });
@@ -37,6 +46,8 @@ export default async function ApiKeysPage() {
               prefix: k.prefix,
               lastUsedAt: k.lastUsedAt?.toISOString() ?? null,
               revokedAt: k.revokedAt?.toISOString() ?? null,
+              expiresAt: k.expiresAt?.toISOString() ?? null,
+              scopes: k.scopes,
               createdAt: k.createdAt.toISOString(),
             }))}
           />

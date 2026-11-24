@@ -6,7 +6,7 @@ import { prisma } from "@metricflock/db";
 // Public API v1 (Phase 7.5) — read-only, API-key authenticated.
 // GET /api/v1/websites — the organization's websites (bounded).
 async function get(req: NextRequest) {
-  const auth = await requireApiKey(req);
+  const auth = await requireApiKey(req, "websites:read");
   if ("error" in auth) return auth.error;
   const websites = await prisma.website.findMany({
     where: { organizationId: auth.organizationId },

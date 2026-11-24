@@ -115,12 +115,14 @@ run locally (CI only).
 ### Stage 3 — P2 remediation (after P1s; see phase docs for detail)
 
 - **Security/API (01, 02):** pin `actions/labeler@v7` (A-SEC-06); rate-limit the 47 unprotected routes, starting with live-Google analytics routes, and fix rate-limit identity off-Vercel (A-SEC-05/A-API-05); route all 19 routes through `withApiErrors` (A-API-02); fix remaining P2s in docs 01–02.
-- **Database (03):** audit writes inside the mutation transaction; bound retention pruning; prune stuck `RUNNING` jobs; fix N+1 in portfolio/insights loaders (~600 queries per 100-site insights load); clamp SC date ranges for the 2–3 day delay; validate AdSense dates; disconnect must clear `MAPPED` integrations (see doc 03, A-DB-04…A-DB-13). A-DB-03 (concurrent primary mapping, downgraded to P2 on dynamic verification) also lands here: retry-once in the map route on P2002.
+- **Database (03):** audit writes inside the mutation transaction; bound retention pruning; prune stuck `RUNNING` jobs; fix N+1 in portfolio/insights loaders (~600 queries per 100-site insights load); clamp SC date ranges for the 2–3 day delay; validate AdSense dates; disconnect must clear `MAPPED` integrations (see doc 03, A-DB-04…A-DB-13). A-DB-03 (concurrent primary mapping, downgraded to P2 on dynamic verification) also lands here: retry-once in the map route on P2002. A-DB-18 verified closed 2026-11-24 (seed guard + 2026-11-23 live-DB survey found no `demo@example.com` row).
 - **Google (04):** fix AdSense RPM `?? 0` (recomputed `0` on null earnings); treat `SCOPE_MISSING` as non-retryable in the sync engine; fix health-check early-return and cache-refresh abort-on-first-error (see doc 04, A-GGL-04…A-GGL-15).
 - **Workers (05):** scheduler lock TTL vs unbounded tick; unscoped last-success groupBy; `isReportDue` catch-up window; per-provider isolation in `cache-refresh`/`ga4-historical`/health-check; skip ARCHIVED/SOLD sites in the scheduler; remove the silent 200-website report truncation; add crash handlers + shutdown timeout (see doc 05, A-WRK-04…A-WRK-12).
 - **Frontend (06):** dark-mode contrast to 4.5:1 (A-FE-04 — add dark-mode axe run); collapse login errors honestly without leaking enumeration; bound the Integrations page load; fix Sync Now false "Queued." (with Stage 1 #10); remaining P2s in doc 06.
-- **Coverage (09):** worker tests (A-COV-05, 692 LOC / 0 tests); direct tests for `getValidAccessToken`/`revokeConnection` (A-COV-06); ESLint coverage of `.ts`/`.tsx` (A-COV-09); reduce whole-barrel `vi.mock` usage (A-COV-10); remaining P2s in doc 09.
+- **Coverage (09):** worker tests (A-COV-05, 692 LOC / 0 tests); direct tests for `getValidAccessToken`/`revokeConnection` (A-COV-06); ESLint coverage of `.ts`/`.tsx` (A-COV-09); reduce whole-barrel `vi.mock` usage (A-COV-10); remaining P2s in doc 09. Verification 2026-11-24: A-COV-05 and A-COV-06 are closed — 53 worker tests with all three worker files at 100%, and `client.ts`/`tokens.ts`/`oauth.ts` at 100% (full-suite coverage, 1,051 tests, gate green).
 - **Performance (08):** run the 100/1k/10k benchmark against a real DB (A-PERF-02) with `EXPLAIN ANALYZE` on hot paths (A-PERF-05); run a controlled load test and record p50/p95/p99 (A-PERF-01).
+
+Verification 2026-11-24: A-SEC-09 is fixed — `ApiKey` gained `expiresAt` (optional, max 1 year) and `scopes` (empty = legacy full v1 access), enforced in `requireApiKey` (expired → 401, missing scope → 403 `insufficient_scope`); mint/list/rotate routes and the keys UI updated; legacy keys keep working unchanged. Open follow-up from the same finding: revoke keys when the creator is demoted / loses `organization.manage` (member role-change routes, out of this fix's scope).
 
 ### Stage 4 — P3 cleanup
 
@@ -129,6 +131,16 @@ All P3 findings in docs 00–09 (70 total after dynamic verification
 incl. the local hook-timeout flake A-BASE-01, the db#build turbo
 warning A-BASE-03, dark-mode contrast residuals, and documentation
 gaps). Fix opportunistically; none blocks a release on its own.
+
+Verification 2026-11-24: A-API-17 is closed — covered by the A-DB-01
+guarded-`updateMany` fix in all four transfer routes
+(`transfer-concurrency.test.ts` 12/12). A-SEC-18 is only partially
+covered — the org last-admin guard is atomic (A-DB-02, `SELECT … FOR
+UPDATE`), but the team-admin guard in
+`teams/[id]/members/route.ts` is still check-then-act; fix as its own
+item with a concurrency regression test. A-COV-13 is only partially
+covered — 275 component tests exist, but no new e2e journeys were
+added and the axe gate still ignores moderate/minor violations.
 
 ## 11.2 Verification gates (re-audit criteria)
 

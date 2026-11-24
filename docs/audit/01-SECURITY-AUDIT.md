@@ -103,7 +103,7 @@ The brief names roles `SUPER_ADMIN / ADMIN / MEMBER`. The code has **no `ADMIN` 
 - **Impact:** a leaked key is a permanent, full-org read credential (websites, portfolio totals, earnings insights, health) until someone manually revokes it.
 - **Correction:** add `expiresAt` (default e.g. 90 days, max 1 year) and per-key scopes (at minimum read-only v1 subsets), a rotation endpoint, and revoke-on-demotion/role-change for the creator; surface expiry in the keys UI.
 - **Regression test:** unit tests for expiry enforcement in `requireApiKey`; smoke test asserting an expired key returns 401 and a revoked key returns 401.
-- **Status:** CONFIRMED (code). Dynamic NOT RUN.
+- **Status:** CONFIRMED (code). Dynamic NOT RUN. **Fixed 2026-11-24 (Stage 3):** `ApiKey` gained `expiresAt` (optional, max 1 year) and `scopes` (empty = legacy full access); `requireApiKey` enforces both (expired → 401, wrong scope → 403 `insufficient_scope`); mint accepts both fields, list returns them, rotation endpoint added (`POST /api/api-keys/[id]/rotate`), expiry/scopes surfaced in the keys UI. Revoke-on-creator-demotion NOT done — member role-change routes are out of this fix's scope; tracked as a follow-up. Regression tests in `api-key-auth.test.ts`, `api-keys.test.ts`, `api-keys-expiry-scopes.test.ts`, `ApiKeyManager.test.tsx`.
 
 ### A-SEC-10 — P3 — CONFIRMED — App pages leak the org member directory to any authenticated user
 

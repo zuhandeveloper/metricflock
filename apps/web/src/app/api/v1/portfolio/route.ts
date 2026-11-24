@@ -14,7 +14,7 @@ const PROVIDERS = {
 } as const;
 
 async function get(req: NextRequest) {
-  const auth = await requireApiKey(req);
+  const auth = await requireApiKey(req, "portfolio:read");
   if ("error" in auth) return auth.error;
   const provider = (req.nextUrl.searchParams.get("provider") ?? "GA4") as keyof typeof PROVIDERS;
   const cfg = PROVIDERS[provider];

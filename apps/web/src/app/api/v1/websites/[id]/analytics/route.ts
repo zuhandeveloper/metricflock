@@ -23,7 +23,7 @@ const REPORTS: Record<string, { provider: "GA4" | "SEARCH_CONSOLE" | "ADSENSE" |
 };
 
 async function get(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireApiKey(req);
+  const auth = await requireApiKey(req, "websites:read");
   if ("error" in auth) return auth.error;
   const { id: websiteId } = await ctx.params;
   const report = req.nextUrl.searchParams.get("report") ?? "overview";

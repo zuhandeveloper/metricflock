@@ -176,6 +176,10 @@ model ApiKey {
   createdBy      User         @relation("ApiKeyCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   lastUsedAt     DateTime?
   revokedAt      DateTime?
+  // A-SEC-09: optional expiry (null = never expires, legacy keys)
+  // and per-key scopes (empty = legacy full v1 access).
+  expiresAt      DateTime?
+  scopes         String[] @default([])
   createdAt      DateTime     @default(now())
   @@index([organizationId, revokedAt])
 }

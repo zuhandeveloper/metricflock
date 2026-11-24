@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@metricflock/db";
-import { hashToken, isApiKeyFormat, rateLimit } from "@metricflock/shared";
+import { hashToken, isApiKeyFormat, rateLimit, type ApiKeyScope } from "@metricflock/shared";
 
 // Public API authentication (Phase 7.5). Keys are organization-level
 // and read-only: `Authorization: Bearer mf_...`. Only the SHA-256
@@ -8,15 +8,25 @@ import { hashToken, isApiKeyFormat, rateLimit } from "@metricflock/shared";
 // requests/minute. Keys act with organization-wide read scope (they
 // are created by SUPER_ADMINs); the synthetic user below mirrors
 // that scope for the shared loaders.
+// A-SEC-09: keys may carry an optional `expiresAt` (null = never
+// expires) and per-key `scopes` (empty = legacy full v1 access).
+// `requireApiKey` enforces both: an expired key is rejected with
+// 401, and a key whose scopes omit the route's required scope is
+// rejected with 403 `insufficient_scope`.
 export type ApiKeyAuth = {
   organizationId: string;
   keyId: string;
+  scopes: ApiKeyScope[];
+  expiresAt: Date | null;
   user: { id: string; organizationId: string; role: string };
 };
 
 const API_RATE_LIMIT = 120;
 
-export async function requireApiKey(req: NextRequest): Promise<ApiKeyAuth | { error: NextResponse }> {
+export async function requireApiKey(
+  req: NextRequest,
+  requiredScope?: ApiKeyScope,
+): Promise<ApiKeyAuth | { error: NextResponse }> {
   const header = req.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token || !isApiKeyFormat(token))
@@ -26,11 +36,23 @@ export async function requireApiKey(req: NextRequest): Promise<ApiKeyAuth | { er
 
   const key = await prisma.apiKey.findUnique({
     where: { keyHash: hashToken(token) },
-    select: { id: true, organizationId: true, createdById: true, revokedAt: true },
+    select: { id: true, organizationId: true, createdById: true, revokedAt: true, expiresAt: true, scopes: true },
   });
   if (!key || key.revokedAt)
     return {
       error: NextResponse.json({ error: "unauthorized", message: "Invalid or revoked API key." }, { status: 401 }),
+    };
+  if (key.expiresAt && key.expiresAt.getTime() <= Date.now())
+    return {
+      error: NextResponse.json({ error: "unauthorized", message: "API key has expired." }, { status: 401 }),
+    };
+  const scopes = (key.scopes ?? []) as ApiKeyScope[];
+  if (requiredScope && scopes.length > 0 && !scopes.includes(requiredScope))
+    return {
+      error: NextResponse.json(
+        { error: "insufficient_scope", message: `API key lacks the ${requiredScope} scope.` },
+        { status: 403 },
+      ),
     };
 
   const limit = await rateLimit(`apikey:${key.id}`, API_RATE_LIMIT, 60_000);
@@ -48,6 +70,8 @@ export async function requireApiKey(req: NextRequest): Promise<ApiKeyAuth | { er
   return {
     organizationId: key.organizationId,
     keyId: key.id,
+    scopes,
+    expiresAt: key.expiresAt ?? null,
     user: { id: key.createdById, organizationId: key.organizationId, role: "SUPER_ADMIN" },
   };
 }
