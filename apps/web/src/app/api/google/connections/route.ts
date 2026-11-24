@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth, connectionVisibilityWhere } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { providersMissingScopes } from "@metricflock/google/oauth";
 import { adManagerEnabled } from "@metricflock/google/ad-manager";
 import { parsePagination } from "@/lib/pagination";
-export async function GET(req: NextRequest) {
+async function get(req: NextRequest) {
   const auth = await requireApiAuth("google.connection.view", { req });
   if ("error" in auth) return auth.error;
   const { user } = auth;
@@ -43,3 +44,5 @@ export async function GET(req: NextRequest) {
   });
   return NextResponse.json({ connections, pagination: { total, limit, offset } });
 }
+
+export const GET = withApiErrors("google/connections", get);

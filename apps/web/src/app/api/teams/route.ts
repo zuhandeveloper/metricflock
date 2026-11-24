@@ -5,7 +5,7 @@ import { prisma } from "@metricflock/db";
 import { teamCreateSchema, clientIpFromHeaders } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 import { parsePagination } from "@/lib/pagination";
-export async function GET(req: NextRequest) {
+async function get(req: NextRequest) {
   const auth = await requireApiAuth("team.view", { req });
   if ("error" in auth) return auth.error;
   const { limit, offset } = parsePagination(req);
@@ -22,6 +22,9 @@ export async function GET(req: NextRequest) {
   ]);
   return NextResponse.json({ teams, pagination: { total, limit, offset } });
 }
+
+export const GET = withApiErrors("teams", get);
+
 async function post(req: NextRequest) {
   const auth = await requireApiAuth("team.manage", { req });
   if ("error" in auth) return auth.error;
@@ -38,7 +41,7 @@ async function post(req: NextRequest) {
     entityType: "Team",
     entityId: team.id,
     details: { name: team.name },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a created team into a 500.
   return NextResponse.json({ team }, { status: 201 });
 }
 

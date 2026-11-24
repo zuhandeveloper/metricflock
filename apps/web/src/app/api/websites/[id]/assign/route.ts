@@ -38,7 +38,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     entityType: "Website",
     entityId: id,
     details: { userId: target.id },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn an assignment into a 500.
   await invalidateWebsiteCache(auth.user.organizationId, id);
   await invalidateWebsiteSnapshots(id);
   return NextResponse.json({ status: "ok" });

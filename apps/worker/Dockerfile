@@ -16,8 +16,12 @@ FROM node:26-slim
 
 WORKDIR /app
 
-# pnpm (matches the repo's packageManager field). Node 25+ ships without
-# corepack, so install pnpm directly with npm instead.
+# Build-time placeholder so `prisma generate` (run by the root
+# postinstall) can load prisma.config.ts, which requires DATABASE_URL.
+# Nothing connects at build time; the host's real DATABASE_URL replaces
+# this at runtime. Node 25+ ships without corepack, so install pnpm
+# directly with npm instead.
+ENV DATABASE_URL="postgresql://user:pass@127.0.0.1:1/db?sslmode=disable"
 RUN npm install -g pnpm@12.21.0
 
 # Whole repo (see .dockerignore: node_modules, .next, .turbo, .git, .env

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@metricflock/auth";
 import { assertWebsiteAccess } from "@metricflock/auth";
 import { analyticsQuerySchema } from "@metricflock/shared";
+import { withApiErrors, apiError, requestIdOf } from "./api-error";
 import { analyticsEnvelope, notConnectedEnvelope, missingDataEnvelope, resolveRange } from "./analytics-response";
 import {
   buildCacheKey,
@@ -69,29 +70,39 @@ export function classifyAnalyticsError(e: unknown): string {
   return "google_api_error";
 }
 
+/** Options for the shared analytics pipeline. */
+export type AnalyticsRequestOpts = {
+  permission: Permission;
+  provider: "GA4" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER";
+  source: string;
+  report: string;
+  cacheTtlSeconds: number;
+  csv?: (data: unknown) => string;
+  fetchFn: (ctx: AnalyticsFetchContext) => Promise<unknown>;
+};
+
 /** Shared analytics pipeline: auth -> permission -> website access -> connection
  *  resolution -> primary mapping -> cache -> real Google call -> envelope.
- *  Never invents metrics; missing connection/property returns an explicit status. */
-export async function handleAnalyticsRequest(
-  req: NextRequest,
-  opts: {
-    permission: Permission;
-    provider: "GA4" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER";
-    source: string;
-    report: string;
-    cacheTtlSeconds: number;
-    csv?: (data: unknown) => string;
-    fetchFn: (ctx: AnalyticsFetchContext) => Promise<unknown>;
-  },
-): Promise<NextResponse> {
+ *  Never invents metrics; missing connection/property returns an explicit status.
+ *  A-API-02: the pipeline is wrapped in `withApiErrors` so a throw in
+ *  connection resolution (or anywhere else) returns the contract error
+ *  instead of a framework 500. */
+export async function handleAnalyticsRequest(req: NextRequest, opts: AnalyticsRequestOpts): Promise<NextResponse> {
+  return withApiErrors<[NextRequest], NextResponse>(`analytics:${opts.report}`, () =>
+    handleAnalyticsRequestInner(req, opts),
+  )(req);
+}
+
+/** Inner pipeline (unwrapped so the wrapper above owns the error contract). */
+async function handleAnalyticsRequestInner(req: NextRequest, opts: AnalyticsRequestOpts): Promise<NextResponse> {
+  const requestId = requestIdOf(req);
   // A-SEC-07: the nine analytics routes are the cheapest Google-quota
   // burn vector — strict per-user-per-route limit (20/min) before any
   // provider call is attempted.
   const auth = await requireApiAuth(opts.permission, { req, rateLimit: "strict" });
   if ("error" in auth) return auth.error;
   const parsed = analyticsQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams.entries()));
-  if (!parsed.success)
-    return NextResponse.json({ error: "invalid_input", details: parsed.error.issues }, { status: 400 });
+  if (!parsed.success) return apiError("invalid_input", 400, parsed.error.issues, requestId);
   const { websiteId, range, startDate, endDate, format } = parsed.data;
   const { startDate: sd, endDate: ed } = resolveRange(range, startDate, endDate);
   if (!websiteId) {
@@ -129,7 +140,7 @@ export async function handleAnalyticsRequest(
     });
   }
   const website = await assertWebsiteAccess(auth.user, websiteId).catch(() => null);
-  if (!website) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
+  if (!website) return apiError("not_found_or_forbidden", 404, undefined, requestId);
   // Connection state first: an unconnected website must report not_connected
   // (the actionable state), not missing_data for the absent property mapping.
   const resolved = await resolveConnectionForWebsite(websiteId);
@@ -143,7 +154,9 @@ export async function handleAnalyticsRequest(
   } catch (e) {
     const m = e instanceof Error ? e.message : "";
     if (m === "CONNECTION_REQUIRED") return notConnectedEnvelope(websiteId);
-    return NextResponse.json({ error: m || "connection_error" }, { status: 502 });
+    // API-9: raw provider text stays server-side; the client gets the stable code.
+    createLogger("analytics").error("authorized client failed", { requestId, websiteId, error: m });
+    return apiError("connection_error", 502, undefined, requestId);
   }
   const cacheKey = buildCacheKey({
     organizationId: auth.user.organizationId,
@@ -256,7 +269,6 @@ export async function handleAnalyticsRequest(
     const quota = code === "google_quota_exceeded";
     // API-9: provider error text stays server-side; clients get a stable
     // code + requestId they can quote in a bug report.
-    const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
     createLogger("analytics").error("provider fetch failed", {
       requestId,
       report: opts.report,
@@ -293,10 +305,7 @@ export async function handleAnalyticsRequest(
         range: { startDate: sd, endDate: ed },
       });
     }
-    return NextResponse.json(
-      { error: code, requestId },
-      { status: quota ? 429 : 502, headers: { "x-request-id": requestId } },
-    );
+    return apiError(code, quota ? 429 : 502, undefined, requestId);
   } finally {
     if (redis && lockToken) {
       await redis

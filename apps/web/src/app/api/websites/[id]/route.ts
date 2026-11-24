@@ -6,7 +6,7 @@ import { assertWebsiteAccess, assertWebsiteManageAccess, assertTeamManageAccess 
 import { websiteCreateSchema, invalidateWebsiteCache, clientIpFromHeaders } from "@metricflock/shared";
 import { invalidateWebsiteSnapshots } from "@metricflock/db/snapshots";
 import { writeAudit } from "@metricflock/db/audit";
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+async function get(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("website.view", { req: _req });
   if ("error" in auth) return auth.error;
   const { id } = await ctx.params;
@@ -23,6 +23,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   });
   return NextResponse.json({ website: full });
 }
+
+export const GET = withApiErrors("websites/[id]", get);
+
 async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth("website.manage", { req });
   if ("error" in auth) return auth.error;
@@ -88,7 +91,7 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
     entityType: "Website",
     entityId: id,
     details: { domain: updated.domain },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn an updated website into a 500.
   return NextResponse.json({ website: updated });
 }
 
@@ -112,7 +115,7 @@ async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
     entityType: "Website",
     entityId: id,
     details: { domain: website.domain },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a deleted website into a 500.
   await invalidateWebsiteCache(auth.user.organizationId, id);
   await invalidateWebsiteSnapshots(id);
   return NextResponse.json({ status: "ok" });

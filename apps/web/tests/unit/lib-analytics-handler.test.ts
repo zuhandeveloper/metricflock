@@ -172,7 +172,8 @@ describe("handleAnalyticsRequest — auth, input, access", () => {
     mocks.getAuthorizedClient.mockRejectedValueOnce(new Error("token refresh exploded"));
     const err = await handleAnalyticsRequest(req("/api/analytics/overview?websiteId=w1&range=28d"), baseOpts);
     expect(err.status).toBe(502);
-    expect(await err.json()).toMatchObject({ error: "token refresh exploded" });
+    // API-9: raw provider text stays server-side; the client gets the stable code + requestId.
+    expect(await err.json()).toMatchObject({ error: "connection_error", requestId: expect.any(String) });
   });
 });
 

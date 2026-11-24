@@ -49,7 +49,7 @@ async function post(req: NextRequest) {
     entityType: "ApiKey",
     entityId: key.id,
     details: { name },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a created key into a 500.
   // Shown once — the client must store it now; it cannot be recovered.
   return NextResponse.json({ key, secret }, { status: 201 });
 }

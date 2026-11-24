@@ -149,7 +149,7 @@ describe("POST /api/websites/[id]/transfer", () => {
     mocks.transferFindFirst.mockImplementationOnce(async () => null).mockImplementationOnce(async () => null);
     const racedGone = await initiatePost(jsonReq(url, "POST", { toTeamId: "t2" }), ctx("w1"));
     expect(racedGone.status).toBe(409);
-    expect(await racedGone.json()).toEqual({ error: "transfer_in_progress" });
+    expect(await racedGone.json()).toEqual({ error: "transfer_in_progress", requestId: expect.any(String) });
     mocks.transferCreate.mockRejectedValueOnce(new Error("boom"));
     const err = await initiatePost(jsonReq(url, "POST", { toTeamId: "t2" }), ctx("w1"));
     expect(err.status).toBe(500);

@@ -65,7 +65,7 @@ async function post(req: NextRequest) {
     entityType: "Organization",
     entityId: auth.user.organizationId,
     details: { delivered },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a sent test report into a 500.
   return NextResponse.json({ ok: delivered, to: auth.user.email });
 }
 

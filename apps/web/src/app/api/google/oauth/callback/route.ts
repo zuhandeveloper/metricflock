@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { prisma } from "@metricflock/db";
 import { assertConnectionOwnerAccess, getSessionUser } from "@metricflock/auth";
 import { parseState, consumeOAuthState, getOAuthClient, getGoogleAccountProfile } from "@metricflock/google/oauth";
@@ -6,7 +7,7 @@ import { encryptToken, connectionAad, rateLimit, clientIpFromHeaders } from "@me
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateOrgCache } from "@metricflock/shared";
 import { invalidateOrgSnapshots } from "@metricflock/db/snapshots";
-export async function GET(req: NextRequest) {
+async function get(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
   const error = req.nextUrl.searchParams.get("error");
@@ -115,7 +116,7 @@ export async function GET(req: NextRequest) {
       action: "google.connection.created",
       entityType: "GoogleConnection",
       details: { ownerType: flow.ownerType, ownerId: flow.ownerId, googleAccountEmail: email },
-    });
+    }).catch(() => undefined); // A-API-04: audit failure must not turn a completed connect into a failed redirect.
     await invalidateOrgCache(user.organizationId);
     await invalidateOrgSnapshots(user.organizationId);
     return NextResponse.redirect(`${appUrl}/integrations?oauth=connected`);
@@ -123,3 +124,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${appUrl}/integrations?oauth=failed`);
   }
 }
+
+export const GET = withApiErrors("google/oauth/callback", get);

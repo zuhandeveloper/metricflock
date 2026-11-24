@@ -105,7 +105,7 @@ async function get(req: NextRequest) {
     entityType: "Organization",
     entityId: orgId,
     details: { members: members.length, websites: websites.length },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn an export into a 500.
 
   const payload = {
     exportedAt: new Date().toISOString(),

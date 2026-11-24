@@ -26,7 +26,7 @@ async function del(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
       action: "api_key.revoked",
       entityType: "ApiKey",
       entityId: id,
-    });
+    }).catch(() => undefined); // A-API-04: audit failure must not turn a revoked key into a 500.
   }
   return NextResponse.json({ ok: true });
 }

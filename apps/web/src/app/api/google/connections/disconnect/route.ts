@@ -37,7 +37,7 @@ async function post(req: NextRequest) {
     entityType: "GoogleConnection",
     entityId: conn.id,
     details: { googleAccountEmail: conn.googleAccountEmail },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a disconnected connection into a 500.
   await invalidateOrgCache(auth.user.organizationId);
   await invalidateOrgSnapshots(auth.user.organizationId);
   return NextResponse.json({ status: "ok" });

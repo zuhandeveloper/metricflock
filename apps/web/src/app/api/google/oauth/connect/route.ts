@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth, assertConnectionOwnerAccess } from "@metricflock/auth";
 import { buildAuthUrl, AD_MANAGER_SCOPES } from "@metricflock/google/oauth";
 import { adManagerEnabled } from "@metricflock/google/ad-manager";
 import { rateLimit } from "@metricflock/shared";
 import { z } from "zod";
 const q = z.object({ ownerType: z.enum(["TEAM", "WEBSITE"]), ownerId: z.string().min(1) });
-export async function GET(req: NextRequest) {
+async function get(req: NextRequest) {
   const auth = await requireApiAuth("google.connection.manage", { req });
   if ("error" in auth) return auth.error;
   // Bound connect attempts per user (OAUTH-12, Redis-backed since Stage 5),
@@ -38,3 +39,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "google_oauth_not_configured" }, { status: 503 });
   }
 }
+
+export const GET = withApiErrors("google/oauth/connect", get);

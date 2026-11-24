@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { counterSnapshot } from "@metricflock/shared";
@@ -11,8 +12,8 @@ import { getQueue, QUEUE_NAMES } from "@metricflock/jobs";
 // (sync success, DLQ depth) come from AnalyticsSyncJob rows.
 // A-SEC-01: the durable numbers are scoped to the caller's organization
 // via website — another tenant's failures must not show up here.
-export async function GET(_req: NextRequest) {
-  const auth = await requireApiAuth(undefined, { req: _req });
+async function get(req: NextRequest) {
+  const auth = await requireApiAuth(undefined, { req });
   if ("error" in auth) return auth.error;
   if (auth.user.role !== "SUPER_ADMIN") return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
@@ -75,3 +76,5 @@ export async function GET(_req: NextRequest) {
     queues,
   });
 }
+
+export const GET = withApiErrors("metrics", get);

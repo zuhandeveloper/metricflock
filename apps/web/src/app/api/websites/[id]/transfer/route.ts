@@ -65,7 +65,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     entityType: "Website",
     entityId: id,
     details: { fromTeamId: website.teamId, toTeamId: toTeam.id, transferId: transfer.id },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn an initiated transfer into a 500.
   return NextResponse.json({
     transfer,
     note: "Transfer initiated. The destination team's admin must accept it from /transfers; the website stays with the current team until the transfer completes.",

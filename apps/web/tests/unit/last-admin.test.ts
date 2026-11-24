@@ -76,7 +76,7 @@ describe("DELETE /api/members/[id]", () => {
     mocks.txCount.mockResolvedValue(1);
     const res = await DELETE(req("DELETE"), ctx);
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "last_super_admin" });
+    expect(await res.json()).toEqual({ error: "last_super_admin", requestId: expect.any(String) });
     expect(mocks.transaction).toHaveBeenCalledTimes(1);
     expect(mocks.txQueryRaw).toHaveBeenCalledTimes(1);
     expect(mocks.txCount).toHaveBeenCalledWith({
@@ -131,7 +131,7 @@ describe("PATCH /api/members/[id] (demote)", () => {
     mocks.txCount.mockResolvedValue(1);
     const res = await PATCH(req("PATCH", { role: "TEAM_MEMBER" }), ctx);
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "last_super_admin" });
+    expect(await res.json()).toEqual({ error: "last_super_admin", requestId: expect.any(String) });
     expect(mocks.txQueryRaw).toHaveBeenCalledTimes(1);
     expect(mocks.txUpdate).not.toHaveBeenCalled();
     expect(mocks.rootUserUpdate).not.toHaveBeenCalled();

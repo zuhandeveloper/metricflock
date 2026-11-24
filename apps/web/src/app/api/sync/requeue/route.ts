@@ -54,7 +54,7 @@ async function post(req: NextRequest) {
     entityType: "AnalyticsSyncJob",
     entityId: row.id,
     details: { type: row.type, websiteId: row.websiteId, queue },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a requeued job into a 500.
   return NextResponse.json({ status: "ok", jobId: row.id, queue });
 }
 

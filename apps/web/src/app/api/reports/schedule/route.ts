@@ -73,7 +73,7 @@ async function put(req: NextRequest) {
     entityType: "ReportSchedule",
     entityId: schedule.id,
     details: { enabled, dayOfWeek, hourUtc, recipientCount: recipients.length },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn an updated schedule into a 500.
   return NextResponse.json({ schedule: shape(schedule) });
 }
 

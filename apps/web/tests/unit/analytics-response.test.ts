@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyticsEnvelope, notConnectedEnvelope, missingDataEnvelope, resolveRange } from "@/lib/analytics-response";
+import { ApiError } from "@/lib/api-error";
 
 describe("analytics response envelopes", () => {
   it("builds the ok envelope with defaults", async () => {
@@ -28,7 +29,7 @@ describe("analytics response envelopes", () => {
 });
 
 describe("resolveRange", () => {
-  it("resolves presets, custom, and falls back to 28d", () => {
+  it("resolves presets and custom; rejects unknown ranges (A-API-03)", () => {
     const r28 = resolveRange("28d");
     const days = (Date.parse(r28.endDate) - Date.parse(r28.startDate)) / 86_400_000;
     expect(days).toBe(27);
@@ -36,7 +37,18 @@ describe("resolveRange", () => {
       startDate: "2026-01-01",
       endDate: "2026-01-31",
     });
-    expect(resolveRange("nonsense")).toEqual(r28);
+    // A-API-03: an unknown range is a client error (400 invalid_range),
+    // never a silent fallback to 28d — wrong-date data is worse than an error.
+    expect(() => resolveRange("nonsense")).toThrowError(ApiError);
+    try {
+      resolveRange("nonsense");
+      expect.unreachable("unknown range must throw");
+    } catch (e) {
+      expect((e as ApiError).code).toBe("invalid_range");
+      expect((e as ApiError).status).toBe(400);
+    }
+    expect(() => resolveRange("custom")).toThrowError(ApiError);
+    expect(() => resolveRange("custom", "2026-01-01")).toThrowError(ApiError);
     const today = resolveRange("today");
     expect(today.startDate).toBe(today.endDate);
     const yesterday = resolveRange("yesterday");

@@ -78,7 +78,7 @@ async function post(req: NextRequest) {
     entityType: "OrganizationInvite",
     entityId: invite.id,
     details: { email, role: invite.role },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a sent invite into a 500.
 
   // The invite URL is returned to the inviting admin so it can be shared
   // manually when SMTP is not configured (the mailer logs instead of

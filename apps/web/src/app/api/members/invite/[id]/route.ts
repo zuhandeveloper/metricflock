@@ -22,7 +22,7 @@ async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
     entityType: "OrganizationInvite",
     entityId: id,
     details: { email: invite.email },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a revoked invite into a 500.
   return NextResponse.json({ status: "ok" });
 }
 

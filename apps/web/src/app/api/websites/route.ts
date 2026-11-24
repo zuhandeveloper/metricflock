@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withApiErrors } from "@/lib/api-error";
+import { withApiErrors, apiError, requestIdOf } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { listAccessibleWebsiteIds, assertTeamManageAccess } from "@metricflock/auth";
 import { websiteCreateSchema, clientIpFromHeaders } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 import { parsePagination } from "@/lib/pagination";
-export async function GET(req: NextRequest) {
+async function get(req: NextRequest) {
   const auth = await requireApiAuth("website.view", { req });
   if ("error" in auth) return auth.error;
   const q = req.nextUrl.searchParams.get("q") ?? "";
   const status = req.nextUrl.searchParams.get("status") ?? undefined;
+  // A-API-03: an unknown status is a client error, not a 500 — Prisma
+  // rejects an invalid enum value, so validate before the query.
+  const validStatuses = ["ACTIVE", "PENDING_SETUP", "DISCONNECTED", "TRANSFER_PENDING", "SOLD", "ARCHIVED"];
+  if (status && !validStatuses.includes(status)) {
+    return apiError("invalid_status", 400, { status, valid: validStatuses }, requestIdOf(req));
+  }
   const { limit, offset } = parsePagination(req);
   const ids = await listAccessibleWebsiteIds(auth.user);
   const where: Record<string, unknown> = {
@@ -36,6 +42,9 @@ export async function GET(req: NextRequest) {
   ]);
   return NextResponse.json({ websites, pagination: { total, limit, offset } });
 }
+
+export const GET = withApiErrors("websites", get);
+
 async function post(req: NextRequest) {
   const auth = await requireApiAuth("website.manage", { req });
   if ("error" in auth) return auth.error;
@@ -81,7 +90,7 @@ async function post(req: NextRequest) {
     entityType: "Website",
     entityId: website.id,
     details: { domain: website.domain },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a created website into a 500.
   return NextResponse.json({ website }, { status: 201 });
 }
 

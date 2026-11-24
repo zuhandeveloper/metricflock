@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { auth } from "@metricflock/auth";
 import { rateLimit, clientIpFromHeaders } from "@metricflock/shared";
 import { z } from "zod";
@@ -15,7 +16,7 @@ function forwardCookies(from: Response, to: NextResponse) {
 // Thin wrapper around better-auth's email sign-in so the login page's
 // existing POST /api/auth/login contract is unchanged. better-auth verifies
 // the scrypt password hash in its Account model and sets the session cookie.
-export async function POST(req: NextRequest) {
+async function post(req: NextRequest) {
   // Trusted client IP (never the raw XFF header) + fail-closed when Redis
   // is configured but down (F-3.1): login throttling must not silently
   // degrade to per-instance buckets.
@@ -51,3 +52,5 @@ export async function POST(req: NextRequest) {
   forwardCookies(res, out);
   return out;
 }
+
+export const POST = withApiErrors("auth/login", post);

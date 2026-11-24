@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withApiErrors } from "@/lib/api-error";
 import { prisma } from "@metricflock/db";
 import { getRedis, createLogger, errMeta } from "@metricflock/shared";
 
@@ -7,7 +8,7 @@ const log = createLogger("health");
 // Readiness (Stage 8): can this instance actually serve traffic?
 // Checks the two hard dependencies. Redis is "disabled" (not a failure)
 // when REDIS_URL is unset — the app runs degraded without it by design.
-export async function GET() {
+async function get() {
   const checks: Record<string, string> = {};
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -34,3 +35,5 @@ export async function GET() {
     { status: ready ? 200 : 503 },
   );
 }
+
+export const GET = withApiErrors("health/ready", get);

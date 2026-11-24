@@ -62,7 +62,7 @@ async function post(req: NextRequest) {
     entityType: "OrganizationInvite",
     entityId: invite.id,
     details: { email: user.email, role: invite.role },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn an accepted invite into a 500.
   return NextResponse.json({ status: "ok" });
 }
 

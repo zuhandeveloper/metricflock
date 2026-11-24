@@ -66,7 +66,7 @@ async function post(req: NextRequest) {
     entityType: "Website",
     entityId: website.id,
     details: { type: body.data.type },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a triggered sync into a 500.
   return NextResponse.json({ status: "ok", queued: !!job });
 }
 

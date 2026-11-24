@@ -107,7 +107,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     entityId: id,
     // DB-10: role (isAdmin) changes are part of the audit record.
     details: { userId: target.id, isAdmin: body.data.isAdmin ?? undefined },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not fail the mutation.
   return NextResponse.json({ status: "ok" });
 }
 

@@ -147,7 +147,7 @@ async function post(req: NextRequest) {
     entityType: "Website",
     entityId: website.id,
     details: { provider: body.data.provider, externalId: body.data.externalId, connectionId: resolved.connectionId },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a mapped property into a 500.
   await invalidateWebsiteCache(auth.user.organizationId, website.id);
   await invalidateWebsiteSnapshots(website.id);
   return NextResponse.json({ integration });

@@ -41,7 +41,7 @@ async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
     entityType: "Team",
     entityId: id,
     details: { name: team.name },
-  });
+  }).catch(() => undefined); // A-API-04: audit failure must not turn a deleted team into a 500.
   return NextResponse.json({ status: "ok" });
 }
 
