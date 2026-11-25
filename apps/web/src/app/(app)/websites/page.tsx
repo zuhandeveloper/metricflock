@@ -63,7 +63,7 @@ export default async function WebsitesPage({
           <AddWebsiteForm teams={teams} />
         </Card>
       )}
-      <form className="flex gap-2">
+      <form className="flex flex-wrap gap-2">
         <label htmlFor="website-search" className="sr-only">
           Search name or domain
         </label>
@@ -101,41 +101,43 @@ export default async function WebsitesPage({
             hint={canManage ? "Add your first website with the form above." : "No websites are visible to you yet."}
           />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-zinc-500 dark:text-zinc-400">
-                <th scope="col" className="py-2">
-                  Website
-                </th>
-                <th scope="col">Team</th>
-                <th scope="col">Status</th>
-                <th scope="col">Integrations</th>
-                <th scope="col"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {websites.map((w) => (
-                <tr key={w.id} className="border-t border-zinc-100 dark:border-zinc-800">
-                  <td className="py-2 font-medium">
-                    {w.name}
-                    <span className="block text-xs text-zinc-500 dark:text-zinc-400">{w.domain}</span>
-                  </td>
-                  <td>{w.team?.name ?? "—"}</td>
-                  <td>
-                    <Badge tone={w.status === "ACTIVE" ? "green" : w.status === "PENDING_SETUP" ? "amber" : "zinc"}>
-                      {w.status}
-                    </Badge>
-                  </td>
-                  <td>{w.integrations.map((i) => `${i.provider}:${i.mappingStatus}`).join(", ") || "none"}</td>
-                  <td className="text-right">
-                    <Link href={`/websites/${w.id}`} className="text-blue-600 hover:underline dark:text-blue-400">
-                      Open →
-                    </Link>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-zinc-500 dark:text-zinc-400">
+                  <th scope="col" className="py-2">
+                    Website
+                  </th>
+                  <th scope="col">Team</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Integrations</th>
+                  <th scope="col"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {websites.map((w) => (
+                  <tr key={w.id} className="border-t border-zinc-100 dark:border-zinc-800">
+                    <td className="py-2 font-medium">
+                      {w.name}
+                      <span className="block text-xs text-zinc-500 dark:text-zinc-400">{w.domain}</span>
+                    </td>
+                    <td>{w.team?.name ?? "—"}</td>
+                    <td>
+                      <Badge tone={w.status === "ACTIVE" ? "green" : w.status === "PENDING_SETUP" ? "amber" : "zinc"}>
+                        {w.status}
+                      </Badge>
+                    </td>
+                    <td>{w.integrations.map((i) => `${i.provider}:${i.mappingStatus}`).join(", ") || "none"}</td>
+                    <td className="text-right">
+                      <Link href={`/websites/${w.id}`} className="text-blue-600 hover:underline dark:text-blue-400">
+                        Open →
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {totalPages > 1 && (
           <nav aria-label="Websites pagination" className="mt-3 flex items-center justify-between text-sm">

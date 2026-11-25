@@ -42,61 +42,63 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
           />
         ) : (
           <>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-zinc-500 dark:text-zinc-400">
-                  <th scope="col" className="py-1 font-medium">
-                    Website
-                  </th>
-                  <th scope="col" className="py-1 font-medium">
-                    Provider
-                  </th>
-                  <th scope="col" className="py-1 font-medium">
-                    State
-                  </th>
-                  <th scope="col" className="py-1 font-medium">
-                    Last success
-                  </th>
-                  <th scope="col" className="py-1 font-medium">
-                    Last checked
-                  </th>
-                  <th scope="col" className="py-1 font-medium">
-                    Last error
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={`${r.websiteId}-${r.provider}`} className="border-t border-zinc-200 dark:border-zinc-800">
-                    <td className="py-1">
-                      <Link
-                        href={`/websites/${r.websiteId}`}
-                        className="text-blue-600 hover:underline dark:text-blue-400"
-                      >
-                        {r.websiteName}
-                      </Link>{" "}
-                      <span className="text-zinc-500 dark:text-zinc-400">{r.domain}</span>
-                    </td>
-                    <td className="py-1">{r.provider}</td>
-                    <td className="py-1">
-                      <Badge tone={tone(r.state)}>{r.state}</Badge>
-                    </td>
-                    <td className="py-1 text-zinc-500 dark:text-zinc-400">
-                      {r.lastSuccessAt?.slice(0, 16).replace("T", " ") ?? "—"}
-                    </td>
-                    <td className="py-1 text-zinc-500 dark:text-zinc-400">
-                      {r.checkedAt.slice(0, 16).replace("T", " ")}
-                    </td>
-                    <td
-                      className="max-w-xs truncate py-1 text-zinc-500 dark:text-zinc-400"
-                      title={r.lastError ?? undefined}
-                    >
-                      {r.lastError ?? "—"}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-zinc-500 dark:text-zinc-400">
+                    <th scope="col" className="py-1 font-medium">
+                      Website
+                    </th>
+                    <th scope="col" className="py-1 font-medium">
+                      Provider
+                    </th>
+                    <th scope="col" className="py-1 font-medium">
+                      State
+                    </th>
+                    <th scope="col" className="py-1 font-medium">
+                      Last success
+                    </th>
+                    <th scope="col" className="py-1 font-medium">
+                      Last checked
+                    </th>
+                    <th scope="col" className="py-1 font-medium">
+                      Last error
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={`${r.websiteId}-${r.provider}`} className="border-t border-zinc-200 dark:border-zinc-800">
+                      <td className="py-1">
+                        <Link
+                          href={`/websites/${r.websiteId}`}
+                          className="text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                          {r.websiteName}
+                        </Link>{" "}
+                        <span className="text-zinc-500 dark:text-zinc-400">{r.domain}</span>
+                      </td>
+                      <td className="py-1">{r.provider}</td>
+                      <td className="py-1">
+                        <Badge tone={tone(r.state)}>{r.state}</Badge>
+                      </td>
+                      <td className="py-1 text-zinc-500 dark:text-zinc-400">
+                        {r.lastSuccessAt?.slice(0, 16).replace("T", " ") ?? "—"}
+                      </td>
+                      <td className="py-1 text-zinc-500 dark:text-zinc-400">
+                        {r.checkedAt.slice(0, 16).replace("T", " ")}
+                      </td>
+                      <td
+                        className="max-w-xs truncate py-1 text-zinc-500 dark:text-zinc-400"
+                        title={r.lastError ?? undefined}
+                      >
+                        {r.lastError ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {pageCount > 1 && (
               <div className="mt-4 flex items-center gap-3 text-sm">
                 {page > 1 && (

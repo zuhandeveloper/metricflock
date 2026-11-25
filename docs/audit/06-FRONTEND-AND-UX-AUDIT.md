@@ -216,7 +216,7 @@ typecheck` — exit 0. Neither covers browser behaviour.
 - **Regression test:** e2e/unit test stubbing 429 and 500 responses and
   asserting distinct messages.
 
-### A-FE-06 — P3 — POTENTIAL — Wide tables have no horizontal-scroll container (mobile overflow risk)
+### A-FE-06 — P3 — POTENTIAL — Wide tables have no horizontal-scroll container (mobile overflow risk) · FIXED 2026-11-25
 
 - **Where:** `dashboard/page.tsx`, `websites/page.tsx`,
   `health/page.tsx`, `sync/page.tsx`, `audit/page.tsx`,
@@ -239,6 +239,22 @@ typecheck` — exit 0. Neither covers browser behaviour.
 - **Regression test:** Playwright viewport test at 390 px asserting
   `document.documentElement.scrollWidth <= innerWidth` on the table
   pages (extend `journeys.spec.ts` mobile test).
+- **Verification (2026-11-25):** every wide table is now wrapped in a
+  `div.overflow-x-auto` scroll container — all 11 tables across the
+  dashboard (2), websites, health, sync (2), audit, transfers, and
+  members pages named in the finding, plus the insights and API-keys
+  tables, which were not named but have the same `table.w-full` in a
+  Card shape and the same overflow risk. A 390 px viewport now scrolls
+  the table inside its card instead of the page. The websites filter
+  form gained `flex-wrap` (`flex flex-wrap gap-2`). Table content,
+  columns, and data flow are unchanged; the dashboard metric grid and
+  MobileNav needed no change, as the finding said. Regression guard: a
+  source-scan unit test (`table-scroll-wrap.test.ts`, A-FE-04
+  precedent) asserts every `<table>` in `src/` sits inside an
+  `overflow-x-auto` wrapper and the websites filter form wraps — both
+  assertions fail on the pre-fix code (11 unwrapped tables). The
+  finding's Playwright 390 px viewport test remains a CI follow-up
+  (e2e, not run locally).
 
 ### A-FE-07 — P2 — CONFIRMED — "Sync now" reports "Queued." even when nothing will run (see A-WRK-01) and shows no progress · FIXED 2026-11-24
 

@@ -159,69 +159,71 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
       {initial.length === 0 ? (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">No API keys yet.</p>
       ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-zinc-500 dark:text-zinc-400">
-              <th scope="col" className="py-1 pr-2">
-                Name
-              </th>
-              <th scope="col" className="py-1 pr-2">
-                Key
-              </th>
-              <th scope="col" className="py-1 pr-2">
-                Created
-              </th>
-              <th scope="col" className="py-1 pr-2">
-                Last used
-              </th>
-              <th scope="col" className="py-1 pr-2">
-                Expires
-              </th>
-              <th scope="col" className="py-1 pr-2">
-                Scopes
-              </th>
-              <th scope="col" className="py-1 pr-2">
-                Status
-              </th>
-              <th scope="col" className="py-1" />
-            </tr>
-          </thead>
-          <tbody>
-            {initial.map((k) => (
-              <tr key={k.id} className="border-t border-zinc-100 dark:border-zinc-800">
-                <td className="py-1 pr-2">{k.name}</td>
-                <td className="py-1 pr-2">
-                  <code>{k.prefix}…</code>
-                </td>
-                <td className="py-1 pr-2">{new Date(k.createdAt).toLocaleDateString()}</td>
-                <td className="py-1 pr-2">{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : "—"}</td>
-                <td className="py-1 pr-2">{k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : "Never"}</td>
-                <td className="py-1 pr-2">{k.scopes.length === 0 ? "All" : k.scopes.join(", ")}</td>
-                <td className="py-1 pr-2">
-                  {k.revokedAt ? (
-                    <Badge tone="red">Revoked</Badge>
-                  ) : isExpired(k) ? (
-                    <Badge tone="red">Expired</Badge>
-                  ) : (
-                    <Badge tone="green">Active</Badge>
-                  )}
-                </td>
-                <td className="py-1">
-                  {!k.revokedAt && !isExpired(k) && (
-                    <span className="flex gap-2">
-                      <Button onClick={() => rotate(k.id)} variant="outline" disabled={busy}>
-                        Rotate
-                      </Button>
-                      <Button onClick={() => revoke(k.id)} variant="outline" disabled={busy}>
-                        Revoke
-                      </Button>
-                    </span>
-                  )}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-zinc-500 dark:text-zinc-400">
+                <th scope="col" className="py-1 pr-2">
+                  Name
+                </th>
+                <th scope="col" className="py-1 pr-2">
+                  Key
+                </th>
+                <th scope="col" className="py-1 pr-2">
+                  Created
+                </th>
+                <th scope="col" className="py-1 pr-2">
+                  Last used
+                </th>
+                <th scope="col" className="py-1 pr-2">
+                  Expires
+                </th>
+                <th scope="col" className="py-1 pr-2">
+                  Scopes
+                </th>
+                <th scope="col" className="py-1 pr-2">
+                  Status
+                </th>
+                <th scope="col" className="py-1" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {initial.map((k) => (
+                <tr key={k.id} className="border-t border-zinc-100 dark:border-zinc-800">
+                  <td className="py-1 pr-2">{k.name}</td>
+                  <td className="py-1 pr-2">
+                    <code>{k.prefix}…</code>
+                  </td>
+                  <td className="py-1 pr-2">{new Date(k.createdAt).toLocaleDateString()}</td>
+                  <td className="py-1 pr-2">{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : "—"}</td>
+                  <td className="py-1 pr-2">{k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : "Never"}</td>
+                  <td className="py-1 pr-2">{k.scopes.length === 0 ? "All" : k.scopes.join(", ")}</td>
+                  <td className="py-1 pr-2">
+                    {k.revokedAt ? (
+                      <Badge tone="red">Revoked</Badge>
+                    ) : isExpired(k) ? (
+                      <Badge tone="red">Expired</Badge>
+                    ) : (
+                      <Badge tone="green">Active</Badge>
+                    )}
+                  </td>
+                  <td className="py-1">
+                    {!k.revokedAt && !isExpired(k) && (
+                      <span className="flex gap-2">
+                        <Button onClick={() => rotate(k.id)} variant="outline" disabled={busy}>
+                          Rotate
+                        </Button>
+                        <Button onClick={() => revoke(k.id)} variant="outline" disabled={busy}>
+                          Revoke
+                        </Button>
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

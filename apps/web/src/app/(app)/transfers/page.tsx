@@ -45,55 +45,57 @@ export default async function TransfersPage() {
             hint="Super Admins initiate transfers via POST /api/websites/[id]/transfer."
           />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-zinc-500 dark:text-zinc-400">
-                <th scope="col" className="py-2">
-                  Website
-                </th>
-                <th scope="col">From → To</th>
-                <th scope="col">Status</th>
-                <th scope="col">By</th>
-                <th scope="col">Initiated</th>
-                <th scope="col">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {transfers.map((t) => (
-                <tr key={t.id} className="border-t border-zinc-100 dark:border-zinc-800">
-                  <td className="py-2 font-medium">{t.website.name}</td>
-                  <td>
-                    {t.fromTeam?.name ?? "—"} → {t.toTeam.name}
-                  </td>
-                  <td>
-                    <Badge
-                      tone={
-                        t.status === "COMPLETED"
-                          ? "green"
-                          : t.status === "CANCELLED" || t.status === "EXPIRED" || t.status === "FAILED"
-                            ? "zinc"
-                            : "amber"
-                      }
-                    >
-                      {t.status}
-                    </Badge>
-                  </td>
-                  <td>{t.initiatedBy.email}</td>
-                  <td>{t.initiatedAt.toISOString().slice(0, 10)}</td>
-                  <td>
-                    <TransferActions
-                      transferId={t.id}
-                      status={t.status}
-                      canDestination={isSuperAdmin || adminTeamIds.has(t.toTeamId)}
-                      canCancel={isSuperAdmin || t.initiatedById === user.id}
-                    />
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-zinc-500 dark:text-zinc-400">
+                  <th scope="col" className="py-2">
+                    Website
+                  </th>
+                  <th scope="col">From → To</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">By</th>
+                  <th scope="col">Initiated</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {transfers.map((t) => (
+                  <tr key={t.id} className="border-t border-zinc-100 dark:border-zinc-800">
+                    <td className="py-2 font-medium">{t.website.name}</td>
+                    <td>
+                      {t.fromTeam?.name ?? "—"} → {t.toTeam.name}
+                    </td>
+                    <td>
+                      <Badge
+                        tone={
+                          t.status === "COMPLETED"
+                            ? "green"
+                            : t.status === "CANCELLED" || t.status === "EXPIRED" || t.status === "FAILED"
+                              ? "zinc"
+                              : "amber"
+                        }
+                      >
+                        {t.status}
+                      </Badge>
+                    </td>
+                    <td>{t.initiatedBy.email}</td>
+                    <td>{t.initiatedAt.toISOString().slice(0, 10)}</td>
+                    <td>
+                      <TransferActions
+                        transferId={t.id}
+                        status={t.status}
+                        canDestination={isSuperAdmin || adminTeamIds.has(t.toTeamId)}
+                        canCancel={isSuperAdmin || t.initiatedById === user.id}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
     </div>

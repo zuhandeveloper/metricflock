@@ -85,34 +85,36 @@ export default async function InsightsPage() {
           {w.seo && w.seo.strikingDistance.length > 0 && (
             <div className="mt-3">
               <h3 className="text-sm font-semibold">Striking-distance queries (position 4–20)</h3>
-              <table className="mt-1 w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-zinc-500 dark:text-zinc-400">
-                    <th scope="col" className="py-1 pr-2">
-                      Query
-                    </th>
-                    <th scope="col" className="py-1 pr-2">
-                      Position
-                    </th>
-                    <th scope="col" className="py-1 pr-2">
-                      Impressions
-                    </th>
-                    <th scope="col" className="py-1">
-                      CTR
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {w.seo.strikingDistance.map((q) => (
-                    <tr key={q.query} className="border-t border-zinc-100 dark:border-zinc-800">
-                      <td className="py-1 pr-2">{q.query}</td>
-                      <td className="py-1 pr-2">{fmt(q.position, 1)}</td>
-                      <td className="py-1 pr-2">{fmt(q.impressions)}</td>
-                      <td className="py-1">{pct(q.ctr)}</td>
+              <div className="overflow-x-auto">
+                <table className="mt-1 w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-zinc-500 dark:text-zinc-400">
+                      <th scope="col" className="py-1 pr-2">
+                        Query
+                      </th>
+                      <th scope="col" className="py-1 pr-2">
+                        Position
+                      </th>
+                      <th scope="col" className="py-1 pr-2">
+                        Impressions
+                      </th>
+                      <th scope="col" className="py-1">
+                        CTR
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {w.seo.strikingDistance.map((q) => (
+                      <tr key={q.query} className="border-t border-zinc-100 dark:border-zinc-800">
+                        <td className="py-1 pr-2">{q.query}</td>
+                        <td className="py-1 pr-2">{fmt(q.position, 1)}</td>
+                        <td className="py-1 pr-2">{fmt(q.impressions)}</td>
+                        <td className="py-1">{pct(q.ctr)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 

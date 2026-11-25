@@ -200,45 +200,47 @@ export default async function DashboardPage({
               <MetricCard label="Est. earnings (AdSense)" value={fmtMoney(pfAds.totals?.ESTIMATED_EARNINGS)} />
             </div>
             {topBySessions.length > 0 && (
-              <table className="mt-4 w-full text-sm">
-                <thead>
-                  <tr className="text-left text-zinc-500 dark:text-zinc-400">
-                    <th scope="col" className="py-1 font-medium">
-                      Top websites by sessions
-                    </th>
-                    <th scope="col" className="py-1 text-right font-medium">
-                      Sessions
-                    </th>
-                    <th scope="col" className="py-1 text-right font-medium">
-                      Snapshot
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topBySessions.map((w) => (
-                    <tr key={w.websiteId} className="border-t border-zinc-200 dark:border-zinc-800">
-                      <td className="py-1">
-                        <Link
-                          href={`/websites/${w.websiteId}`}
-                          className="text-blue-600 hover:underline dark:text-blue-400"
-                        >
-                          {w.name}
-                        </Link>{" "}
-                        <span className="text-zinc-500 dark:text-zinc-400">{w.domain}</span>
-                        {w.stale && (
-                          <Badge>
-                            <span>stale</span>
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="py-1 text-right">{fmtNum(w.sessions)}</td>
-                      <td className="py-1 text-right text-zinc-500 dark:text-zinc-400">
-                        {w.snapshotUpdatedAt.slice(0, 10)}
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="mt-4 w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-zinc-500 dark:text-zinc-400">
+                      <th scope="col" className="py-1 font-medium">
+                        Top websites by sessions
+                      </th>
+                      <th scope="col" className="py-1 text-right font-medium">
+                        Sessions
+                      </th>
+                      <th scope="col" className="py-1 text-right font-medium">
+                        Snapshot
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {topBySessions.map((w) => (
+                      <tr key={w.websiteId} className="border-t border-zinc-200 dark:border-zinc-800">
+                        <td className="py-1">
+                          <Link
+                            href={`/websites/${w.websiteId}`}
+                            className="text-blue-600 hover:underline dark:text-blue-400"
+                          >
+                            {w.name}
+                          </Link>{" "}
+                          <span className="text-zinc-500 dark:text-zinc-400">{w.domain}</span>
+                          {w.stale && (
+                            <Badge>
+                              <span>stale</span>
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="py-1 text-right">{fmtNum(w.sessions)}</td>
+                        <td className="py-1 text-right text-zinc-500 dark:text-zinc-400">
+                          {w.snapshotUpdatedAt.slice(0, 10)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </>
         )}
@@ -252,48 +254,50 @@ export default async function DashboardPage({
           />
         ) : (
           <>
-            <table className="mt-3 w-full text-sm">
-              <thead>
-                <tr className="text-left text-zinc-500 dark:text-zinc-400">
-                  <th scope="col" className="py-2">
-                    Website
-                  </th>
-                  <th scope="col">Team</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Last synced</th>
-                  <th scope="col">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {websites.map((w) => (
-                  <tr key={w.id} className="border-t border-zinc-100 dark:border-zinc-800">
-                    <td className="py-2 font-medium">
-                      {w.name}
-                      <span className="block text-xs text-zinc-500 dark:text-zinc-400">{w.domain}</span>
-                    </td>
-                    <td>{w.team?.name ?? "—"}</td>
-                    <td>
-                      <Badge tone={w.status === "ACTIVE" ? "green" : w.status === "PENDING_SETUP" ? "amber" : "zinc"}>
-                        {w.status}
-                      </Badge>
-                    </td>
-                    <td className="text-zinc-500 dark:text-zinc-400">
-                      {lastSyncByWebsite.get(w.id)?.toISOString().slice(0, 16).replace("T", " ") ?? "never"}
-                    </td>
-                    <td className="text-right">
-                      <Link
-                        href={`/websites/${w.id}`}
-                        className="rounded text-blue-600 hover:underline focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none dark:text-blue-400"
-                      >
-                        Open analytics →
-                      </Link>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="mt-3 w-full text-sm">
+                <thead>
+                  <tr className="text-left text-zinc-500 dark:text-zinc-400">
+                    <th scope="col" className="py-2">
+                      Website
+                    </th>
+                    <th scope="col">Team</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Last synced</th>
+                    <th scope="col">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {websites.map((w) => (
+                    <tr key={w.id} className="border-t border-zinc-100 dark:border-zinc-800">
+                      <td className="py-2 font-medium">
+                        {w.name}
+                        <span className="block text-xs text-zinc-500 dark:text-zinc-400">{w.domain}</span>
+                      </td>
+                      <td>{w.team?.name ?? "—"}</td>
+                      <td>
+                        <Badge tone={w.status === "ACTIVE" ? "green" : w.status === "PENDING_SETUP" ? "amber" : "zinc"}>
+                          {w.status}
+                        </Badge>
+                      </td>
+                      <td className="text-zinc-500 dark:text-zinc-400">
+                        {lastSyncByWebsite.get(w.id)?.toISOString().slice(0, 16).replace("T", " ") ?? "never"}
+                      </td>
+                      <td className="text-right">
+                        <Link
+                          href={`/websites/${w.id}`}
+                          className="rounded text-blue-600 hover:underline focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none dark:text-blue-400"
+                        >
+                          Open analytics →
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {totalPages > 1 && (
               <nav aria-label="Websites pagination" className="mt-3 flex items-center justify-between text-sm">
                 <span className="text-zinc-500 dark:text-zinc-400">

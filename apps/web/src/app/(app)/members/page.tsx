@@ -51,44 +51,46 @@ export default async function MembersPage() {
       )}
       <Card className="p-4">
         <h2 className="font-semibold">Organization members</h2>
-        <table className="mt-2 w-full text-sm">
-          <thead>
-            <tr className="text-left text-zinc-500 dark:text-zinc-400">
-              <th scope="col" className="py-2">
-                Member
-              </th>
-              <th scope="col">Role</th>
-              <th scope="col">Joined</th>
-            </tr>
-          </thead>
-          <tbody>
-            {members.map((m) => (
-              <tr key={m.id} className="border-t border-zinc-100 dark:border-zinc-800">
-                <td className="py-2">
-                  {m.name}
-                  <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                    {m.email}
-                    {m.id === user.id ? " (you)" : ""}
-                    {m.emailVerified ? "" : " · unverified"}
-                  </span>
-                </td>
-                <td>
-                  {canManage && m.id !== user.id ? (
-                    <span className="inline-flex flex-wrap items-center gap-2">
-                      <RoleSelect memberId={m.id} role={m.role} canGrantSuperAdmin={user.role === "SUPER_ADMIN"} />
-                      <DeleteMemberButton memberId={m.id} memberEmail={m.email} />
-                    </span>
-                  ) : (
-                    <Badge tone={m.role === "SUPER_ADMIN" ? "blue" : m.role === "TEAM_ADMIN" ? "green" : "zinc"}>
-                      {m.role}
-                    </Badge>
-                  )}
-                </td>
-                <td className="text-xs text-zinc-500 dark:text-zinc-400">{m.createdAt.toISOString().slice(0, 10)}</td>
+        <div className="overflow-x-auto">
+          <table className="mt-2 w-full text-sm">
+            <thead>
+              <tr className="text-left text-zinc-500 dark:text-zinc-400">
+                <th scope="col" className="py-2">
+                  Member
+                </th>
+                <th scope="col">Role</th>
+                <th scope="col">Joined</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {members.map((m) => (
+                <tr key={m.id} className="border-t border-zinc-100 dark:border-zinc-800">
+                  <td className="py-2">
+                    {m.name}
+                    <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+                      {m.email}
+                      {m.id === user.id ? " (you)" : ""}
+                      {m.emailVerified ? "" : " · unverified"}
+                    </span>
+                  </td>
+                  <td>
+                    {canManage && m.id !== user.id ? (
+                      <span className="inline-flex flex-wrap items-center gap-2">
+                        <RoleSelect memberId={m.id} role={m.role} canGrantSuperAdmin={user.role === "SUPER_ADMIN"} />
+                        <DeleteMemberButton memberId={m.id} memberEmail={m.email} />
+                      </span>
+                    ) : (
+                      <Badge tone={m.role === "SUPER_ADMIN" ? "blue" : m.role === "TEAM_ADMIN" ? "green" : "zinc"}>
+                        {m.role}
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="text-xs text-zinc-500 dark:text-zinc-400">{m.createdAt.toISOString().slice(0, 10)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Card>
       {canManage && (
         <Card className="p-4">
