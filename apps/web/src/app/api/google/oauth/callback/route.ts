@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withApiErrors } from "@/lib/api-error";
+import { withApiErrors, requestIdOf } from "@/lib/api-error";
 import { prisma } from "@metricflock/db";
 import { assertConnectionOwnerAccess, getSessionUser } from "@metricflock/auth";
 import { parseState, consumeOAuthState, getOAuthClient, getGoogleAccountProfile } from "@metricflock/google/oauth";
-import { encryptToken, connectionAad, rateLimit, clientIpFromHeaders } from "@metricflock/shared";
+import {
+  encryptToken,
+  connectionAad,
+  rateLimit,
+  clientIpFromHeaders,
+  createLogger,
+  errMeta,
+} from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
 import { invalidateOrgCache } from "@metricflock/shared";
 import { invalidateOrgSnapshots } from "@metricflock/db/snapshots";
+
+const log = createLogger("google-oauth-callback");
+
 async function get(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
@@ -36,6 +46,11 @@ async function get(req: NextRequest) {
   const sessionUser = await getSessionUser();
   if (!sessionUser) return NextResponse.redirect(`${appUrl}/integrations?oauth=login_required`);
   if (sessionUser.id !== flow.userId) return NextResponse.redirect(`${appUrl}/integrations?oauth=session_mismatch`);
+  const requestId = requestIdOf(req);
+  // A-GGL-17: track which step failed so the catch can log a classified
+  // error and redirect with a distinct reason (token-exchange vs profile
+  // vs connection-store failures used to be indistinguishable).
+  let stage: "token_exchange" | "profile" | "connection_store" = "token_exchange";
   try {
     const client = getOAuthClient();
     const { tokens } = await client.getToken({ code, codeVerifier: flow.codeVerifier });
@@ -44,8 +59,20 @@ async function get(req: NextRequest) {
       // re-authorize with consent rather than storing an unusable connection.
       return NextResponse.redirect(`${appUrl}/integrations?oauth=no_refresh_token`);
     }
+    const scopes = tokens.scope?.split(" ").filter(Boolean) ?? [];
+    if (scopes.length === 0) {
+      // A-GGL-17: Google returned no granted scopes. Storing this as an
+      // ACTIVE connection with scopes: [] would look healthy in the UI
+      // until the first fetch throws SCOPE_MISSING (A-GGL-04/15). Reject
+      // instead (same policy as no_refresh_token above) so the user
+      // re-authorizes and grants the requested scopes; an existing
+      // connection is left untouched rather than downgraded.
+      return NextResponse.redirect(`${appUrl}/integrations?oauth=scope_missing`);
+    }
     client.setCredentials(tokens);
+    stage = "profile";
     const me = await getGoogleAccountProfile(client);
+    stage = "connection_store";
     const user = await prisma.user.findUnique({ where: { id: flow.userId } });
     if (!user) return NextResponse.redirect(`${appUrl}/integrations?oauth=user_not_found`);
     // Explicit organization binding (F-2.2): the flow was started in one
@@ -87,7 +114,7 @@ async function get(req: NextRequest) {
         encryptedAccessToken: tokens.access_token ? encryptToken(tokens.access_token, aad) : null,
         tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
         googleAccountId: me.id,
-        scopes: tokens.scope ? tokens.scope.split(" ") : [],
+        scopes,
         status: "ACTIVE",
         lastSuccessfulAuthAt: new Date(),
         lastUsedAt: new Date(),
@@ -102,7 +129,7 @@ async function get(req: NextRequest) {
         encryptedRefreshToken: encryptToken(tokens.refresh_token, aad),
         encryptedAccessToken: tokens.access_token ? encryptToken(tokens.access_token, aad) : null,
         tokenExpiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-        scopes: tokens.scope ? tokens.scope.split(" ") : [],
+        scopes,
         status: "ACTIVE",
         createdById: user.id,
         lastSuccessfulAuthAt: new Date(),
@@ -120,8 +147,27 @@ async function get(req: NextRequest) {
     await invalidateOrgCache(user.organizationId);
     await invalidateOrgSnapshots(user.organizationId);
     return NextResponse.redirect(`${appUrl}/integrations?oauth=connected`);
-  } catch {
-    return NextResponse.redirect(`${appUrl}/integrations?oauth=failed`);
+  } catch (err) {
+    // A-GGL-17: log the classified failure server-side (stage + requestId
+    // + connection context; errMeta secret-redacts the error and the
+    // token is never logged) and redirect with a distinct reason so the
+    // failure is debuggable from logs and from the URL.
+    log.error("google oauth callback failed", {
+      requestId,
+      stage,
+      organizationId: flow.organizationId,
+      userId: flow.userId,
+      ownerType: flow.ownerType,
+      ownerId: flow.ownerId,
+      ...errMeta(err),
+    });
+    const reason =
+      stage === "token_exchange"
+        ? "token_exchange_failed"
+        : stage === "profile"
+          ? "profile_failed"
+          : "connection_failed";
+    return NextResponse.redirect(`${appUrl}/integrations?oauth=${reason}`);
   }
 }
 

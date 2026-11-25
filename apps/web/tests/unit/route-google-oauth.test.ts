@@ -177,7 +177,7 @@ describe("GET /api/google/oauth/callback", () => {
     mocks.getSessionUser.mockResolvedValueOnce({ ...admin, id: "u2" });
     expect(location(await callbackGet(new NextRequest(`${base}?code=c&state=s`)))).toContain("oauth=session_mismatch");
   });
-  it("no refresh token → oauth=no_refresh_token; token exchange failure → oauth=failed", async () => {
+  it("no refresh token → oauth=no_refresh_token; token exchange failure → oauth=token_exchange_failed + server log (A-GGL-17)", async () => {
     mocks.getOAuthClient.mockReturnValueOnce({
       getToken: vi.fn().mockResolvedValue({ tokens: { access_token: "at" } }),
       setCredentials: vi.fn(),
@@ -187,7 +187,27 @@ describe("GET /api/google/oauth/callback", () => {
       getToken: vi.fn().mockRejectedValue(new Error("exchange failed")),
       setCredentials: vi.fn(),
     });
-    expect(location(await callbackGet(new NextRequest(`${base}?code=c&state=s`)))).toContain("oauth=failed");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(location(await callbackGet(new NextRequest(`${base}?code=c&state=s`)))).toContain(
+      "oauth=token_exchange_failed",
+    );
+    // A-GGL-17: the failure is logged server-side with the classified
+    // stage + requestId (the token is never logged).
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('"msg":"google oauth callback failed"'));
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('"stage":"token_exchange"'));
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('"requestId"'));
+    errSpy.mockRestore();
+  });
+  it("no scope in the token response → oauth=scope_missing, connection NOT stored ACTIVE with empty scopes (A-GGL-17)", async () => {
+    mocks.getOAuthClient.mockReturnValueOnce({
+      getToken: vi.fn().mockResolvedValue({
+        tokens: { refresh_token: "rt", access_token: "at", expiry_date: Date.now() + 3600_000 },
+      }),
+      setCredentials: vi.fn(),
+    });
+    const res = await callbackGet(new NextRequest(`${base}?code=c&state=s`));
+    expect(location(res)).toContain("oauth=scope_missing");
+    expect(mocks.connUpsert).not.toHaveBeenCalled();
   });
   it("user gone → oauth=user_not_found; org moved → oauth=org_mismatch; owner revoked → oauth=forbidden", async () => {
     mocks.userFindUnique.mockResolvedValueOnce(null);

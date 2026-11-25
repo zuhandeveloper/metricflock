@@ -96,6 +96,10 @@ export default async function IntegrationsPage({
           OAuth result: <strong>{oauth}</strong>
           {oauth === "no_refresh_token" &&
             " — Google did not return a refresh token. Re-authorize with the consent prompt."}
+          {oauth === "scope_missing" &&
+            " — Google returned no granted scopes, so the connection was not saved. Re-authorize and grant all requested scopes."}
+          {(oauth === "token_exchange_failed" || oauth === "profile_failed" || oauth === "connection_failed") &&
+            " — the connection could not be completed. Try connecting again."}
           {oauth === "connected" && " — account connected. Discover properties, then map them to websites."}
         </Card>
       )}
