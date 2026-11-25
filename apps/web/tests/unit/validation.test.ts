@@ -51,16 +51,18 @@ describe("parseStrictDate / isValidCalendarDate (A-GGL-08)", () => {
 });
 
 // Stage 2 regression tests (audit API-11, DB-7/API-7 request contract).
-describe("websiteCreateSchema status (API-11)", () => {
+// A-FE-09: SOLD became client-settable (no server-side sale flow exists,
+// so the edit-website select is the only path to it); TRANSFER_PENDING
+// stays transfer-flow-owned and rejected.
+describe("websiteCreateSchema status (API-11, A-FE-09)", () => {
   const base = { name: "Site", domain: "example.com", url: "https://example.com" };
   it("accepts client-settable statuses", () => {
-    for (const status of ["ACTIVE", "PENDING_SETUP", "DISCONNECTED", "ARCHIVED"] as const) {
+    for (const status of ["ACTIVE", "PENDING_SETUP", "DISCONNECTED", "SOLD", "ARCHIVED"] as const) {
       expect(websiteCreateSchema.safeParse({ ...base, status }).success).toBe(true);
     }
   });
-  it("rejects server-managed statuses TRANSFER_PENDING and SOLD", () => {
+  it("rejects the transfer-flow-owned status TRANSFER_PENDING", () => {
     expect(websiteCreateSchema.safeParse({ ...base, status: "TRANSFER_PENDING" }).success).toBe(false);
-    expect(websiteCreateSchema.safeParse({ ...base, status: "SOLD" }).success).toBe(false);
   });
 });
 

@@ -46,10 +46,12 @@ export const websiteCreateSchema = z.object({
   url: z.string().url(),
   description: z.string().max(2000).optional(),
   teamId: z.string().optional(),
-  // Client-settable statuses only. TRANSFER_PENDING and SOLD are
-  // server-managed (transfer workflow / sale flow) and must not be set
-  // directly through create/update (audit API-11).
-  status: z.enum(["ACTIVE", "PENDING_SETUP", "DISCONNECTED", "ARCHIVED"]).optional(),
+  // Client-settable statuses only. TRANSFER_PENDING is owned by the
+  // transfer workflow and must not be set directly through
+  // create/update (audit API-11). SOLD is client-settable (A-FE-09):
+  // no server-side sale flow exists, so the edit-website status select
+  // is the only path to it.
+  status: z.enum(["ACTIVE", "PENDING_SETUP", "DISCONNECTED", "SOLD", "ARCHIVED"]).optional(),
   purchaseDate: z.string().optional(),
   saleDate: z.string().optional(),
   purchasePrice: z.number().nonnegative().optional(),

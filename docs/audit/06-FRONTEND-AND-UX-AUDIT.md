@@ -317,7 +317,7 @@ typecheck` — exit 0. Neither covers browser behaviour.
   CI-only, not run locally). A manual scan with a real authenticator
   app remains the real-world confirmation.
 
-### A-FE-09 — P3 — CONFIRMED — Edit-website status select omits two valid statuses
+### A-FE-09 — P3 — CONFIRMED — Edit-website status select omits two valid statuses · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/app/(app)/websites/[id]/WebsiteActions.tsx:124-130`
   (options: ACTIVE, PENDING_SETUP, DISCONNECTED, ARCHIVED) vs
@@ -334,6 +334,31 @@ TRANSFER_PENDING, SOLD, ARCHIVED`) and the filter on
   TRANSFER_PENDING is intentionally transfer-flow-only).
 - **Regression test:** e2e test asserting the status select contains the
   documented set.
+- **Verification (2026-11-25):** SOLD is now in the edit-website
+  status select (`WebsiteActions.tsx`, between DISCONNECTED and
+  ARCHIVED, matching the enum order), and — because revalidation
+  showed the write API did **not** accept it (the PATCH route parses
+  `websiteCreateSchema.partial()`, whose status enum was the four
+  client-settable values; the finding's "the API accept them" holds
+  only for the list filter) — SOLD was also added to the
+  client-settable enum in `websiteCreateSchema`
+  (`packages/shared/src/validation.ts`), so the new option does not
+  400 on submit. This partially reverses audit API-11 for SOLD only:
+  API-11's premise was a server-side sale flow, but no code path
+  writes SOLD anywhere, so the value was unreachable; the
+  edit-website select is now its only path. TRANSFER_PENDING is
+  documented as intentionally transfer-flow-only (code comments in
+  both files): the transfer workflow owns it, the schema still
+  rejects it, and the PATCH route already blocks status changes
+  during an open transfer (409 `transfer_in_progress`). Regression
+  guards: `validation.test.ts` (SOLD accepted, TRANSFER_PENDING
+  still rejected) and a `WebsiteActions.test.tsx` case asserting the
+  select lists exactly the documented set — both fail on the pre-fix
+  code (schema rejects SOLD; option absent). The finding's e2e test
+  was added as `website-status.spec.ts` (creates a website, opens
+  its detail page, asserts the select options; CI-only, not run
+  locally) and `playwright.config.ts`'s app-project `testMatch` was
+  extended to include it.
 
 ### A-FE-10 — P3 — CONFIRMED — Session revoke ignores the API response, so a failed revoke looks successful
 

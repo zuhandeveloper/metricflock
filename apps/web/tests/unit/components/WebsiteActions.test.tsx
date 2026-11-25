@@ -126,6 +126,13 @@ describe("EditWebsiteForm", () => {
     await waitFor(() => expect(screen.getByText("Saved.")).toBeInTheDocument());
     expect(JSON.parse(fetchBody(fetchMock))).not.toHaveProperty("teamId");
   });
+
+  it("A-FE-09: the status select lists the documented client-settable set (incl. SOLD, not TRANSFER_PENDING)", () => {
+    fillEditForm();
+    const select = screen.getByLabelText("Status");
+    const values = Array.from(select.querySelectorAll("option")).map((o) => o.value);
+    expect(values).toEqual(["ACTIVE", "PENDING_SETUP", "DISCONNECTED", "SOLD", "ARCHIVED"]);
+  });
 });
 
 describe("DeleteWebsiteButton", () => {

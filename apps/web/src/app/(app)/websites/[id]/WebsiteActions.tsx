@@ -98,7 +98,9 @@ export function EditWebsiteForm({
           Status
         </label>
         <select id="edit-status" value={status} onChange={(e) => setStatus(e.target.value)} className={selectCls}>
-          {["ACTIVE", "PENDING_SETUP", "DISCONNECTED", "ARCHIVED"].map((s) => (
+          {/* A-FE-09: SOLD is settable here; TRANSFER_PENDING is intentionally
+              absent — it is owned by the transfer workflow, not set directly. */}
+          {["ACTIVE", "PENDING_SETUP", "DISCONNECTED", "SOLD", "ARCHIVED"].map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
