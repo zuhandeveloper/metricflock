@@ -44,7 +44,7 @@ vi.mock("@metricflock/shared", async (importOriginal) => {
   return { ...actual, invalidateWebsiteCache: mocks.invalidateWebsiteCache };
 });
 
-import { expireIfStale } from "@/lib/transfers";
+import { expireIfStale, OPEN_TRANSFER_STATUSES } from "@/lib/transfers";
 import { POST as accept } from "@/app/api/transfers/[id]/accept/route";
 import { POST as complete } from "@/app/api/transfers/[id]/complete/route";
 import { POST as cancel } from "@/app/api/transfers/[id]/cancel/route";
@@ -198,7 +198,7 @@ describe("cancel", () => {
     const res = await cancel(postReq(), ctx);
     expect(res.status).toBe(200);
     expect(mocks.transferUpdateMany).toHaveBeenCalledWith({
-      where: { id: "t1", status: { in: ["INITIATED", "PENDING_ACCEPTANCE", "PENDING_CONNECTION"] } },
+      where: { id: "t1", status: { in: ["PENDING_ACCEPTANCE", "PENDING_CONNECTION"] } },
       data: { status: "CANCELLED" },
     });
     expect(mocks.transferUpdate).not.toHaveBeenCalled();
@@ -263,7 +263,7 @@ describe("expireIfStale", () => {
     });
     expect(out.status).toBe("EXPIRED");
     expect(mocks.transferUpdateMany).toHaveBeenCalledWith({
-      where: { id: "t1", status: { in: ["INITIATED", "PENDING_ACCEPTANCE", "PENDING_CONNECTION"] } },
+      where: { id: "t1", status: { in: ["PENDING_ACCEPTANCE", "PENDING_CONNECTION"] } },
       data: { status: "EXPIRED" },
     });
   });
@@ -276,5 +276,11 @@ describe("expireIfStale", () => {
       expiresAt: new Date(Date.now() - 1000),
     });
     expect(out.status).toBe("COMPLETED");
+  });
+});
+
+describe("OPEN_TRANSFER_STATUSES", () => {
+  it("contains only the two reachable open states (A-DB-14: INITIATED is dead)", () => {
+    expect([...OPEN_TRANSFER_STATUSES].sort()).toEqual(["PENDING_ACCEPTANCE", "PENDING_CONNECTION"]);
   });
 });

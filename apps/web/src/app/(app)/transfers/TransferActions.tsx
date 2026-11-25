@@ -27,7 +27,7 @@ export default function TransferActions({ transferId, status, canDestination, ca
     }
     router.refresh();
   }
-  const open = ["INITIATED", "PENDING_ACCEPTANCE", "PENDING_CONNECTION"].includes(status);
+  const open = ["PENDING_ACCEPTANCE", "PENDING_CONNECTION"].includes(status);
   if (!open) return null;
   return (
     <div className="flex flex-wrap items-center gap-2">

@@ -44,10 +44,8 @@ enum MappingStatus {
   ERROR
 }
 enum TransferStatus {
-  INITIATED
   PENDING_ACCEPTANCE
   PENDING_CONNECTION
-  TRANSFERRED
   COMPLETED
   CANCELLED
   FAILED
@@ -331,7 +329,7 @@ model WebsiteTransfer {
   acceptedBy    User?    @relation("TransferAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
   acceptedAt    DateTime?
   expiresAt     DateTime?
-  status        TransferStatus @default(INITIATED)
+  status        TransferStatus @default(PENDING_ACCEPTANCE)
   // A-DB-04: the website's status at initiation. `complete` restores
   // this instead of hard-coding ACTIVE. Null for transfers initiated
   // before this field existed — those fall back to ACTIVE at completion.

@@ -9,7 +9,7 @@ import type { TransferStatus, User } from "@metricflock/db";
 //   open states --expiry (7 days, lazy)--> EXPIRED
 // Nothing moves until completion: teamId, assignments and integrations
 // stay with the current team while a transfer is open.
-export const OPEN_TRANSFER_STATUSES: TransferStatus[] = ["INITIATED", "PENDING_ACCEPTANCE", "PENDING_CONNECTION"];
+export const OPEN_TRANSFER_STATUSES: TransferStatus[] = ["PENDING_ACCEPTANCE", "PENDING_CONNECTION"];
 export const TRANSFER_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function loadTransferInOrg(id: string, organizationId: string) {

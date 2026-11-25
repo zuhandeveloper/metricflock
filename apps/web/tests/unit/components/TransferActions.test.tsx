@@ -79,9 +79,9 @@ describe("TransferActions", () => {
     expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
   });
 
-  it("cancels an initiated transfer", async () => {
+  it("cancels a pending transfer", async () => {
     const fetchMock = mockFetch(null);
-    render(<TransferActions transferId="tr1" status="INITIATED" canDestination={false} canCancel={true} />);
+    render(<TransferActions transferId="tr1" status="PENDING_ACCEPTANCE" canDestination={false} canCancel={true} />);
     expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
