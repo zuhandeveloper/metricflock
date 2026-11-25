@@ -13,10 +13,11 @@ export default function DateRangePicker() {
   const params = useSearchParams();
   const current = params.get("range") ?? "28d";
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-1" role="group" aria-label="Date range">
       {RANGES.map(([value, label]) => (
         <button
           key={value}
+          aria-pressed={current === value}
           onClick={() => {
             const p = new URLSearchParams(params.toString());
             p.set("range", value);

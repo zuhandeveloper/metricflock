@@ -395,7 +395,7 @@ TRANSFER_PENDING, SOLD, ARCHIVED`) and the filter on
   `/api/auth/revoke-session`, asserts the alert and that the row
   remains, then revokes for real — CI-only).
 
-### A-FE-11 — P3 — CONFIRMED — DateRangePicker does not expose the active range to assistive tech
+### A-FE-11 — P3 — CONFIRMED — DateRangePicker does not expose the active range to assistive tech · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/components/DateRangePicker.tsx:14-34`.
 - **Evidence:** the active range is shown only by visual styling
@@ -409,6 +409,16 @@ TRANSFER_PENDING, SOLD, ARCHIVED`) and the filter on
 aria-label="Date range"`.
 - **Regression test:** axe run on the dashboard already covers the page;
   add an assertion that the active range button has `aria-pressed=true`.
+- **Verification (2026-11-25):** each range button now carries
+  `aria-pressed={current === value}` and the buttons sit in a
+  `role="group"` container labelled "Date range", so assistive tech
+  announces which range is selected; the visual styling, the
+  router-push behavior, and the preserved params are unchanged.
+  Regression guards: two new tests in `NavComponents.test.tsx` assert
+  the active button has `aria-pressed=true` (and the others `false`,
+  including the default 28d) and that the group label exists — both
+  fail on the pre-fix code (no `aria-pressed` attribute). The axe run
+  on the dashboard already covered the page and still passes.
 
 ### A-FE-12 — P3 — CONFIRMED — Theme toggle is not persisted and has no accessible state
 

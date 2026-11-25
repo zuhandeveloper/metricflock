@@ -157,6 +157,21 @@ describe("DateRangePicker", () => {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
   });
+
+  it("exposes the active range to assistive tech via aria-pressed (A-FE-11)", () => {
+    nav.searchParams = new URLSearchParams("range=90d");
+    render(<DateRangePicker />);
+    expect(screen.getByRole("button", { name: "Last 90 days" })).toHaveAttribute("aria-pressed", "true");
+    for (const label of ["Today", "Yesterday", "Last 7 days", "Last 28 days", "Last 12 months"]) {
+      expect(screen.getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "false");
+    }
+  });
+
+  it("marks the default 28d range as pressed and groups the buttons (A-FE-11)", () => {
+    render(<DateRangePicker />);
+    expect(screen.getByRole("button", { name: "Last 28 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("group", { name: "Date range" })).toBeInTheDocument();
+  });
 });
 
 describe("ThemeToggle", () => {
