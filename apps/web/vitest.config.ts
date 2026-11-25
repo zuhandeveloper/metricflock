@@ -27,6 +27,12 @@ export default defineConfig({
     // can exceed 10s when the suite runs on a constrained CPU. 30s is
     // headroom for hooks only; per-test timeouts are unchanged.
     hookTimeout: 30_000,
+    // A-PERF-04: `isolate: false` was evaluated 2026-11-25 — it cuts the
+    // suite from ~171s to ~49s, but 221 of 1,531 tests fail: with a
+    // shared module registry, per-file `vi.mock` registrations bleed
+    // across files (e.g. a null-session auth mock makes later route
+    // tests return 401). Isolation stays ON; do not re-enable without
+    // first making every file's mocks registry-safe.
     include: ["tests/unit/**/*.test.{ts,tsx}"],
     // jest-dom matchers for component tests (jsdom). Loaded for every test
     // file; it only extends expect, so node-env unit tests are unaffected.

@@ -128,7 +128,7 @@ must-revalidate` on dynamic pages, so no header change was needed.
   per-page CSP) for public pages, move `/login`'s redirect client-side,
   and/or move the theme read out of the root layout.
 
-### A-PERF-04 (P3) — Unit suite is import-bound and slow off CI (159–190s)
+### A-PERF-04 (P3) — Unit suite is import-bound and slow off CI (159–190s) · ADDRESSED 2026-11-25 (isolate:false evaluated and rejected; hookTimeout already raised by A-BASE-01)
 
 - **Evidence:** local runs: 196 tests in 159.71s / 189.79s, ~90%
   import time, 99 modules evaluated 217–246 times. Vitest itself
@@ -140,6 +140,25 @@ must-revalidate` on dynamic pages, so no header change was needed.
   for cross-test pollution — the rate-limit and cache modules hold
   module-level state) and raise `hookTimeout`.
 - **Status:** CONFIRMED.
+- **Verification (2026-11-25):** re-measured on the current suite
+  (141 files, 1,531 tests): `pnpm run test:coverage` takes 170.8s wall
+  in the sandbox. `isolate: false` was evaluated — it cuts the run to
+  48.5s (3.5×) but 221 tests in 32 files fail: with a shared module
+  registry, per-file `vi.mock` registrations bleed across files (a
+  null-session auth mock from one file makes later route tests return
+  401; the same bleed hits googleapis/bullmq/ioredis mocks and the
+  module-level state in `packages/shared` — rate-limit `buckets`,
+  metrics `counters`, the cache Redis singleton, the cached env).
+  Making every file's mocks registry-safe is a suite-wide rewrite, not
+  a minimal fix, so isolation stays ON and the evaluation is recorded
+  in a comment in `apps/web/vitest.config.ts`. The `hookTimeout` half
+  was already done by A-BASE-01 (`hookTimeout: 30_000`, 2026-11-24);
+  the slowest observable hook (the `rate-limit-failclosed` beforeAll
+  barrel re-import) costs ~1s cold here, so 30s keeps ~3× headroom over
+  the >10s constrained-CPU flake that motivated it. `testTimeout` stays
+  at the 5s default — the full suite passes with it. Unlocking the
+  speedup is a future owner decision: make mocks registry-safe file by
+  file, or split the suite into isolated/non-isolated projects.
 
 ### A-PERF-05 (P3) — No DB query-plan evidence for the hot paths
 
