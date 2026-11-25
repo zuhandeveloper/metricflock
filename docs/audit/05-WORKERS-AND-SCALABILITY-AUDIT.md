@@ -659,7 +659,7 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   clean exit code and log line (not an unhandled `error` event).
 - **Verification (2026-11-25):** the health server now has an `error` handler (`handleHealthServerError` in `apps/worker/src/index.ts`, exported for tests like the crash handlers) that logs "health server failed — exiting" with the port + sanitized error and exits 1 — an occupied port (EADDRINUSE) is a clean, logged exit instead of an unhandled `error` event crashing the process after all workers started. The unauthenticated endpoints are documented in code as private-network-only (the Docker HEALTHCHECK and the host probe need `/readyz` without credentials; `/metrics` is low-sensitivity counters); the server is deliberately NOT bound to 127.0.0.1 — the Docker HEALTHCHECK runs inside the container (loopback would work there), but Railway's healthcheck probes the service port from outside the container and a loopback-only bind would refuse it. Regression tests: new `worker-health-listen-error.test.ts` occupies the health port before importing the entry point and asserts the log line + exit 1 (fails without the fix — pre-fix the unhandled `error` event lands in the generic uncaught-exception handler), plus a direct handler test in `worker-index.test.ts` (fails without the fix — no such export).
 
-### A-WRK-20 — P3 — POTENTIAL — No `stalled` / `lockRenewalFailed` observability; `websiteId!` assertion in the processor
+### A-WRK-20 — P3 — POTENTIAL — No `stalled` / `lockRenewalFailed` observability; `websiteId!` assertion in the processor · FIXED 2026-11-25
 
 - **Where:** `apps/worker/src/index.ts:175-180` (`syncWebsite(websiteId!,
 …)`), `index.ts:255-261` (only `completed`/`failed` listeners).
@@ -682,6 +682,7 @@ lockDuration / 2`, verified in installed `worker.js:78-79` and
   missing `websiteId`.
 - **Regression test:** unit test for a sync job with no `websiteId`
   asserting a `skipped` result, not a throw.
+- **Verification (2026-11-25):** the worker now listens to `stalled` and `lockRenewalFailed` (BullMQ 6.x signatures: `stalled: (jobId, prev)`, `lockRenewalFailed: (jobIds[])`) — both increment counters (`jobs.stalled.<queue>`, `jobs.lock_renewal_failed.<queue>` by the number of affected jobs) and warn-log, so a duplicate execution after a lost lock leaves a trace; the handlers never throw and lock settings are unchanged (the 30 s default with auto-renewal was already verified fine). The `websiteId!` assertion in `runJob` is replaced by an explicit guard: all seven sync-queue cases return `{ status: "skipped", detail: "sync job without websiteId" }` when the payload has no `websiteId` (mirroring the `scheduled-report` guard), and `syncWebsite` is never called with null. Regression tests in `worker-index.test.ts`: all 7 sync queues without `websiteId` → `skipped` + `syncWebsite` never called; `stalled`/`lockRenewalFailed` handlers count + log (both fail without the fix); the pre-existing "no terminal alert when the job has no website" test was updated to the new skipped behavior (its old premise was the removed `websiteId!` path).
 
 ## Verified-correct (spot-checks that held up)
 

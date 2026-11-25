@@ -209,21 +209,26 @@ async function connectionIdForJob(data: SyncJobData): Promise<string | null> {
 
 async function runJob(name: QueueName, data: SyncJobData): Promise<SyncResult> {
   const websiteId = data.websiteId ?? null;
+  // A-WRK-20: the sync queues need a websiteId — a payload without one
+  // is skipped explicitly (mirroring the scheduled-report guard below)
+  // instead of asserting non-null and syncing against null, which only
+  // happened to degrade to no_mapping downstream.
+  const noWebsiteId: SyncResult = { status: "skipped", reports: [], detail: "sync job without websiteId" };
   switch (name) {
     case "ga4-realtime-sync":
-      return syncWebsite(websiteId!, "ga4-realtime", workerDeps);
+      return websiteId ? syncWebsite(websiteId, "ga4-realtime", workerDeps) : noWebsiteId;
     case "ga4-historical-sync":
-      return syncWebsite(websiteId!, "ga4-historical", workerDeps);
+      return websiteId ? syncWebsite(websiteId, "ga4-historical", workerDeps) : noWebsiteId;
     case "search-console-sync":
-      return syncWebsite(websiteId!, "search-console", workerDeps);
+      return websiteId ? syncWebsite(websiteId, "search-console", workerDeps) : noWebsiteId;
     case "adsense-sync":
-      return syncWebsite(websiteId!, "adsense", workerDeps);
+      return websiteId ? syncWebsite(websiteId, "adsense", workerDeps) : noWebsiteId;
     case "ad-manager-sync":
-      return syncWebsite(websiteId!, "ad-manager", workerDeps);
+      return websiteId ? syncWebsite(websiteId, "ad-manager", workerDeps) : noWebsiteId;
     case "analytics-cache-refresh":
-      return syncWebsite(websiteId!, "cache-refresh", workerDeps);
+      return websiteId ? syncWebsite(websiteId, "cache-refresh", workerDeps) : noWebsiteId;
     case "integration-health-check":
-      return syncWebsite(websiteId!, "health-check", workerDeps);
+      return websiteId ? syncWebsite(websiteId, "health-check", workerDeps) : noWebsiteId;
     case "scheduled-report":
       if (!data.organizationId) return { status: "skipped", reports: [], detail: "report job without organizationId" };
       return sendOrgReport(data.organizationId);
@@ -384,6 +389,20 @@ for (const name of QUEUE_NAMES) {
   worker.on("failed", (job, err) => {
     incr(`jobs.failed.${name}`);
     log.error("job failed", { queue: name, jobId: job?.id, error: err.message });
+  });
+  // A-WRK-20: a stalled job (lock lost mid-run — e.g. a Redis blip during
+  // lock renewal) is re-run by BullMQ after maxStalledCount, so without
+  // these listeners a duplicate execution leaves no trace. Count + log
+  // both events; the handlers run on the worker's event loop and must
+  // never throw. Lock settings are untouched (the 30 s default with
+  // auto-renewal is verified fine while the process is alive).
+  worker.on("stalled", (jobId, prev) => {
+    incr(`jobs.stalled.${name}`);
+    log.warn("job stalled — lock lost, job will be re-run", { queue: name, jobId, prev });
+  });
+  worker.on("lockRenewalFailed", (jobIds) => {
+    incr(`jobs.lock_renewal_failed.${name}`, jobIds.length);
+    log.warn("job lock renewal failed", { queue: name, jobIds });
   });
   workers.push(worker);
   log.info("worker started", { queue: name });

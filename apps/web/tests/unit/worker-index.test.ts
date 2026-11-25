@@ -597,15 +597,11 @@ describe("worker index (queue wiring and job routing)", () => {
   });
 
   it("sends no terminal alert when the job has no website or the website is gone", async () => {
-    mocks.syncWebsite.mockRejectedValue(new Error("Google 500"));
-    let caught: unknown;
-    try {
-      await runJob("ga4-realtime-sync", {}, { attemptsMade: 4 });
-    } catch (e) {
-      caught = e;
-    }
-    expect((caught as Error).message).toBe("Google 500");
-    expect(lastRowUpdate().data.status).toBe("FAILED");
+    // A-WRK-20: a sync job without websiteId is skipped before
+    // syncWebsite runs — no throw, no FAILED row, nothing to alert on.
+    const skipped = (await runJob("ga4-realtime-sync", {}, { attemptsMade: 4 })) as { status: string };
+    expect(skipped.status).toBe("skipped");
+    expect(lastRowUpdate().data.status).toBe("SUCCEEDED");
     expect(mocks.incr).not.toHaveBeenCalledWith(expect.stringContaining("terminal_failed"));
     expect(mocks.sendMail).not.toHaveBeenCalled();
 
@@ -807,6 +803,44 @@ describe("worker index (queue wiring and job routing)", () => {
     expect(mocks.logError).toHaveBeenCalledWith(
       "job failed",
       expect.objectContaining({ queue: "ga4-realtime-sync", jobId: "job-1", error: "boom" }),
+    );
+  });
+
+  it("sync queues without websiteId return skipped instead of calling syncWebsite (A-WRK-20)", async () => {
+    for (const queue of [
+      "ga4-realtime-sync",
+      "ga4-historical-sync",
+      "search-console-sync",
+      "adsense-sync",
+      "ad-manager-sync",
+      "analytics-cache-refresh",
+      "integration-health-check",
+    ]) {
+      const result = (await runJob(queue, {})) as { status: string; detail: string };
+      expect(result.status).toBe("skipped");
+      expect(result.detail).toContain("websiteId");
+    }
+    expect(mocks.syncWebsite).not.toHaveBeenCalled();
+  });
+
+  it("stalled and lockRenewalFailed events are counted and logged (A-WRK-20)", () => {
+    const worker = workerFor("ga4-realtime-sync");
+    const stalled = worker.handlers.get("stalled");
+    expect(stalled).toBeTypeOf("function");
+    stalled!("job-42", "active");
+    expect(mocks.incr).toHaveBeenCalledWith("jobs.stalled.ga4-realtime-sync");
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "job stalled — lock lost, job will be re-run",
+      expect.objectContaining({ queue: "ga4-realtime-sync", jobId: "job-42", prev: "active" }),
+    );
+
+    const lockRenewalFailed = worker.handlers.get("lockRenewalFailed");
+    expect(lockRenewalFailed).toBeTypeOf("function");
+    lockRenewalFailed!(["job-42", "job-43"]);
+    expect(mocks.incr).toHaveBeenCalledWith("jobs.lock_renewal_failed.ga4-realtime-sync", 2);
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "job lock renewal failed",
+      expect.objectContaining({ queue: "ga4-realtime-sync", jobIds: ["job-42", "job-43"] }),
     );
   });
 
