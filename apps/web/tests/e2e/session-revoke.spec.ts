@@ -10,9 +10,11 @@ import { DEMO_EMAIL, DEMO_PASSWORD, STORAGE_STATE } from "./constants";
 // to leave the account as it found it.
 test.use({ storageState: STORAGE_STATE });
 
-const OTHER_UA = "E2E-Other-Device";
-
 test("a failed session revoke shows an error and keeps the session row", async ({ page, baseURL }) => {
+  // Unique UA per invocation: on a retry, the failed attempt's second
+  // session is still listed, and a shared UA would match two rows
+  // (strict-mode violation). A per-run UA keeps the row locator exact.
+  const otherUa = `E2E-Other-Device-${Date.now()}`;
   // Playwright Test's request.newContext() inherits this test's
   // storageState (the demo session cookies) unless overridden — with a
   // Cookie header present, better-auth's origin check runs and rejects
@@ -21,7 +23,7 @@ test("a failed session revoke shows an error and keeps the session row", async (
   // skipped for this first-login-style request.
   const other = await apiRequest.newContext({
     baseURL: baseURL ?? undefined,
-    userAgent: OTHER_UA,
+    userAgent: otherUa,
     storageState: { cookies: [], origins: [] },
   });
   const signInOnce = () =>
@@ -42,7 +44,7 @@ test("a failed session revoke shows an error and keeps the session row", async (
   await other.dispose();
 
   await page.goto("/settings/security");
-  const row = page.getByRole("listitem").filter({ hasText: OTHER_UA });
+  const row = page.getByRole("listitem").filter({ hasText: otherUa });
   await expect(row).toBeVisible();
 
   // Stub the revoke endpoint to fail, then revoke: the error must be
@@ -55,7 +57,7 @@ test("a failed session revoke shows an error and keeps the session row", async (
     }),
   );
   await row.getByRole("button", { name: "Revoke" }).click();
-  await expect(page.getByRole("alert")).toHaveText(/Couldn't revoke that session/);
+  await expect(page.getByRole("alert").filter({ hasText: "Couldn't revoke that session" })).toBeVisible();
   await expect(row).toBeVisible();
 
   // Cleanup + success path: un-stub and revoke for real; the row goes.

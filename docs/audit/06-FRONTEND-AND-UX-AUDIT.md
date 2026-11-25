@@ -567,7 +567,7 @@ aria-label="Date range"`.
   guards: two new tests in `WebsiteAnalytics.test.tsx` (both fail without
   the fix).
 
-### A-FE-17 — P3 — CONFIRMED — Forgot-password always shows success, even on network/server failure
+### A-FE-17 — P3 — CONFIRMED — Forgot-password always shows success, even on network/server failure · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/app/forgot-password/ForgotPasswordForm.tsx:11-19`.
 - **Evidence:** the fetch has `.catch(() => null)` and `setSent(true)`
@@ -586,6 +586,15 @@ aria-label="Date range"`.
   enumeration-safe success.
 - **Regression test:** e2e test with the reset endpoint unreachable
   asserting an error, not the success message.
+- **Verification (2026-11-25):** transport failure (fetch rejects or
+  non-2xx) now shows a `role="alert"` "Couldn't reach the server —
+  check your connection and try again." error and keeps the form for
+  retry; better-auth's enumeration-safe 200 (including unknown emails)
+  still shows the success message unchanged. Regression: new e2e
+  `forgot-password.spec.ts` (route abort → error, no success text;
+  route 200 → success). One pre-existing unit test in
+  `AuthForms.test.tsx` pinned the old always-success behavior and is
+  updated alongside this fix to assert the error instead.
 
 ### A-FE-18 — P3 — CONFIRMED — New API-key secret has no copy button
 

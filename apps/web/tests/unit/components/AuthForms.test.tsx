@@ -105,7 +105,7 @@ describe("ForgotPasswordForm", () => {
     expect(screen.getByRole("link", { name: "Back to sign in" })).toHaveAttribute("href", "/login");
   });
 
-  it("still shows the sent state when the request itself fails (no enumeration)", async () => {
+  it("shows an error, not the sent state, when the request itself fails (A-FE-17)", async () => {
     const fetchMock = vi.fn(async () => {
       throw new Error("network down");
     });
@@ -113,7 +113,8 @@ describe("ForgotPasswordForm", () => {
     render(<ForgotPasswordForm />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send reset link" }));
-    await waitFor(() => expect(screen.getByText(/a password reset link is on its way/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/Couldn't reach the server/));
+    expect(screen.queryByText(/a password reset link is on its way/)).not.toBeInTheDocument();
   });
 });
 
