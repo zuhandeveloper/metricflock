@@ -17,6 +17,7 @@ import {
   getQueue,
   planDueSyncs,
   JOB_PRIORITY,
+  type DueSyncPlanEntry,
   type EnqueueEntry,
   type SyncProviderName,
 } from "@metricflock/jobs";
@@ -188,9 +189,21 @@ async function runTick(signal?: AbortSignal): Promise<void> {
   // the due decision is identical — rows for other websites were never
   // read. The 30-day window is unchanged (older successes are
   // equivalent to "never" for due purposes).
-  const websites: { id: string; providers: SyncProviderName[] }[] = [];
+  // A-DB-16: plan per page instead of accumulating every website into
+  // one array before planning. The last-success lookup is already
+  // scoped to the page just loaded (A-WRK-05), so the map only ever
+  // holds this page's entries and is discarded after planning; tick
+  // memory no longer grows with total website count. planDueSyncs is
+  // per-website pure (a site's due decision depends only on its own
+  // providers + last-success rows), so the union of per-page plans is
+  // identical to the single plan over all websites. Only the plan
+  // itself is accumulated — it holds due work only, and the bulk
+  // enqueue below needs the full due set for one round trip per queue
+  // (OPS-7/11); the realtime backpressure check below also reads the
+  // full plan, so it stays after the scan.
   const windowStart = new Date(now.getTime() - RETENTION_DAYS * 86_400_000);
-  const lastSucceededAt = new Map<string, Date | null>();
+  const adManager = adManagerEnabled();
+  let plan: DueSyncPlanEntry[] = [];
   let cursor: string | undefined;
   for (;;) {
     const page = await prisma.website.findMany({
@@ -201,6 +214,7 @@ async function runTick(signal?: AbortSignal): Promise<void> {
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
     const pageIds = page.map((w) => w.id);
+    const lastSucceededAt = new Map<string, Date | null>();
     if (pageIds.length > 0) {
       const lastRows = await prisma.analyticsSyncJob.groupBy({
         by: ["websiteId", "type"],
@@ -211,15 +225,16 @@ async function runTick(signal?: AbortSignal): Promise<void> {
         if (row.websiteId) lastSucceededAt.set(`${row.websiteId}:${row.type}`, row._max.updatedAt);
       }
     }
-    for (const w of page) {
-      websites.push({ id: w.id, providers: [...new Set(w.integrations.map((i) => i.provider as SyncProviderName))] });
-    }
+    const websites = page.map((w) => ({
+      id: w.id,
+      providers: [...new Set(w.integrations.map((i) => i.provider as SyncProviderName))],
+    }));
+    plan.push(...planDueSyncs({ websites, lastSucceededAt, now, adManagerEnabled: adManager }));
     if (page.length < WEBSITE_PAGE_SIZE) break;
     cursor = page[page.length - 1]!.id;
     checkAborted();
   }
   checkAborted();
-  let plan = planDueSyncs({ websites, lastSucceededAt, now, adManagerEnabled: adManagerEnabled() });
 
   // OPS-2 backpressure: if realtime is already backed up, skip this tick's
   // realtime enqueues (coalescing means the pending jobs still cover every
