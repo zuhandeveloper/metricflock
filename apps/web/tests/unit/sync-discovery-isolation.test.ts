@@ -205,6 +205,39 @@ describe("discoverConnectionProperties — per-provider isolation (A-GGL-13)", (
   });
 });
 
+describe("discoverConnectionProperties — total failure throws (A-WRK-15)", () => {
+  it("every listing throws: rejects with the first error so the job retries", async () => {
+    const { deps, discovery } = makeDeps();
+    discovery.listGa4Properties.mockRejectedValue(new Error("GA4 API disabled"));
+    discovery.listSearchConsoleSites.mockRejectedValue(new Error("Search Console API disabled"));
+    discovery.listAdSenseAccounts.mockRejectedValue(new Error("AdSense API disabled"));
+    await expect(discoverConnectionProperties("conn-1", deps)).rejects.toThrow(/GA4 API disabled/);
+  });
+
+  it("every listing throws with Ad Manager enabled: rejects", async () => {
+    const { deps, discovery, adManager } = makeDeps();
+    adManager.adManagerEnabled.mockReturnValue(true);
+    adManager.listAdManagerNetworks.mockRejectedValue(new Error("Ad Manager API disabled"));
+    discovery.listGa4Properties.mockRejectedValue(new Error("GA4 API disabled"));
+    discovery.listSearchConsoleSites.mockRejectedValue(new Error("Search Console API disabled"));
+    discovery.listAdSenseAccounts.mockRejectedValue(new Error("AdSense API disabled"));
+    await expect(discoverConnectionProperties("conn-1", deps)).rejects.toThrow(/GA4 API disabled/);
+  });
+
+  it("one listing succeeds with zero items while the others throw: resolves, no throw", async () => {
+    const { deps, discovery } = makeDeps();
+    discovery.listGa4Properties.mockRejectedValue(new Error("GA4 API disabled"));
+    discovery.listAdSenseAccounts.mockRejectedValue(new Error("AdSense API disabled"));
+    // SC listing succeeds (default stub: 0 items) — a provider WAS listed,
+    // so this is a partial result, not a total failure.
+    const counts = await discoverConnectionProperties("conn-1", deps);
+    expect(counts).toMatchObject({ ga4: 0, searchConsole: 0, adsense: 0, adManager: 0 });
+    expect(counts.errors?.ga4).toMatch(/GA4 API disabled/);
+    expect(counts.errors?.adsense).toMatch(/AdSense API disabled/);
+    expect(counts.errors?.searchConsole).toBeUndefined();
+  });
+});
+
 describe("discoverConnectionProperties — stale pruning (A-GGL-13)", () => {
   it("re-discover after removing a property at the stub prunes the stale row", async () => {
     const { deps, store, discovery } = makeDeps();

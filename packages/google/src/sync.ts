@@ -591,7 +591,12 @@ export type DiscoveryCounts = {
  *  A-GGL-13: each provider is isolated — a listing/upsert failure in one
  *  provider is collected in `errors` and never aborts the others — and only
  *  successful upserts are counted. Stale discovered rows are pruned per
- *  provider, with the same guards as the web route (A-GGL-10). */
+ *  provider, with the same guards as the web route (A-GGL-10).
+ *  A-WRK-15: when NO provider could be listed at all, throw the first error
+ *  instead of returning all-zero counts — a total failure (revoked token,
+ *  network/Google outage) is likely transient, so the worker records FAILED
+ *  and BullMQ retries with backoff; a partial failure still returns counts
+ *  + `errors` (a disabled API cannot be fixed by retrying). */
 export async function discoverConnectionProperties(
   connectionId: string,
   deps: SyncDeps = defaultSyncDeps,
@@ -601,6 +606,11 @@ export async function discoverConnectionProperties(
   const counts = { ga4: 0, searchConsole: 0, adsense: 0, adManager: 0 };
   const errors: Record<string, string> = {};
   const pruned: Record<string, number> = {};
+  // A-WRK-15: true once any provider's listing call returns (even with zero
+  // items or partial upsert failures). If it stays false, every attempted
+  // provider failed to list — throw the first error so the job retries.
+  let listed = false;
+  let firstError: unknown;
   // DB-11: upserts run in bounded parallel chunks instead of one sequential
   // round trip per property (a large account can discover hundreds).
   const CHUNK = 10;
@@ -670,6 +680,7 @@ export async function discoverConnectionProperties(
   // is stricter here.)
   try {
     const res = await deps.discovery.listGa4Properties(auth);
+    listed = true;
     const items = res.items.filter((p) => p.propertyId);
     const { succeeded, firstError } = await upsertChunked(items, (p) =>
       deps.prisma.googleProperty.upsert({
@@ -703,12 +714,14 @@ export async function discoverConnectionProperties(
       if (deleted) pruned.ga4 = deleted;
     }
   } catch (e) {
+    if (firstError === undefined) firstError = e;
     errors.ga4 = sanitizeProviderError(e);
     log.error("provider discovery failed", { connectionId, provider: "GA4", ...errMeta(e) });
   }
 
   try {
     const res = await deps.discovery.listSearchConsoleSites(auth);
+    listed = true;
     const items = res.items.filter((s) => s.siteUrl);
     const { succeeded, firstError } = await upsertChunked(items, (s) =>
       deps.prisma.searchConsoleProperty.upsert({
@@ -736,12 +749,14 @@ export async function discoverConnectionProperties(
       if (deleted) pruned.searchConsole = deleted;
     }
   } catch (e) {
+    if (firstError === undefined) firstError = e;
     errors.searchConsole = sanitizeProviderError(e);
     log.error("provider discovery failed", { connectionId, provider: "SEARCH_CONSOLE", ...errMeta(e) });
   }
 
   try {
     const res = await deps.discovery.listAdSenseAccounts(auth);
+    listed = true;
     const items = res.items.filter((a) => a.accountId);
     const { succeeded, firstError } = await upsertChunked(items, (a) =>
       deps.prisma.adSenseAccount.upsert({
@@ -769,6 +784,7 @@ export async function discoverConnectionProperties(
       if (deleted) pruned.adsense = deleted;
     }
   } catch (e) {
+    if (firstError === undefined) firstError = e;
     errors.adsense = sanitizeProviderError(e);
     log.error("provider discovery failed", { connectionId, provider: "ADSENSE", ...errMeta(e) });
   }
@@ -779,6 +795,7 @@ export async function discoverConnectionProperties(
   if (deps.adManager.adManagerEnabled()) {
     try {
       const networks = (await deps.adManager.listAdManagerNetworks(auth)).filter((n) => n.networkCode);
+      listed = true;
       const { succeeded, firstError } = await upsertChunked(networks, (n) =>
         deps.prisma.adManagerNetwork.upsert({
           where: { connectionId_networkCode: { connectionId, networkCode: n.networkCode! } },
@@ -803,9 +820,17 @@ export async function discoverConnectionProperties(
       );
       if (deleted) pruned.adManager = deleted;
     } catch (e) {
+      if (firstError === undefined) firstError = e;
       errors.adManager = sanitizeProviderError(e);
       log.error("provider discovery failed", { connectionId, provider: "AD_MANAGER", ...errMeta(e) });
     }
+  }
+
+  if (!listed) {
+    // A-WRK-15: no provider could be listed — keep the all-failed contract
+    // (like syncOneProvider): the worker records FAILED and BullMQ retries
+    // with backoff instead of reporting a silent all-zero "ok".
+    throw firstError ?? new Error("discovery failed: no provider could be listed");
   }
 
   return {

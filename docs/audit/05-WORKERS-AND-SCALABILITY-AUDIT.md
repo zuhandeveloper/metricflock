@@ -526,7 +526,7 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   without the fix; the finding's Redis-backed variant is CI-only — no
   Redis in the sandbox).
 
-### A-WRK-15 — P3 — CONFIRMED — Property discovery aborts entirely if one provider's list call throws
+### A-WRK-15 — P3 — CONFIRMED — Property discovery aborts entirely if one provider's list call throws · FIXED 2026-11-25
 
 - **Where:** `packages/google/src/sync.ts:339-402`
   (`discoverConnectionProperties`).
@@ -544,6 +544,25 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   listed.
 - **Regression test:** sync-engine discovery test with GA4 throwing,
   asserting SC/AdSense counts are still returned.
+- **Verification 2026-11-25 (fixed):** the finding was mostly stale — the
+  per-provider try/catch, the `errors` map, honest per-provider counts, and
+  the guarded pruning were already in place from A-GGL-13
+  (`discoverConnectionProperties` in `packages/google/src/sync.ts`, pinned
+  by `sync-discovery-isolation.test.ts`). The one remaining gap was the
+  all-fail case: when every provider's listing threw, the function returned
+  all-zero counts + `errors` and the worker reported the discovery job "ok".
+  It now tracks whether any provider's listing returned (zero items still
+  counts as listed) and, when none did, throws the first error — the worker
+  records FAILED and BullMQ retries with backoff, mirroring
+  `syncOneProvider`'s all-failed contract; partial failures still return
+  counts + `errors` (A-GGL-13 job-ok-with-errors-in-detail behavior
+  unchanged). Regression tests in `sync-discovery-isolation.test.ts`:
+  all listings throw → rejects (with and without Ad Manager enabled; both
+  fail without the fix); one listing succeeds with zero items while the
+  others throw → resolves with the errors map (control, passes before and
+  after). Residual: listings succeeding but every upsert failing still
+  returns counts + `errors` rather than throwing — the correction's
+  criterion is listing-based.
 
 ### A-WRK-16 — P3 — CONFIRMED — Failure alerts have no aggregation; a provider outage emails per website per queue
 
