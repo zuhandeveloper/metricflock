@@ -266,6 +266,38 @@ describe("listAdManagerNetworks loop guard", () => {
     expect(calls).toBe(2);
   });
 
+  it("flags truncated when the page token loops (A-GGL-20)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => okJson({ networks: [{ networkCode: "1" }], nextPageToken: "same-token" })),
+    );
+    const out = await listAdManagerNetworks(auth);
+    expect(out.truncated).toBe(true);
+  });
+
+  it("flags truncated when the page cap cuts the listing short (A-GGL-20)", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls++;
+        return okJson({ networks: [{ networkCode: `${calls}` }], nextPageToken: `tok-${calls}` });
+      }),
+    );
+    const out = await listAdManagerNetworks(auth);
+    expect(out).toHaveLength(10);
+    expect(out.truncated).toBe(true);
+  });
+
+  it("leaves truncated unset on a complete listing (A-GGL-20)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => okJson({ networks: [{ networkCode: "1" }] })),
+    );
+    const out = await listAdManagerNetworks(auth);
+    expect(out.truncated).toBeUndefined();
+  });
+
   it("returns an empty list when there are no networks", async () => {
     vi.stubGlobal(
       "fetch",

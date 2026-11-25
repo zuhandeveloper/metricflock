@@ -215,7 +215,9 @@ describe("IntegrationsPage", () => {
     expect(screen.getByText(/missing required permissions for AdSense/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Reconnect now" })).toHaveAttribute(
       "href",
-      "/api/google/oauth/connect?ownerType=TEAM&ownerId=t1",
+      // A-GGL-20: the reconnect link carries the missing providers as the
+      // incremental-auth intent.
+      "/api/google/oauth/connect?ownerType=TEAM&ownerId=t1&providers=AdSense",
     );
   });
 

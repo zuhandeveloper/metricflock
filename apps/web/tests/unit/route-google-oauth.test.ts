@@ -121,20 +121,44 @@ describe("GET /api/google/oauth/connect", () => {
     const res = await connectGet(new NextRequest(url));
     expect(res.status).toBe(307);
     expect(location(res)).toBe("https://accounts.google.com/o/oauth2/v2/auth?client_id=x");
-    expect(mocks.buildAuthUrl).toHaveBeenCalledWith(admin, "TEAM", "t1", []);
+    expect(mocks.buildAuthUrl).toHaveBeenCalledWith(admin, "TEAM", "t1", [], { providers: undefined });
   });
   it("Ad Manager enabled → its scope is requested too; build failure → 503", async () => {
     mocks.adManagerEnabled.mockReturnValue(true);
     mocks.buildAuthUrl.mockResolvedValue("https://accounts.google.com/o/oauth2/v2/auth?x=1");
     const res = await connectGet(new NextRequest(url));
     expect(res.status).toBe(307);
-    expect(mocks.buildAuthUrl).toHaveBeenCalledWith(admin, "TEAM", "t1", [
-      "https://www.googleapis.com/auth/admanager.readonly",
-    ]);
+    expect(mocks.buildAuthUrl).toHaveBeenCalledWith(
+      admin,
+      "TEAM",
+      "t1",
+      ["https://www.googleapis.com/auth/admanager.readonly"],
+      { providers: undefined },
+    );
     mocks.buildAuthUrl.mockRejectedValueOnce(new Error("not configured"));
     const failed = await connectGet(new NextRequest(url));
     expect(failed.status).toBe(503);
     expect(await failed.json()).toMatchObject({ error: "google_oauth_not_configured" });
+  });
+  it("providers intent → only those providers' scopes are requested (A-GGL-20)", async () => {
+    mocks.buildAuthUrl.mockResolvedValue("https://accounts.google.com/o/oauth2/v2/auth?x=2");
+    const res = await connectGet(new NextRequest(`${url}&providers=GA4,ADSENSE`));
+    expect(res.status).toBe(307);
+    expect(mocks.buildAuthUrl).toHaveBeenCalledWith(admin, "TEAM", "t1", [], {
+      providers: ["GA4", "ADSENSE"],
+    });
+    // Ad Manager enabled but not in the named intent → its scope is NOT
+    // added on top of a provider-scoped request.
+    mocks.adManagerEnabled.mockReturnValue(true);
+    const scoped = await connectGet(new NextRequest(`${url}&providers=GA4`));
+    expect(scoped.status).toBe(307);
+    expect(mocks.buildAuthUrl).toHaveBeenLastCalledWith(admin, "TEAM", "t1", [], {
+      providers: ["GA4"],
+    });
+    // Unknown provider name → 400, no auth URL built.
+    const bad = await connectGet(new NextRequest(`${url}&providers=BOGUS`));
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({ error: "invalid_input" });
   });
 });
 

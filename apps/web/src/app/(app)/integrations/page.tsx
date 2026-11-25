@@ -257,7 +257,10 @@ export default async function IntegrationsPage({
                       {canManage && (
                         <a
                           className="underline"
-                          href={`/api/google/oauth/connect?ownerType=${c.ownerType}&ownerId=${c.ownerId}`}
+                          // A-GGL-20: incremental authorization — request
+                          // only the missing providers' scopes instead of
+                          // the full set on reconnect.
+                          href={`/api/google/oauth/connect?ownerType=${c.ownerType}&ownerId=${c.ownerId}&providers=${missing.join(",")}`}
                         >
                           Reconnect now
                         </a>

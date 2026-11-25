@@ -73,11 +73,17 @@ async function post(req: NextRequest) {
       // listAdManagerNetworks returns a plain array (no DiscoveryResult
       // wrapper) and throws AD_MANAGER_DISABLED when disabled, so the
       // attempt is only made when adManagerEnabled() is true.
+      // A-GGL-20: it now flags `truncated` when the page cap or a looping
+      // token cut the listing short — surface that instead of a hardcoded
+      // complete listing.
       adManagerEnabled()
-        ? attempt("AD_MANAGER", async () => ({
-            items: (await listAdManagerNetworks(client)).filter((n) => n.networkCode),
-            truncated: false,
-          }))
+        ? attempt("AD_MANAGER", async () => {
+            const networks = await listAdManagerNetworks(client);
+            return {
+              items: networks.filter((n) => n.networkCode),
+              truncated: networks.truncated === true,
+            };
+          })
         : Promise.resolve(null),
     ]);
     const ga4 = ga4r.items;

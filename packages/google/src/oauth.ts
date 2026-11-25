@@ -165,6 +165,7 @@ export async function buildAuthUrl(
   ownerType: "TEAM" | "WEBSITE",
   ownerId: string,
   extraScopes: string[] = [],
+  opts: { providers?: GoogleProvider[] } = {},
 ): Promise<string> {
   const client = getOAuthClient();
   const { state, codeChallenge } = await createOAuthFlow({
@@ -173,10 +174,22 @@ export async function buildAuthUrl(
     ownerType,
     ownerId,
   });
+  // A-GGL-20: incremental authorization per provider. When the caller
+  // names the provider(s) being connected, request only the identity
+  // scopes plus those providers' required scopes (plus any explicit
+  // extras) instead of the full ALL_SCOPES set — a GA4-only connect no
+  // longer grants AdSense readonly access. No providers named = the
+  // generic "connect this Google account for every provider" flow.
+  // include_granted_scopes keeps previously granted scopes, so a
+  // provider-scoped reconnect never drops earlier grants.
+  const baseScopes =
+    opts.providers && opts.providers.length > 0
+      ? [...IDENTITY_SCOPES, ...opts.providers.flatMap((p) => REQUIRED_SCOPES_BY_PROVIDER[p])]
+      : ALL_SCOPES;
   return client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent", // consent prompt increases the chance a refresh token is issued
-    scope: [...new Set([...ALL_SCOPES, ...extraScopes])],
+    scope: [...new Set([...baseScopes, ...extraScopes])],
     state,
     code_challenge: codeChallenge,
     code_challenge_method: CodeChallengeMethod.S256,

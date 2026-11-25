@@ -74,22 +74,37 @@ async function admFetch(auth: OAuth2Client, path: string, init?: RequestInit) {
   throw lastError ?? new Error("AD_MANAGER_API_ERROR_UNKNOWN");
 }
 
-export async function listAdManagerNetworks(auth: OAuth2Client) {
+export type AdManagerNetwork = { networkCode: string; displayName?: string };
+/** A-GGL-20: the network list, with `truncated: true` attached when the
+ * page cap or a repeated page token cut the listing short (discovery.ts
+ * `paginate` parity — a partial list is never silently presented as
+ * complete). The property is absent on a complete listing, so the plain
+ * array contract existing consumers rely on is unchanged. */
+export type AdManagerNetworkList = AdManagerNetwork[] & { truncated?: boolean };
+
+export async function listAdManagerNetworks(auth: OAuth2Client): Promise<AdManagerNetworkList> {
   if (!adManagerEnabled()) throw new Error("AD_MANAGER_DISABLED");
   // Paginated (F-3.3): follow nextPageToken with a cap + loop guard.
-  const out: { networkCode: string; displayName?: string }[] = [];
+  const out: AdManagerNetworkList = [];
   const seen = new Set<string>();
   let pageToken: string | undefined;
+  let truncated = false;
   for (let page = 0; page < 10; page++) {
     const qs = new URLSearchParams({ pageSize: "50", ...(pageToken ? { pageToken } : {}) });
     const data = await admFetch(auth, `/networks?${qs.toString()}`);
     const networks = (data.networks ?? []) as { networkCode?: string; displayName?: string }[];
     for (const n of networks) out.push({ networkCode: n.networkCode ?? "", displayName: n.displayName ?? undefined });
     const next = typeof data.nextPageToken === "string" ? data.nextPageToken : undefined;
-    if (!next || seen.has(next)) break;
+    if (!next) break; // complete listing
+    if (seen.has(next)) {
+      truncated = true; // loop guard: the token repeats, more may exist
+      break;
+    }
     seen.add(next);
     pageToken = next;
+    if (page === 9) truncated = true; // cap reached with another page behind the token
   }
+  if (truncated) out.truncated = true;
   return out;
 }
 export const AD_MANAGER_DIMENSIONS = ["DATE", "AD_UNIT_NAME"] as const;
