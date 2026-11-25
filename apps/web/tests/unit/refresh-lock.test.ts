@@ -49,7 +49,15 @@ describe("acquireRefreshLock", () => {
       get: async () => null,
       eval: async () => 0,
     };
-    expect(await acquireRefreshLock(redis, "k", "tok", opts)).toBe("acquired");
+    // A-GGL-21: this test needs 3 polls inside the wall-clock deadline.
+    // With the shared 60 ms deadline, two 5 ms sleeps overshooting under
+    // parallel load (setTimeout is a minimum, not exact) can push the 3rd
+    // poll past Date.now()'s deadline and flake to "timeout". A 500 ms
+    // deadline gives ~50x headroom over the ~10 ms nominal wait; the test
+    // still returns as soon as it acquires, so it stays fast. The other
+    // tests keep the 60 ms opts — their outcomes are load-insensitive
+    // (immediate OK / immediate throw / guaranteed timeout).
+    expect(await acquireRefreshLock(redis, "k", "tok", { ...opts, deadlineMs: 500 })).toBe("acquired");
     expect(calls).toBe(3);
   });
 });
