@@ -40,13 +40,22 @@ export default function Sidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState(false);
   async function handleSignOut() {
     setSigningOut(true);
+    setSignOutError(false);
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
-    } finally {
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      // Only navigate when the session was actually revoked: on failure
+      // the session is still alive and /login would bounce straight back
+      // to /dashboard, leaving the user believing they signed out.
+      if (!res.ok) throw new Error("logout failed");
       router.push("/login");
       router.refresh();
+    } catch {
+      setSignOutError(true);
+    } finally {
+      setSigningOut(false);
     }
   }
   return (
@@ -82,6 +91,11 @@ export default function Sidebar({ user }: { user: SidebarUser }) {
             {user.email} · {user.role}
           </p>
         </div>
+        {signOutError && (
+          <p role="alert" className="px-3 pb-2 text-sm text-red-700 dark:text-red-400">
+            Couldn't sign out — check your connection and try again.
+          </p>
+        )}
         <button
           type="button"
           onClick={handleSignOut}

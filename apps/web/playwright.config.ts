@@ -23,7 +23,7 @@ export default defineConfig({
     {
       name: "app",
       testMatch:
-        /(app-accessibility|journeys|website-status|session-revoke|theme-toggle|api-key-copy|mobile-nav)\.spec\.ts/,
+        /(app-accessibility|journeys|website-status|session-revoke|theme-toggle|api-key-copy|mobile-nav|sign-out)\.spec\.ts/,
       dependencies: ["setup"],
     },
   ],

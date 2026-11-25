@@ -86,12 +86,13 @@ describe("Sidebar", () => {
     expect(nav.refresh).toHaveBeenCalled();
   });
 
-  it("still navigates to /login when logout fails", async () => {
+  it("stays in the app with an error when logout fails (A-FE-20)", async () => {
     mockFetch(null, false, 500);
     render(<Sidebar user={member} />);
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled());
-    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/Couldn't sign out/));
+    expect(nav.push).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
   });
 });
 

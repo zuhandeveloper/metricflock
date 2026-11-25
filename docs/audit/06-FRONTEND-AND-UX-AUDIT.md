@@ -648,7 +648,7 @@ aria-modal="true"`, focus moves to the close button on open, focus
   selector does no visibility filtering — correct for this drawer (all
   contents visible when open).
 
-### A-FE-20 — P3 — CONFIRMED — Sign-out proceeds to /login even if the logout request fails
+### A-FE-20 — P3 — CONFIRMED — Sign-out proceeds to /login even if the logout request fails · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/components/Sidebar.tsx:45-54`
   (`handleSignOut`).
@@ -666,6 +666,18 @@ aria-modal="true"`, focus moves to the close button on open, focus
   and keep the user in the app with the session state visible.
 - **Regression test:** e2e test stubbing a failed logout asserting the
   user stays signed in with an error shown.
+- **Verification (2026-11-25):** `handleSignOut` now navigates to
+  `/login` only on `res.ok`; a non-2xx response or network failure
+  shows a `role="alert"` "Couldn't sign out — check your connection and
+  try again." error above the button and keeps the user in the app
+  (busy guard `disabled={signingOut}` preserved; the button re-enables
+  after a failure). Regression guards: new `Sidebar.test.tsx` (2 of 3
+  fail without the fix — 500 and network-throw cases) + e2e
+  `sign-out.spec.ts` (fulfilled 500 → stays on /dashboard with the
+  alert; fulfilled 200 → /login navigation initiated). Residual:
+  `NavComponents.test.tsx`'s "still navigates to /login when logout
+  fails" test asserted the old buggy behavior and was updated to the
+  new contract alongside this fix.
 
 ## Workflow verification table
 
