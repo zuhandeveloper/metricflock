@@ -327,6 +327,19 @@ describe("worker index (queue wiring and job routing)", () => {
     expect(JSON.parse(res.body)).toEqual({ status: "not_ready" });
   });
 
+  it("health-server errors are logged with the port and exit 1 (A-WRK-19)", async () => {
+    const { handleHealthServerError } = await import("@metricflock/worker/index");
+    const err = Object.assign(new Error(`listen EADDRINUSE: address already in use :::${HEALTH_PORT}`), {
+      code: "EADDRINUSE",
+    });
+    handleHealthServerError(err);
+    expect(mocks.logError).toHaveBeenCalledWith(
+      "health server failed — exiting",
+      expect.objectContaining({ port: HEALTH_PORT, error: expect.stringContaining("EADDRINUSE") }),
+    );
+    expect(processExit).toHaveBeenCalledWith(1);
+  });
+
   it("routes every sync queue to syncWebsite and books the job row as SUCCEEDED", async () => {
     const cases: [string, string][] = [
       ["ga4-realtime-sync", "ga4-realtime"],

@@ -393,6 +393,15 @@ const scheduler = startScheduler(redisClient);
 
 // OPS-9: liveness/readiness endpoint for the host/Docker HEALTHCHECK.
 // /healthz = process up; /readyz = Redis + DB reachable.
+// A-WRK-19: /healthz, /readyz and /metrics are unauthenticated — the
+// Docker HEALTHCHECK and the host's readiness probe need /readyz
+// without credentials, and /metrics exposes only low-sensitivity
+// in-process counters — so the health port must NOT be publicly
+// exposed: keep it on the host's private network / internal-only. It
+// is deliberately not bound to 127.0.0.1: the Docker HEALTHCHECK runs
+// inside the container (loopback would work there), but Railway's
+// healthcheck probes the service port from outside the container, and
+// a loopback-only bind would refuse it.
 const healthPort = Number(process.env.WORKER_HEALTH_PORT ?? 8080);
 const healthServer = createServer(async (req, res) => {
   if (req.url === "/healthz") {
@@ -424,6 +433,16 @@ const healthServer = createServer(async (req, res) => {
   }
   res.writeHead(404).end();
 });
+// A-WRK-19: a listen failure (e.g. EADDRINUSE — the health port is
+// already taken) must be a clean, logged exit, not an unhandled
+// `error` event crashing the process after all workers have started.
+// Exported so tests can invoke it directly (same pattern as the
+// uncaught-exception handlers above).
+export function handleHealthServerError(err: unknown): void {
+  log.error("health server failed — exiting", { port: healthPort, ...errMeta(err) });
+  process.exit(1);
+}
+healthServer.on("error", handleHealthServerError);
 healthServer.listen(healthPort, () => log.info("health endpoint listening", { port: healthPort }));
 
 // A-WRK-11: bound the drain. Docker `stop` gives 10 s by default and

@@ -639,7 +639,7 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   (or is not, per the chosen policy) still present.
 - **Verification (2026-11-25):** FAILED rows now use a 90-day retention window (`FAILED_RETENTION_DAYS` in `apps/worker/src/scheduler.ts`) instead of 30 days — the sync-job prune's where clause is an OR: SUCCEEDED/PENDING/RETRYING older than 30 days, FAILED older than 90 days. The A-DB-10 bounded-batch logic (1,000 ids per DELETE, max 10 batches per table per tick) and the stale-RUNNING marking are unchanged (the prune is still a single `pruneInBatches` call). The Sync page now states the retention ("Failed jobs are kept for 90 days so they can be requeued; older ones are pruned automatically."), and the data-lifecycle retention table matches. Regression test in `worker-scheduler.test.ts`: a 31-day-old FAILED row survives the tick while a 91-day-old FAILED row and 31-day-old SUCCEEDED/PENDING rows are pruned (fails without the fix); the existing cutoff test pins both windows.
 
-### A-WRK-19 — P3 — CONFIRMED — Health endpoint has no listen-error handler and `/metrics` is unauthenticated
+### A-WRK-19 — P3 — CONFIRMED — Health endpoint has no listen-error handler and `/metrics` is unauthenticated · FIXED 2026-11-25
 
 - **Where:** `apps/worker/src/index.ts:266-300` (health server),
   `index.ts:296` (`healthServer.listen(healthPort, …)`).
@@ -657,6 +657,7 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   allows).
 - **Regression test:** startup test with the port occupied asserting a
   clean exit code and log line (not an unhandled `error` event).
+- **Verification (2026-11-25):** the health server now has an `error` handler (`handleHealthServerError` in `apps/worker/src/index.ts`, exported for tests like the crash handlers) that logs "health server failed — exiting" with the port + sanitized error and exits 1 — an occupied port (EADDRINUSE) is a clean, logged exit instead of an unhandled `error` event crashing the process after all workers started. The unauthenticated endpoints are documented in code as private-network-only (the Docker HEALTHCHECK and the host probe need `/readyz` without credentials; `/metrics` is low-sensitivity counters); the server is deliberately NOT bound to 127.0.0.1 — the Docker HEALTHCHECK runs inside the container (loopback would work there), but Railway's healthcheck probes the service port from outside the container and a loopback-only bind would refuse it. Regression tests: new `worker-health-listen-error.test.ts` occupies the health port before importing the entry point and asserts the log line + exit 1 (fails without the fix — pre-fix the unhandled `error` event lands in the generic uncaught-exception handler), plus a direct handler test in `worker-index.test.ts` (fails without the fix — no such export).
 
 ### A-WRK-20 — P3 — POTENTIAL — No `stalled` / `lockRenewalFailed` observability; `websiteId!` assertion in the processor
 
