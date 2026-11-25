@@ -99,7 +99,7 @@ scripts/benchmark-scale.ts` (subset `BENCH_SIZES=100,1000`) and the
   are not measured — none scales with website count.
   **The "345×" figure must still not be cited as scale evidence.**
 
-### A-PERF-03 (P3) — All 75 routes are dynamic; no caching headers for pages
+### A-PERF-03 (P3) — All 75 routes are dynamic; no caching headers for pages · ADDRESSED 2026-11-25 (documentation; no code change)
 
 - **Evidence:** build route table — every route is ƒ (dynamic). No
   `Cache-Control` for pages; only security headers are set in
@@ -111,6 +111,22 @@ scripts/benchmark-scale.ts` (subset `BENCH_SIZES=100,1000`) and the
   `/forgot-password`, and error pages static if they carry no
   per-request data.
 - **Status:** CONFIRMED (observation, low impact).
+- **Verification (2026-11-25):** revalidated with a fresh build (all 75
+  routes ƒ) and a runtime experiment. No page can be made static today
+  without a behavior change: the root layout reads `headers()` to stamp
+  the per-request CSP nonce (F-6.8) and `cookies()` for the no-flash
+  theme (A-FE-12), which opts every page into dynamic rendering. A
+  `force-static` experiment on `/forgot-password` prerendered ○ but
+  served 17 script tags with 0 nonces against the per-request nonce CSP
+  (`strict-dynamic` blocks them — the page never hydrates), so it was
+  reverted. `/login` and `/` read the session per request (signed-in
+  redirect); `/invite/[token]` does a DB + session lookup;
+  `/reset-password/[token]` renders the URL token. Next already sends
+  `Cache-Control: private, no-cache, no-store, max-age=0,
+must-revalidate` on dynamic pages, so no header change was needed.
+  Unlocking static pages is an owner decision: give up nonce-CSP (or
+  per-page CSP) for public pages, move `/login`'s redirect client-side,
+  and/or move the theme read out of the root layout.
 
 ### A-PERF-04 (P3) — Unit suite is import-bound and slow off CI (159–190s)
 
