@@ -226,9 +226,9 @@ curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites/$WEBSITE_ID" | node -e 'const d=
 ok "exactly one primary integration"
 
 echo "smoke: stage2 — server-managed website status rejected"
-code="$(curl -s -o "$TMP/sold.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"Sold Site\",\"domain\":\"sold-$$.example.com\",\"url\":\"https://sold.example.com\",\"status\":\"SOLD\"}")"
-[ "$code" = "400" ] || { cat "$TMP/sold.json"; fail "status SOLD returned $code, expected 400"; }
-ok "status SOLD rejected"
+code="$(curl -s -o "$TMP/transfer.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/websites" -H "Content-Type: application/json" -d "{\"name\":\"Transfer Site\",\"domain\":\"transfer-$$.example.com\",\"url\":\"https://transfer.example.com\",\"status\":\"TRANSFER_PENDING\"}")"
+[ "$code" = "400" ] || { cat "$TMP/transfer.json"; fail "status TRANSFER_PENDING returned $code, expected 400"; }
+ok "status TRANSFER_PENDING rejected"
 
 echo "smoke: stage2 — last team admin cannot be removed or demoted"
 GUARD_TEAM_ID="$(curl -s -b "$ADMIN_JAR" -X POST "$BASE_URL/api/teams" -H "Content-Type: application/json" -d "{\"name\":\"Smoke Guard Team\",\"slug\":\"smoke-guard-$$\"}" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(d.team.id)')"

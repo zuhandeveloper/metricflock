@@ -360,7 +360,7 @@ TRANSFER_PENDING, SOLD, ARCHIVED`) and the filter on
   locally) and `playwright.config.ts`'s app-project `testMatch` was
   extended to include it.
 
-### A-FE-10 — P3 — CONFIRMED — Session revoke ignores the API response, so a failed revoke looks successful
+### A-FE-10 — P3 — CONFIRMED — Session revoke ignores the API response, so a failed revoke looks successful · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/app/(app)/settings/security/SecurityActions.tsx:26-44`
   (`SessionActions.revoke` / `revokeOthers`).
@@ -377,6 +377,23 @@ TRANSFER_PENDING, SOLD, ARCHIVED`) and the filter on
   confirm step for "Sign out all other devices".
 - **Regression test:** e2e test stubbing a failed revoke asserting an
   error is shown and the session row remains.
+- **Verification (2026-11-25):** `revoke` and `revokeOthers` in
+  `SecurityActions.tsx` now check the `postJson` result's `ok`:
+  on failure they render the component's existing `role="alert"`
+  error ("Couldn't revoke that session. Try again." / "Couldn't
+  sign out other devices. Try again.") and do not call
+  `router.refresh()`; the refresh happens only on success.
+  (Revalidation note: the error UI did exist in `SessionActions`,
+  but it was wired only to `revokeAll` — `revoke`/`revokeOthers`
+  never set it.) "Sign out all other devices" also gained a
+  `window.confirm` step, matching the app's other destructive
+  actions. Three new component tests cover the failed revoke, the
+  failed revoke-others, and the dismissed confirm (26/26 in
+  `SecurityActions.test.tsx`, the new tests fail without the fix);
+  the finding's e2e regression test is
+  `tests/e2e/session-revoke.spec.ts` (stubs a 500 from
+  `/api/auth/revoke-session`, asserts the alert and that the row
+  remains, then revokes for real — CI-only).
 
 ### A-FE-11 — P3 — CONFIRMED — DateRangePicker does not expose the active range to assistive tech
 

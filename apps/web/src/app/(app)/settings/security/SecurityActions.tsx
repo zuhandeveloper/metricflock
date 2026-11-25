@@ -30,16 +30,30 @@ export function SessionActions({ sessions }: { sessions: SessionRow[] }) {
   const [error, setError] = useState("");
   async function revoke(token: string) {
     if (busy) return;
+    setError("");
     setBusy(token);
-    await postJson("/api/auth/revoke-session", { token });
+    const { ok } = await postJson("/api/auth/revoke-session", { token });
     setBusy("");
+    // A-FE-10: a failed revoke must not look successful — surface the
+    // error and leave the list as-is instead of refreshing.
+    if (!ok) {
+      setError("Couldn't revoke that session. Try again.");
+      return;
+    }
     router.refresh();
   }
   async function revokeOthers() {
     if (busy) return;
+    // A-FE-10: confirm before signing out every other device.
+    if (!window.confirm("Sign out all other devices? They will need to sign in again.")) return;
+    setError("");
     setBusy("others");
-    await postJson("/api/auth/revoke-other-sessions", {});
+    const { ok } = await postJson("/api/auth/revoke-other-sessions", {});
     setBusy("");
+    if (!ok) {
+      setError("Couldn't sign out other devices. Try again.");
+      return;
+    }
     router.refresh();
   }
   async function revokeAll() {

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SessionActions, TwoFactorActions } from "@/app/(app)/settings/security/SecurityActions";
-import { mockFetch, mockFetchBadJson, mockFetchDelayed } from "./helpers";
+import { mockConfirm, mockFetch, mockFetchBadJson, mockFetchDelayed } from "./helpers";
 
 const nav = vi.hoisted(() => ({
   push: vi.fn(),
@@ -77,11 +77,42 @@ describe("SessionActions", () => {
   });
 
   it("signs out all other devices", async () => {
+    mockConfirm(true);
     const fetchMock = mockFetch(null);
     render(<SessionActions sessions={sessions} />);
     fireEvent.click(screen.getByRole("button", { name: "Sign out all other devices" }));
     await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
     expect(fetchMock).toHaveBeenCalledWith("/api/auth/revoke-other-sessions", expect.objectContaining({}));
+  });
+
+  // A-FE-10: a failed revoke must surface an error and must NOT refresh
+  // (pre-fix the response was discarded, so a failed revoke looked
+  // successful and the session stayed live with no indication).
+  it("shows an error and does not refresh when revoking a session fails", async () => {
+    mockFetch({ error: "revoke_failed" }, false, 500);
+    render(<SessionActions sessions={sessions} />);
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Couldn't revoke that session."));
+    expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  it("shows an error and does not refresh when signing out other devices fails", async () => {
+    mockConfirm(true);
+    mockFetch({ error: "revoke_failed" }, false, 500);
+    render(<SessionActions sessions={sessions} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sign out all other devices" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Couldn't sign out other devices."));
+    expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  // A-FE-10: "Sign out all other devices" asks for confirmation first.
+  it("does not sign out other devices when the confirm is dismissed", () => {
+    mockConfirm(false);
+    const fetchMock = mockFetch(null);
+    render(<SessionActions sessions={sessions} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sign out all other devices" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(nav.refresh).not.toHaveBeenCalled();
   });
 
   it("signs out everywhere and redirects to /login", async () => {
@@ -216,6 +247,7 @@ describe("gap closure: json parse failures and busy guards", () => {
   });
 
   it("SessionActions: a double sign-out-others only posts once (busy guard)", async () => {
+    mockConfirm(true);
     const fetchMock = mockFetchDelayed(null);
     render(<SessionActions sessions={sessions} />);
     const btn = screen.getByRole("button", { name: "Sign out all other devices" });
@@ -236,6 +268,7 @@ describe("gap closure: json parse failures and busy guards", () => {
   });
 
   it("SessionActions: the sign-out-everywhere button is disabled while another revoke is in flight", async () => {
+    mockConfirm(true);
     mockFetchDelayed(null);
     render(<SessionActions sessions={sessions} />);
     fireEvent.click(screen.getByRole("button", { name: "Sign out all other devices" }));
