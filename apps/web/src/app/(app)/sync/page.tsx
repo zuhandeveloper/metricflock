@@ -39,6 +39,9 @@ export default async function SyncJobsPage() {
       <h1 className="text-2xl font-bold">Sync jobs</h1>
       <Card className="p-4">
         <h2 className="font-semibold">Failed jobs (dead-letter)</h2>
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          Failed jobs are kept for 90 days so they can be requeued; older ones are pruned automatically.
+        </p>
         {failed.length === 0 ? (
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">No failed jobs.</p>
         ) : (

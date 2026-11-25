@@ -45,6 +45,11 @@ const RENEW_LUA = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.ca
 const REALTIME_BACKPRESSURE_DEPTH = 40;
 // OPS-3 retention: bookkeeping rows older than this are pruned per tick.
 const RETENTION_DAYS = 30;
+// A-WRK-18: FAILED sync-job rows are the dead-letter queue (the Sync
+// page + /api/sync/failed + /api/sync/requeue read them), so they get
+// a longer window than other finished rows — a failure nobody
+// requeues within 90 days is pruned, not silently dropped at 30.
+const FAILED_RETENTION_DAYS = 90;
 // Phase 4 (F-4.3, docs/security/data-lifecycle.md): audit logs are kept
 // for AUDIT_RETENTION_DAYS (default 365, parsed in @metricflock/shared);
 // OAuth flow state is single-use with a 10-minute TTL, so anything
@@ -202,6 +207,7 @@ async function runTick(signal?: AbortSignal): Promise<void> {
   // (OPS-7/11); the realtime backpressure check below also reads the
   // full plan, so it stays after the scan.
   const windowStart = new Date(now.getTime() - RETENTION_DAYS * 86_400_000);
+  const failedWindowStart = new Date(now.getTime() - FAILED_RETENTION_DAYS * 86_400_000);
   const adManager = adManagerEnabled();
   let plan: DueSyncPlanEntry[] = [];
   let cursor: string | undefined;
@@ -344,8 +350,8 @@ async function runTick(signal?: AbortSignal): Promise<void> {
   // instead of deleting it, so the failure stays visible in the
   // failed-jobs UI and the website becomes due again (planDueSyncs
   // only looks at SUCCEEDED, so the next tick re-enqueues a fresh
-  // sync). The row is then removed by the 30-day FAILED prune below
-  // (marking it refreshes updatedAt, so it lingers up to 30 more days
+  // sync). The row is then removed by the 90-day FAILED prune below
+  // (marking it refreshes updatedAt, so it lingers up to 90 more days
   // as FAILED — deliberate, for visibility).
   const staleCutoff = new Date(now.getTime() - STALE_RUNNING_MS);
   const stale = await prisma.analyticsSyncJob.updateMany({
@@ -361,13 +367,19 @@ async function runTick(signal?: AbortSignal): Promise<void> {
   // row whose enqueue failed, and a RETRYING row older than 30d is
   // past any possible retry cycle (5 attempts, backoff capped at 1h)
   // — both are orphaned, and no live BullMQ job can still reference
-  // them. RUNNING rows are never pruned here; the staleness rule
-  // above resolves them first.
+  // them. FAILED rows are the dead-letter queue, so they use the
+  // longer FAILED_RETENTION_DAYS window (A-WRK-18). RUNNING rows are
+  // never pruned here; the staleness rule above resolves them first.
   checkAborted();
   const pruned = await pruneInBatches(
     () =>
       prisma.analyticsSyncJob.findMany({
-        where: { updatedAt: { lt: windowStart }, status: { in: ["SUCCEEDED", "FAILED", "PENDING", "RETRYING"] } },
+        where: {
+          OR: [
+            { updatedAt: { lt: windowStart }, status: { in: ["SUCCEEDED", "PENDING", "RETRYING"] } },
+            { updatedAt: { lt: failedWindowStart }, status: "FAILED" },
+          ],
+        },
         select: { id: true },
         orderBy: { id: "asc" },
         take: PRUNE_BATCH_SIZE,

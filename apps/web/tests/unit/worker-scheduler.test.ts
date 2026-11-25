@@ -449,14 +449,18 @@ describe("worker scheduler", () => {
 
     const closeTo = (actual: Date, expectedMs: number) => Math.abs(actual.getTime() - expectedMs) < 5_000;
     const syncWhere = mocks.syncJobFindMany.mock.calls[0][0].where as {
-      updatedAt: { lt: Date };
-      status: { in: string[] };
+      OR: { status: { in: string[] } | string; updatedAt: { lt: Date } }[];
     };
-    expect(closeTo(syncWhere.updatedAt.lt, now.getTime() - 30 * DAY_MS)).toBe(true);
+    const [finishedClause, failedClause] = syncWhere.OR;
+    expect(closeTo(finishedClause.updatedAt.lt, now.getTime() - 30 * DAY_MS)).toBe(true);
     // A-DB-10: the 30-day prune also covers orphaned PENDING/RETRYING
     // rows (manual-sync rows whose enqueue failed; retry cycles
     // complete in hours, so a 30-day-old RETRYING row is dead).
-    expect(syncWhere.status.in).toEqual(["SUCCEEDED", "FAILED", "PENDING", "RETRYING"]);
+    expect((finishedClause.status as { in: string[] }).in).toEqual(["SUCCEEDED", "PENDING", "RETRYING"]);
+    // A-WRK-18: FAILED rows are the dead-letter queue, so they are
+    // pruned on the longer 90-day window instead.
+    expect(closeTo(failedClause.updatedAt.lt, now.getTime() - 90 * DAY_MS)).toBe(true);
+    expect(failedClause.status).toBe("FAILED");
     expect(mocks.syncJobFindMany.mock.calls[0][0]).toMatchObject({
       select: { id: true },
       orderBy: { id: "asc" },
@@ -478,6 +482,54 @@ describe("worker scheduler", () => {
     expect(mocks.logInfo).toHaveBeenCalledWith("pruned expired OAuth states", { count: 1, capped: false });
     expect(mocks.logInfo).toHaveBeenCalledWith("pruned expired analytics cache rows", { count: 2, capped: false });
     expect(mocks.logInfo).toHaveBeenCalledWith("pruned old audit logs", { count: 4, capped: false });
+  });
+
+  it("keeps a 31-day-old FAILED row in the dead-letter queue but prunes it at 90 days (A-WRK-18)", async () => {
+    const now = new Date();
+    // FAILED rows are the dead-letter queue (the Sync page +
+    // /api/sync/failed + /api/sync/requeue read them), so they get a
+    // 90-day window while other finished rows keep 30 days. The mock
+    // findMany evaluates the prune's where clause against fixture
+    // rows so the test asserts the policy, not the query shape.
+    type JobRow = { id: string; status: string; updatedAt: Date };
+    const rows: JobRow[] = [
+      { id: "failed-31d", status: "FAILED", updatedAt: new Date(now.getTime() - 31 * DAY_MS) },
+      { id: "failed-91d", status: "FAILED", updatedAt: new Date(now.getTime() - 91 * DAY_MS) },
+      { id: "succeeded-31d", status: "SUCCEEDED", updatedAt: new Date(now.getTime() - 31 * DAY_MS) },
+      { id: "pending-31d", status: "PENDING", updatedAt: new Date(now.getTime() - 31 * DAY_MS) },
+    ];
+    const matchClause = (row: JobRow, clause: Record<string, unknown>): boolean => {
+      const status = clause.status as { in?: string[] } | string | undefined;
+      if (typeof status === "string" && row.status !== status) return false;
+      if (typeof status === "object" && status?.in && !status.in.includes(row.status)) return false;
+      const updatedAt = clause.updatedAt as { lt?: Date } | undefined;
+      if (updatedAt?.lt && !(row.updatedAt.getTime() < updatedAt.lt.getTime())) return false;
+      return true;
+    };
+    const matchesWhere = (row: JobRow, where: Record<string, unknown>): boolean => {
+      const or = where.OR as Record<string, unknown>[] | undefined;
+      return or ? or.some((c) => matchClause(row, c)) : matchClause(row, where);
+    };
+    mocks.syncJobFindMany.mockImplementation(async (args: { where: Record<string, unknown>; take: number }) =>
+      rows
+        .filter((r) => matchesWhere(r, args.where))
+        .slice(0, args.take)
+        .map((r) => ({ id: r.id })),
+    );
+    mocks.syncJobDeleteMany.mockImplementation(async (args: { where: { id: { in: string[] } } }) => {
+      const ids = args.where.id.in;
+      const before = rows.length;
+      for (let i = rows.length - 1; i >= 0; i--) if (ids.includes(rows[i].id)) rows.splice(i, 1);
+      return { count: before - rows.length };
+    });
+    start();
+    await flush();
+
+    // The 31-day-old FAILED row is still in the DLQ (requeueable);
+    // the 91-day-old FAILED row and the 31-day-old SUCCEEDED/PENDING
+    // rows are pruned.
+    expect(rows.map((r) => r.id)).toEqual(["failed-31d"]);
+    expect(mocks.logInfo).toHaveBeenCalledWith("pruned old sync-job rows", { count: 3, capped: false });
   });
 
   it("prunes expired invites, verifications, sessions and NULL-website health rows (A-DB-13)", async () => {
@@ -542,7 +594,7 @@ describe("worker scheduler", () => {
 
     // Stuck RUNNING rows are marked FAILED, not deleted: the website
     // becomes due again and the failure stays visible until the
-    // 30-day FAILED prune removes it.
+    // 90-day FAILED prune removes it.
     expect(mocks.syncJobUpdateMany).toHaveBeenCalledTimes(1);
     const staleWhere = mocks.syncJobUpdateMany.mock.calls[0][0].where as {
       status: string;

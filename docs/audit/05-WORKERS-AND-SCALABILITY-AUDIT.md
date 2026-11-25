@@ -622,7 +622,7 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   existing harness already controls `bullConnectionOptions()` via
   `REDIS_URL`.
 
-### A-WRK-18 — P3 — CONFIRMED — DLQ rows are pruned after 30 days with no notice
+### A-WRK-18 — P3 — CONFIRMED — DLQ rows are pruned after 30 days with no notice · FIXED 2026-11-25
 
 - **Where:** `apps/worker/src/scheduler.ts:186-189`.
 - **Evidence:** the retention prune deletes `AnalyticsSyncJob` rows with
@@ -637,6 +637,7 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   retention on the Sync page.
 - **Regression test:** retention test asserting a 31-day-old FAILED row is
   (or is not, per the chosen policy) still present.
+- **Verification (2026-11-25):** FAILED rows now use a 90-day retention window (`FAILED_RETENTION_DAYS` in `apps/worker/src/scheduler.ts`) instead of 30 days — the sync-job prune's where clause is an OR: SUCCEEDED/PENDING/RETRYING older than 30 days, FAILED older than 90 days. The A-DB-10 bounded-batch logic (1,000 ids per DELETE, max 10 batches per table per tick) and the stale-RUNNING marking are unchanged (the prune is still a single `pruneInBatches` call). The Sync page now states the retention ("Failed jobs are kept for 90 days so they can be requeued; older ones are pruned automatically."), and the data-lifecycle retention table matches. Regression test in `worker-scheduler.test.ts`: a 31-day-old FAILED row survives the tick while a 91-day-old FAILED row and 31-day-old SUCCEEDED/PENDING rows are pruned (fails without the fix); the existing cutoff test pins both windows.
 
 ### A-WRK-19 — P3 — CONFIRMED — Health endpoint has no listen-error handler and `/metrics` is unauthenticated
 

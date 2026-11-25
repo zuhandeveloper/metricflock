@@ -54,13 +54,13 @@ sync jobs and website-level connections.
 
 The worker scheduler prunes operational rows every tick:
 
-| Data                        | Retention               | Mechanism                                                                                                                            |
-| --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| AnalyticsSyncJob (finished) | 30 days                 | `updatedAt` older than 30d, status SUCCEEDED/FAILED/PENDING/RETRYING; pruned in 1,000-row batches, max 10 batches per table per tick |
-| AnalyticsSyncJob (stuck)    | 6 hours                 | `RUNNING` with `updatedAt` older than 6h → marked FAILED, `lastError: "stale_running"` (removed by the 30-day FAILED prune)          |
-| OAuthState                  | ~1 day past expiry      | single-use, 10-minute TTL; rows deleted 1 day after `expiresAt`                                                                      |
-| AnalyticsCache              | until `expiresAt`       | expired rows deleted                                                                                                                 |
-| AuditLog                    | 365 days (configurable) | `AUDIT_RETENTION_DAYS` env; invalid values fall back to 365                                                                          |
+| Data                        | Retention                 | Mechanism                                                                                                                                                                              |
+| --------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AnalyticsSyncJob (finished) | 30 days (FAILED: 90 days) | `updatedAt` older than 30d, status SUCCEEDED/PENDING/RETRYING; FAILED rows (the dead-letter queue) kept 90d (A-WRK-18); pruned in 1,000-row batches, max 10 batches per table per tick |
+| AnalyticsSyncJob (stuck)    | 6 hours                   | `RUNNING` with `updatedAt` older than 6h → marked FAILED, `lastError: "stale_running"` (removed by the 90-day FAILED prune)                                                            |
+| OAuthState                  | ~1 day past expiry        | single-use, 10-minute TTL; rows deleted 1 day after `expiresAt`                                                                                                                        |
+| AnalyticsCache              | until `expiresAt`         | expired rows deleted                                                                                                                                                                   |
+| AuditLog                    | 365 days (configurable)   | `AUDIT_RETENTION_DAYS` env; invalid values fall back to 365                                                                                                                            |
 
 Business data (organizations, teams, websites, connections,
 integrations, transfers) is never auto-pruned.
