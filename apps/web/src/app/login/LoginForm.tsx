@@ -3,6 +3,30 @@ import { useState } from "react";
 import Link from "next/link";
 import { signIn } from "@metricflock/auth/client";
 import { Card, Input, Button } from "@/components/ui";
+const TOO_MANY_ATTEMPTS = "Too many attempts. Try again in a few minutes.";
+const SERVER_ERROR = "Something went wrong on our side. Try again in a moment.";
+
+/** Map an HTTP failure to the message the user should see (A-FE-05).
+ * Status wins, but the API's error code is read too — a `rate_limited` /
+ * `too_many_requests` code maps to the 429 message even if the status is
+ * ambiguous. `fallback` is the message for an ordinary client-side
+ * rejection (wrong password / wrong 2FA code). Raw server error strings
+ * are never surfaced to the user. */
+function authErrorMessage(status: number, body: { error?: string } | null, fallback: string): string {
+  const code = body?.error ?? "";
+  if (status === 429 || code === "too_many_requests" || code === "rate_limited") return TOO_MANY_ATTEMPTS;
+  if (status >= 500 || code === "internal_error" || code === "server_error") return SERVER_ERROR;
+  return fallback;
+}
+
+/** Same mapping for better-auth's `signIn.social` error object, which
+ * carries `status` / `code` instead of an HTTP response. */
+function socialErrorMessage(error: { status?: number; code?: string } | null): string {
+  if (error?.status === 429 || error?.code === "too_many_requests" || error?.code === "rate_limited")
+    return TOO_MANY_ATTEMPTS;
+  return "Google sign-in is not available right now. Use email instead.";
+}
+
 export default function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,7 +41,7 @@ export default function LoginForm() {
     const res = await signIn.social({ provider: "google", callbackURL: "/dashboard" });
     if (res?.error) {
       setBusy(false);
-      setError("Google sign-in is not available right now. Use email instead.");
+      setError(socialErrorMessage(res.error as { status?: number; code?: string } | null));
     }
     // On success better-auth redirects the browser to Google's consent screen.
   }
@@ -41,7 +65,8 @@ export default function LoginForm() {
       window.location.assign("/dashboard");
     } else {
       setBusy(false);
-      setError("Invalid email or password.");
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(authErrorMessage(res.status, body, "Invalid email or password."));
     }
   }
   async function submitCode(e: React.FormEvent) {
@@ -57,7 +82,10 @@ export default function LoginForm() {
     if (res.ok) window.location.assign("/dashboard");
     else {
       setBusy(false);
-      setError("That code didn't work. Check your authenticator app and try again.");
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(
+        authErrorMessage(res.status, body, "That code didn't work. Check your authenticator app and try again."),
+      );
     }
   }
   if (needsTwoFactor) {
@@ -78,10 +106,12 @@ export default function LoginForm() {
               placeholder="123456"
               required
             />
-            <p className="mt-1 text-xs text-zinc-500">Enter the 6-digit code from your authenticator app.</p>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              Enter the 6-digit code from your authenticator app.
+            </p>
           </div>
           {error && (
-            <p role="alert" className="text-sm text-red-700">
+            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
               {error}
             </p>
           )}
@@ -132,7 +162,7 @@ export default function LoginForm() {
           />
         </div>
         {error && (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-sm text-red-700 dark:text-red-400">
             {error}
           </p>
         )}
@@ -140,7 +170,7 @@ export default function LoginForm() {
           {busy ? "Signing in…" : "Sign in"}
         </Button>
         <p className="text-center text-sm">
-          <Link href="/forgot-password" className="text-blue-600 hover:underline">
+          <Link href="/forgot-password" className="text-blue-600 hover:underline dark:text-blue-400">
             Forgot your password?
           </Link>
         </p>

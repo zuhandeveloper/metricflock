@@ -75,16 +75,16 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="rounded-xl border border-dashed border-zinc-300 p-8 text-center dark:border-zinc-700">
       <p className="font-medium">{title}</p>
-      {hint && <p className="mt-1 text-sm text-zinc-500">{hint}</p>}
+      {hint && <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{hint}</p>}
     </div>
   );
 }
 export function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <Card className="p-4">
-      <p className="text-xs font-medium tracking-wide text-zinc-500 uppercase">{label}</p>
+      <p className="text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">{label}</p>
       <p className="mt-1 text-2xl font-bold">{value}</p>
-      {sub && <p className="mt-1 text-xs text-zinc-500">{sub}</p>}
+      {sub && <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{sub}</p>}
     </Card>
   );
 }

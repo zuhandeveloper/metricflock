@@ -236,7 +236,7 @@ PostgreSQL 16 + Redis 7 (or `docker compose up -d`).
 ```bash
 cp apps/web/.env.example apps/web/.env   # fill in DATABASE_URL, SESSION_SECRET,
                                          # GOOGLE_TOKEN_ENCRYPTION_KEY, Google OAuth creds
-docker compose up -d                     # Postgres + Redis
+POSTGRES_PASSWORD=<password from your DATABASE_URL> docker compose up -d  # Postgres + Redis
 pnpm install
 pnpm db:migrate                          # apply Prisma migrations
 pnpm db:seed                             # demo@example.com / ChangeMe123! — CHANGE IT

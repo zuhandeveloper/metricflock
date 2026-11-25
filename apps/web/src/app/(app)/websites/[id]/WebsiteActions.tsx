@@ -17,7 +17,7 @@ async function sendJson(url: string, method: string, body: unknown): Promise<str
 function ErrorText({ error }: { error: string }) {
   if (!error) return null;
   return (
-    <span role="alert" className="text-xs text-red-700">
+    <span role="alert" className="text-xs text-red-700 dark:text-red-400">
       {error}
     </span>
   );
@@ -76,25 +76,25 @@ export function EditWebsiteForm({
   return (
     <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
       <div>
-        <label htmlFor="edit-name" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="edit-name" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Name
         </label>
         <Input id="edit-name" value={name} onChange={(e) => setName(e.target.value)} required />
       </div>
       <div>
-        <label htmlFor="edit-domain" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="edit-domain" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Domain
         </label>
         <Input id="edit-domain" value={domain} onChange={(e) => setDomain(e.target.value)} required />
       </div>
       <div>
-        <label htmlFor="edit-url" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="edit-url" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           URL
         </label>
         <Input id="edit-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} required />
       </div>
       <div>
-        <label htmlFor="edit-status" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="edit-status" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Status
         </label>
         <select id="edit-status" value={status} onChange={(e) => setStatus(e.target.value)} className={selectCls}>
@@ -106,7 +106,7 @@ export function EditWebsiteForm({
         </select>
       </div>
       <div>
-        <label htmlFor="edit-team" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="edit-team" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Team
         </label>
         <select id="edit-team" value={teamId} onChange={(e) => setTeamId(e.target.value)} className={selectCls}>
@@ -120,7 +120,7 @@ export function EditWebsiteForm({
       <Button type="submit" variant="outline" disabled={busy}>
         {busy ? "Saving…" : "Save changes"}
       </Button>
-      {saved && <span className="text-xs text-emerald-700">Saved.</span>}
+      {saved && <span className="text-xs text-emerald-700 dark:text-emerald-400">Saved.</span>}
       <ErrorText error={error} />
     </form>
   );
@@ -187,7 +187,7 @@ export function AssignForm({
   return (
     <div className="space-y-2">
       {assignments.length === 0 ? (
-        <p className="text-sm text-zinc-500">No members assigned to this website.</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">No members assigned to this website.</p>
       ) : (
         <ul className="space-y-1 text-sm">
           {assignments.map((a) => (
@@ -214,7 +214,7 @@ export function AssignForm({
           className="flex flex-wrap items-end gap-2"
         >
           <div>
-            <label htmlFor="assign-user" className="mb-1 block text-xs font-medium text-zinc-500">
+            <label htmlFor="assign-user" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
               Assign member
             </label>
             <select
@@ -259,7 +259,11 @@ export function TransferForm({
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   if (targets.length === 0) {
-    return <p className="text-sm text-zinc-500">No other team to transfer to. Create another team first.</p>;
+    return (
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        No other team to transfer to. Create another team first.
+      </p>
+    );
   }
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -278,7 +282,7 @@ export function TransferForm({
   return (
     <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
       <div>
-        <label htmlFor="transfer-team" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="transfer-team" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Destination team
         </label>
         <select
@@ -296,7 +300,7 @@ export function TransferForm({
         </select>
       </div>
       <div>
-        <label htmlFor="transfer-reason" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="transfer-reason" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Reason (optional)
         </label>
         <Input id="transfer-reason" value={reason} onChange={(e) => setReason(e.target.value)} />
@@ -304,40 +308,67 @@ export function TransferForm({
       <Button type="submit" variant="outline" disabled={busy}>
         {busy ? "Starting…" : "Start transfer"}
       </Button>
-      {done && <span className="text-xs text-emerald-700">Transfer started — destination team must accept.</span>}
+      {done && (
+        <span className="text-xs text-emerald-700 dark:text-emerald-400">
+          Transfer started — destination team must accept.
+        </span>
+      )}
       <ErrorText error={error} />
     </form>
   );
 }
 
 const SYNC_TYPES = [
+  { value: "ga4-realtime-sync", label: "GA4 realtime" },
   { value: "ga4-historical-sync", label: "GA4 historical" },
   { value: "search-console-sync", label: "Search Console" },
   { value: "adsense-sync", label: "AdSense" },
   { value: "ad-manager-sync", label: "Ad Manager" },
+  { value: "analytics-cache-refresh", label: "Cache refresh" },
   { value: "integration-health-check", label: "Health check" },
 ] as const;
 
 export function SyncNowForm({ websiteId }: { websiteId: string }) {
+  const router = useRouter();
   const [type, setType] = useState<string>("ga4-historical-sync");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [note, setNote] = useState("");
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (busy) return;
     setBusy(true);
     setError("");
     setDone(false);
-    const err = await sendJson("/api/sync", "POST", { websiteId, type });
+    setNote("");
+    // A-API-06: read the response body — a duplicate click in the same
+    // hour returns 200 already_queued / already_completed, not an error.
+    const res = await fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ websiteId, type }),
+    });
     setBusy(false);
-    if (err) return setError(err === "queue_unavailable" ? "queue_unavailable (worker/Redis not running)" : err);
+    const data = (await res.json().catch(() => null)) as { error?: string; status?: string } | null;
+    if (!res.ok) {
+      return setError(
+        data?.error === "queue_unavailable"
+          ? "queue_unavailable (worker/Redis not running)"
+          : (data?.error ?? `request_failed_${res.status}`),
+      );
+    }
+    if (data?.status === "already_queued") return setNote("Already queued for this hour.");
+    if (data?.status === "already_completed") return setNote("Already synced this hour.");
     setDone(true);
+    // A-FE-07: the page shows the latest sync job above this form — refresh
+    // so the row just created (PENDING) appears instead of the previous one.
+    router.refresh();
   }
   return (
     <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
       <div>
-        <label htmlFor="sync-type" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="sync-type" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Sync type
         </label>
         <select
@@ -356,7 +387,8 @@ export function SyncNowForm({ websiteId }: { websiteId: string }) {
       <Button type="submit" variant="outline" disabled={busy}>
         {busy ? "Queueing…" : "Sync now"}
       </Button>
-      {done && <span className="text-xs text-emerald-700">Queued.</span>}
+      {done && <span className="text-xs text-emerald-700 dark:text-emerald-400">Queued.</span>}
+      {note && <span className="text-xs text-zinc-500 dark:text-zinc-400">{note}</span>}
       <ErrorText error={error} />
     </form>
   );

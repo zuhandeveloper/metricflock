@@ -103,6 +103,82 @@ describe("LoginForm", () => {
   });
 });
 
+describe("A-FE-05: distinct login failure messages", () => {
+  async function submitLogin() {
+    render(<LoginForm />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  }
+
+  async function reachTwoFactor(fetchMock: ReturnType<typeof vi.fn>, verifyResponse: Response) {
+    render(<LoginForm />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(screen.getByLabelText("Two-factor code")).toBeInTheDocument());
+    // The once-implementation must be installed AFTER the login call, so
+    // it answers the verify call rather than the login call.
+    fetchMock.mockImplementationOnce(async () => verifyResponse);
+    fireEvent.change(screen.getByLabelText("Two-factor code"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify and sign in" }));
+  }
+
+  it("a 429 login says too many attempts, not invalid credentials", async () => {
+    mockLocationAssign();
+    mockFetch({ error: "too_many_requests" }, false, 429);
+    await submitLogin();
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Too many attempts. Try again in a few minutes."),
+    );
+  });
+
+  it("a 500 login says the server failed, not invalid credentials", async () => {
+    mockLocationAssign();
+    mockFetch({ error: "internal_error" }, false, 500);
+    await submitLogin();
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong on our side. Try again in a moment."),
+    );
+  });
+
+  it("a rate_limited error code maps to the 429 message even with a 400 status", async () => {
+    mockLocationAssign();
+    mockFetch({ error: "rate_limited" }, false, 400);
+    await submitLogin();
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Too many attempts. Try again in a few minutes."),
+    );
+  });
+
+  it("a 429 on 2FA verify says too many attempts, not that the code failed", async () => {
+    mockLocationAssign();
+    const fetchMock = mockFetch({ status: "two_factor_required" });
+    await reachTwoFactor(fetchMock, { ok: false, status: 429, json: async () => ({}) } as Response);
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Too many attempts. Try again in a few minutes."),
+    );
+  });
+
+  it("a 500 on 2FA verify says the server failed, not that the code failed", async () => {
+    mockLocationAssign();
+    const fetchMock = mockFetch({ status: "two_factor_required" });
+    await reachTwoFactor(fetchMock, { ok: false, status: 500, json: async () => ({}) } as Response);
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong on our side. Try again in a moment."),
+    );
+  });
+
+  it("a rate-limited Google sign-in says too many attempts", async () => {
+    auth.social.mockResolvedValueOnce({ error: { status: 429, message: "rate limited" } });
+    render(<LoginForm />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Too many attempts. Try again in a few minutes."),
+    );
+  });
+});
+
 describe("gap closure: json parse failure and busy guards", () => {
   it("an unparseable login response still redirects (json falls back to null)", async () => {
     const assign = mockLocationAssign();

@@ -12,7 +12,7 @@ type AnyOptions = {
   account?: { accountLinking?: { requireLocalEmailVerified?: boolean } };
   databaseHooks?: { user?: { create?: { before?: unknown }; update?: { before?: unknown } } };
   rateLimit?: { enabled?: boolean; customRules?: Record<string, { window?: number; max?: number }> };
-  advanced?: { useSecureCookies?: boolean };
+  advanced?: { useSecureCookies?: boolean; ipAddress?: { ipAddressHeaders?: string[] } };
 };
 
 const options = (auth as unknown as { options: AnyOptions }).options;
@@ -45,5 +45,13 @@ describe("better-auth security configuration", () => {
   });
   it("secure cookies are tied to production (F-2.5)", () => {
     expect(options.advanced?.useSecureCookies).toBe(process.env.NODE_ENV === "production");
+  });
+  it("session IPs prefer the platform-set x-real-ip over x-forwarded-for (A-SEC-16)", () => {
+    // better-auth defaults to `x-forwarded-for` alone, whose single entry
+    // any client can forge — that value feeds the `auth.sign_in` audit
+    // rows. `x-real-ip` is set by the hosting platform from the TCP
+    // connection (same preference order as A-SEC-05's
+    // `clientIpFromHeaders`); XFF is only the fallback.
+    expect(options.advanced?.ipAddress?.ipAddressHeaders).toEqual(["x-real-ip", "x-forwarded-for"]);
   });
 });

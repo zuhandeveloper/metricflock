@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   assignmentDeleteMany: vi.fn(),
   txTeamFindFirst: vi.fn(),
   txWebsiteUpdate: vi.fn(),
+  transferFindFirst: vi.fn(),
   tx: vi.fn(),
   invalidateWebsiteCache: vi.fn(),
   invalidateWebsiteSnapshots: vi.fn(),
@@ -73,6 +74,7 @@ vi.mock("@metricflock/db", () => ({
       deleteMany: mocks.teamMemberDeleteMany,
     },
     user: { findFirst: mocks.userFindFirst },
+    websiteTransfer: { findFirst: mocks.transferFindFirst },
     $transaction: mocks.tx,
   },
 }));
@@ -134,6 +136,7 @@ beforeEach(() => {
     }),
   );
   mocks.txTeamFindFirst.mockResolvedValue({ id: "t1" });
+  mocks.transferFindFirst.mockResolvedValue(null);
   mocks.txWebsiteUpdate.mockImplementation(async ({ data }: { data: unknown }) => ({
     ...website,
     ...(data as object),
@@ -278,6 +281,32 @@ describe("PATCH /api/websites/[id]", () => {
       expect.objectContaining({ action: "website.updated", entityType: "Website", entityId: "w1" }),
     );
   });
+  it("A-DB-04: PATCH team during an open transfer → 409 transfer_in_progress", async () => {
+    mocks.transferFindFirst.mockResolvedValue({ id: "tr-open", status: "PENDING_ACCEPTANCE" });
+    const res = await websitePatch(
+      jsonReq("http://localhost/api/websites/w1", "PATCH", { ...body, teamId: "t2" }),
+      ctx("w1"),
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "transfer_in_progress", details: { transferId: "tr-open" } });
+    expect(mocks.tx).not.toHaveBeenCalled();
+  });
+  it("A-DB-04: PATCH status during an open transfer → 409 transfer_in_progress", async () => {
+    mocks.transferFindFirst.mockResolvedValue({ id: "tr-open", status: "PENDING_CONNECTION" });
+    const res = await websitePatch(
+      jsonReq("http://localhost/api/websites/w1", "PATCH", { ...body, status: "ARCHIVED" }),
+      ctx("w1"),
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "transfer_in_progress", details: { transferId: "tr-open" } });
+    expect(mocks.tx).not.toHaveBeenCalled();
+  });
+  it("A-DB-04: PATCH name-only during an open transfer → 200 (guard is scoped to team/status)", async () => {
+    mocks.transferFindFirst.mockResolvedValue({ id: "tr-open", status: "PENDING_ACCEPTANCE" });
+    const res = await websitePatch(jsonReq("http://localhost/api/websites/w1", "PATCH", body), ctx("w1"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ website: { name: "Renamed" } });
+  });
 });
 
 describe("DELETE /api/websites/[id]", () => {
@@ -358,6 +387,39 @@ describe("GET /api/teams", () => {
     const body = await res.json();
     expect(body).toMatchObject({ teams: [{ id: "t1" }], pagination: { total: 1, limit: 5, offset: 10 } });
   });
+
+  it("A-SEC-11: SUPER_ADMIN sees all teams (no membership filter)", async () => {
+    mocks.teamFindMany.mockResolvedValue([team]);
+    mocks.teamCount.mockResolvedValue(1);
+    const res = await teamsGet(new NextRequest("http://localhost/api/teams"));
+    expect(res.status).toBe(200);
+    expect(mocks.teamFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: "org1" } }));
+    expect(mocks.teamCount).toHaveBeenCalledWith({ where: { organizationId: "org1" } });
+  });
+
+  it("A-SEC-11: TEAM_ADMIN sees only teams they administer", async () => {
+    const teamAdmin = { id: "u2", organizationId: "org1", role: "TEAM_ADMIN", email: "ta@example.com" };
+    mocks.requireApiAuth.mockResolvedValue({ user: teamAdmin });
+    mocks.teamFindMany.mockResolvedValue([team]);
+    mocks.teamCount.mockResolvedValue(1);
+    const res = await teamsGet(new NextRequest("http://localhost/api/teams"));
+    expect(res.status).toBe(200);
+    const scoped = {
+      organizationId: "org1",
+      members: { some: { userId: "u2", isAdmin: true } },
+    };
+    expect(mocks.teamFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: scoped }));
+    expect(mocks.teamCount).toHaveBeenCalledWith({ where: scoped });
+  });
+
+  it("A-SEC-11: TEAM_MEMBER is still blocked by team.view (403, no query)", async () => {
+    mocks.requireApiAuth.mockResolvedValueOnce({
+      error: NextResponse.json({ error: "forbidden" }, { status: 403 }),
+    });
+    expect((await teamsGet(new NextRequest("http://localhost/api/teams"))).status).toBe(403);
+    expect(mocks.teamFindMany).not.toHaveBeenCalled();
+    expect(mocks.teamCount).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/teams", () => {
@@ -393,6 +455,43 @@ describe("PATCH /api/teams/[id]", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ team: { name: "Renamed" } });
   });
+  it("A-API-08: rename → 200 + audit team.updated", async () => {
+    mocks.teamUpdate.mockResolvedValue({ ...team, name: "Renamed" });
+    const res = await teamPatch(jsonReq("http://localhost/api/teams/t1", "PATCH", { name: "Renamed" }), ctx("t1"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ team: { name: "Renamed" } });
+    expect(mocks.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "team.updated",
+        entityType: "Team",
+        entityId: "t1",
+        actorId: "u1",
+        organizationId: "org1",
+        details: { name: "Renamed" },
+      }),
+    );
+  });
+  it("A-API-08: slug change → 200 + audit team.updated", async () => {
+    mocks.teamUpdate.mockResolvedValue({ ...team, slug: "renamed-team" });
+    const res = await teamPatch(jsonReq("http://localhost/api/teams/t1", "PATCH", { slug: "renamed-team" }), ctx("t1"));
+    expect(res.status).toBe(200);
+    expect(mocks.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "team.updated", entityType: "Team", entityId: "t1" }),
+    );
+  });
+  it("A-API-08: no-op PATCH → 200 + audit still written (unconditional, like DELETE)", async () => {
+    mocks.teamUpdate.mockResolvedValue(team);
+    const res = await teamPatch(jsonReq("http://localhost/api/teams/t1", "PATCH", {}), ctx("t1"));
+    expect(res.status).toBe(200);
+    expect(mocks.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "team.updated",
+        entityType: "Team",
+        entityId: "t1",
+        details: { name: "Team One" },
+      }),
+    );
+  });
 });
 
 describe("DELETE /api/teams/[id]", () => {
@@ -409,7 +508,7 @@ describe("DELETE /api/teams/[id]", () => {
     mocks.websiteCount.mockResolvedValue(3);
     const res = await teamDelete(new NextRequest("http://localhost/api/teams/t1", { method: "DELETE" }), ctx("t1"));
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: "team_has_websites", websites: 3 });
+    expect(await res.json()).toMatchObject({ error: "team_has_websites", details: { websites: 3 } });
     expect(mocks.teamDelete).not.toHaveBeenCalled();
   });
   it("empty team → 200 + audit team.deleted", async () => {
@@ -475,6 +574,25 @@ describe("POST /api/teams/[id]/members", () => {
     );
     expect(mocks.txTeamMemberUpsert).toHaveBeenCalledWith(expect.objectContaining({ update: { isAdmin: false } }));
     expect(mocks.teamMemberUpsert).not.toHaveBeenCalled();
+    // A-DB-09: the audit row is written inside the demote transaction.
+    expect(mocks.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "team.member.add" }),
+      expect.anything(),
+    );
+  });
+  it("demote with audit failure → 500: the audit rolls the demote back (A-DB-09)", async () => {
+    mocks.userFindFirst.mockResolvedValue({ id: "u2", organizationId: "org1" });
+    mocks.teamMemberFindFirst.mockResolvedValue({ isAdmin: true });
+    mocks.txTeamMemberCount.mockResolvedValue(2);
+    mocks.txTeamMemberUpsert.mockResolvedValue({});
+    mocks.writeAudit.mockRejectedValue(new Error("audit down"));
+    const res = await teamMembersPost(jsonReq(url, "POST", { userId: "u2", isAdmin: false }), ctx("t1"));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ error: "internal_error" });
+    expect(mocks.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "team.member.add" }),
+      expect.anything(),
+    );
   });
   it("remove non-admin → 200 + deleteMany + audit team.member.remove", async () => {
     mocks.userFindFirst.mockResolvedValue({ id: "u2", organizationId: "org1" });

@@ -21,6 +21,12 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // A-BASE-01: the default 10s hook timeout flakes on slow machines —
+    // rate-limit-failclosed.test.ts re-imports the @metricflock/shared
+    // barrel inside beforeAll (vi.resetModules + dynamic import), which
+    // can exceed 10s when the suite runs on a constrained CPU. 30s is
+    // headroom for hooks only; per-test timeouts are unchanged.
+    hookTimeout: 30_000,
     include: ["tests/unit/**/*.test.{ts,tsx}"],
     // jest-dom matchers for component tests (jsdom). Loaded for every test
     // file; it only extends expect, so node-env unit tests are unaffected.

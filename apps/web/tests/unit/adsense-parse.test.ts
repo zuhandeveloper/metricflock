@@ -15,9 +15,9 @@ describe("AdSense parser", () => {
     const totals = parseAdSenseTotals({ cells: [{ value: "123.45" }, { value: "6789" }, { value: "" }] }, [
       "ESTIMATED_EARNINGS",
       "PAGE_VIEWS",
-      "CTR",
+      "IMPRESSIONS_CTR",
     ]);
-    expect(totals).toEqual({ ESTIMATED_EARNINGS: 123.45, PAGE_VIEWS: 6789, CTR: "" });
+    expect(totals).toEqual({ ESTIMATED_EARNINGS: 123.45, PAGE_VIEWS: 6789, IMPRESSIONS_CTR: "" });
     expect(parseAdSenseTotals(undefined, ["ESTIMATED_EARNINGS"])).toEqual({ ESTIMATED_EARNINGS: "" });
   });
 });

@@ -3,6 +3,7 @@ import { withApiErrors, apiError } from "@/lib/api-error";
 import { requireApiKey } from "@/lib/api-key-auth";
 import { loadPortfolio } from "@/lib/portfolio";
 import { resolveRange } from "@/lib/analytics-response";
+import { clampSearchConsoleRange } from "@metricflock/google/search-console";
 
 // Public API v1 — portfolio totals across the organization's
 // websites (Phase 7.1 aggregation over snapshots).
@@ -27,7 +28,12 @@ async function get(req: NextRequest) {
     return apiError("invalid_report", 400, {
       message: `report for ${provider} must be one of: ${cfg.reports.join(", ")}`,
     });
-  const { startDate, endDate } = resolveRange(req.nextUrl.searchParams.get("range") ?? "28d");
+  let { startDate, endDate } = resolveRange(req.nextUrl.searchParams.get("range") ?? "28d");
+  // A-GGL-07: loadPortfolio clamps SC keys internally, but the returned
+  // range must be the effective one too.
+  if (provider === "SEARCH_CONSOLE") {
+    ({ startDate, endDate } = clampSearchConsoleRange(startDate, endDate));
+  }
   const result = await loadPortfolio(auth.user, { provider, source: cfg.source, report, startDate, endDate });
   return NextResponse.json({
     provider,

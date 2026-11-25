@@ -89,6 +89,14 @@ describe("InsightsPage", () => {
     expect(screen.queryByText(/website\(s\) have no snapshot yet/)).not.toBeInTheDocument();
   });
 
+  // A-API-09: the per-website list is capped at 50 — the page says so.
+  it("notes when insights are truncated to the first 50 websites", async () => {
+    pageMocks.loadInsights.mockResolvedValue({ ...insights, truncated: true });
+    const el = await InsightsPage();
+    render(el);
+    expect(screen.getByText(/first 50 websites/)).toBeInTheDocument();
+  });
+
   it("renders null totals as dashes", async () => {
     pageMocks.loadInsights.mockResolvedValue({
       ...insights,
@@ -143,8 +151,11 @@ describe("IntegrationsPage", () => {
 
   beforeEach(() => {
     pageMocks.googleConnectionFindMany.mockResolvedValue([connection]);
+    pageMocks.googleConnectionCount.mockResolvedValue(1);
     pageMocks.teamFindMany.mockResolvedValue([{ id: "t1", name: "Team One" }]);
+    pageMocks.teamCount.mockResolvedValue(1);
     pageMocks.websiteFindMany.mockResolvedValue([{ id: "w1", name: "Blog" }]);
+    pageMocks.websiteCount.mockResolvedValue(1);
     pageMocks.providersMissingScopes.mockReturnValue([]);
     pageMocks.adManagerEnabled.mockReturnValue(true);
   });
@@ -162,8 +173,16 @@ describe("IntegrationsPage", () => {
     expect(screen.getByText("g@example.com")).toBeInTheDocument();
     expect(screen.getByText(/Owner: TEAM Team One/)).toBeInTheDocument();
     expect(screen.getByText("Health: GA4:ok")).toBeInTheDocument();
-    expect(screen.getByText("Connect team: Team One")).toBeInTheDocument();
-    expect(screen.getByText("Connect website: Blog")).toBeInTheDocument();
+    // A-FE-03: connect targets are selects (capped, searchable) now, not
+    // one link per team/website.
+    const teamSelect = screen.getByLabelText("Team to connect");
+    expect(teamSelect).toBeInTheDocument();
+    expect(teamSelect.querySelector("option")?.textContent).toBe("Team One");
+    expect(screen.getByRole("button", { name: "Connect team" })).toBeInTheDocument();
+    const websiteSelect = screen.getByLabelText("Website to connect");
+    expect(websiteSelect).toBeInTheDocument();
+    expect(websiteSelect.querySelector("option")?.textContent).toBe("Blog");
+    expect(screen.getByRole("button", { name: "Connect website" })).toBeInTheDocument();
     expect(screen.getByText(/GA4 · Blog GA4/)).toBeInTheDocument();
     expect(screen.getByText("Mapped to: Blog")).toBeInTheDocument();
     expect(screen.getByText("Search Console · sc-domain:blog.example")).toBeInTheDocument();
@@ -222,8 +241,11 @@ describe("IntegrationsPage", () => {
   it("shows the empty states for no connections and no teams/websites", async () => {
     mockFetch(null);
     pageMocks.googleConnectionFindMany.mockResolvedValue([]);
+    pageMocks.googleConnectionCount.mockResolvedValue(0);
     pageMocks.teamFindMany.mockResolvedValue([]);
+    pageMocks.teamCount.mockResolvedValue(0);
     pageMocks.websiteFindMany.mockResolvedValue([]);
+    pageMocks.websiteCount.mockResolvedValue(0);
     const el = await IntegrationsPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("No Google accounts connected")).toBeInTheDocument();
@@ -241,5 +263,79 @@ describe("IntegrationsPage", () => {
     expect(screen.queryByRole("button", { name: "Discover properties" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
     expect(screen.queryByText(/No properties discovered yet/)).not.toBeInTheDocument();
+  });
+
+  // A-FE-03: the page used to load every connection, team and website
+  // unbounded. The 1k-site benchmark the finding asks for needs a real
+  // DB (A-WRK-12 run, pending owner approval); these tests pin the
+  // bounded query set instead.
+  it("bounds the connections query with count + take/skip (A-FE-03)", async () => {
+    await IntegrationsPage({ searchParams: Promise.resolve({}) });
+    expect(pageMocks.googleConnectionCount).toHaveBeenCalledWith({ where: { organizationId: "org1" } });
+    expect(pageMocks.googleConnectionFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 20 }));
+    await IntegrationsPage({ searchParams: Promise.resolve({ page: "2" }) });
+    expect(pageMocks.googleConnectionFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 20, take: 20 }));
+  });
+
+  it("renders a pager when connections exceed one page (A-FE-03)", async () => {
+    mockFetch(null);
+    pageMocks.googleConnectionCount.mockResolvedValue(45);
+    const el = await IntegrationsPage({ searchParams: Promise.resolve({}) });
+    render(el);
+    expect(screen.getByText("Page 1 of 3 · 45 connections")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Next →" })).toHaveAttribute("href", "/integrations?page=2");
+  });
+
+  it("caps the website options at 20 and states the total (A-FE-03)", async () => {
+    mockFetch(null);
+    pageMocks.websiteCount.mockResolvedValue(137);
+    pageMocks.websiteFindMany.mockResolvedValue(
+      Array.from({ length: 20 }, (_, i) => ({ id: `w${i}`, name: `Site ${i}` })),
+    );
+    const el = await IntegrationsPage({ searchParams: Promise.resolve({}) });
+    render(el);
+    expect(pageMocks.websiteFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 20 }));
+    expect(screen.getByText("Showing 20 of 137 websites — search to narrow.")).toBeInTheDocument();
+    // The map forms get the capped list, not every website in the org.
+    expect(screen.getByRole("combobox", { name: "Website for 123" }).querySelectorAll("option")).toHaveLength(20);
+  });
+
+  it("narrows the option lists with the page search and preserves it in the pager (A-FE-03)", async () => {
+    mockFetch(null);
+    pageMocks.googleConnectionCount.mockResolvedValue(45);
+    const el = await IntegrationsPage({ searchParams: Promise.resolve({ q: "Blog" }) });
+    render(el);
+    const nameFilter = { contains: "Blog", mode: "insensitive" };
+    expect(pageMocks.websiteFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ name: nameFilter }) }),
+    );
+    expect(pageMocks.teamFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ name: nameFilter }) }),
+    );
+    expect(screen.getByRole("link", { name: "Next →" })).toHaveAttribute("href", "/integrations?q=Blog&page=2");
+    expect(screen.getByRole("link", { name: "Clear" })).toHaveAttribute("href", "/integrations");
+  });
+
+  it("fetches owner names only for the connections on the page (A-FE-03)", async () => {
+    await IntegrationsPage({ searchParams: Promise.resolve({}) });
+    expect(pageMocks.teamFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: { in: ["t1"] } }) }),
+    );
+    expect(pageMocks.websiteFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: { in: [] } }) }),
+    );
+  });
+
+  it("shows a no-match note and an honest map-form hint when the search matches nothing (A-FE-03)", async () => {
+    mockFetch(null);
+    pageMocks.teamFindMany.mockResolvedValue([]);
+    pageMocks.teamCount.mockResolvedValue(0);
+    pageMocks.websiteFindMany.mockResolvedValue([]);
+    pageMocks.websiteCount.mockResolvedValue(0);
+    const el = await IntegrationsPage({ searchParams: Promise.resolve({ q: "zzz" }) });
+    render(el);
+    expect(screen.getByText("No teams or websites match “zzz”.")).toBeInTheDocument();
+    expect(screen.getAllByText("No websites match “zzz” — clear the search to map this property.")).toHaveLength(4);
+    expect(screen.queryByText("Add a website first to map this property.")).not.toBeInTheDocument();
   });
 });

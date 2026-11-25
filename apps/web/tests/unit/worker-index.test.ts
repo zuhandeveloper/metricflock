@@ -393,7 +393,6 @@ describe("worker index (queue wiring and job routing)", () => {
     setDefaults();
     await runJob("google-property-discovery", { websiteId: "site-1" });
     expect(mocks.discoverConnectionProperties).toHaveBeenCalledWith("conn-1");
-
     vi.clearAllMocks();
     setDefaults();
     mocks.resolveConnection.mockResolvedValue({ status: "not_connected", connectionId: null });
@@ -406,6 +405,25 @@ describe("worker index (queue wiring and job routing)", () => {
       reports: [],
       detail: "No connection to discover properties for.",
     });
+  });
+
+  it("property discovery surfaces per-provider errors and pruned counts in the detail (A-GGL-13)", async () => {
+    mocks.discoverConnectionProperties.mockResolvedValue({
+      ga4: 0,
+      searchConsole: 1,
+      adsense: 1,
+      adManager: 0,
+      errors: { ga4: "Analytics Admin API has not been used" },
+      pruned: { searchConsole: 2 },
+    });
+    const result = (await runJob("google-property-discovery", { connectionId: "conn-9" })) as {
+      status: string;
+      detail: string;
+    };
+    expect(result.status).toBe("ok");
+    expect(result.detail).toBe(
+      "discovered ga4=0 searchConsole=1 adsense=1 adManager=0; errors: ga4=Analytics Admin API has not been used; pruned: searchConsole=2",
+    );
   });
 
   it("updates the pre-created sync-job row when syncJobRowId is passed instead of upserting", async () => {

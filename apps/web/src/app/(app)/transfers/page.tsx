@@ -31,7 +31,7 @@ export default async function TransfersPage() {
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Website Transfers</h1>
       <Card className="p-4">
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Transfers are two-sided: the destination team&apos;s admin accepts, connects their own Google account, then
           completes — the website moves only at completion. OAuth tokens never move between owners; old property
           mappings are cleared at handover and the new team re-maps. Open transfers expire after 7 days. Historical
@@ -47,7 +47,7 @@ export default async function TransfersPage() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-zinc-500">
+              <tr className="text-left text-zinc-500 dark:text-zinc-400">
                 <th scope="col" className="py-2">
                   Website
                 </th>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withApiErrors } from "@/lib/api-error";
+import { apiError, requestIdOf, withApiErrors } from "@/lib/api-error";
 import { OPEN_TRANSFER_STATUSES, TRANSFER_TTL_MS } from "@/lib/transfers";
-import { requireApiAuth } from "@metricflock/auth";
+import { assertWebsiteManageAccess, requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { transferSchema, clientIpFromHeaders } from "@metricflock/shared";
 import { writeAudit } from "@metricflock/db/audit";
@@ -16,7 +16,14 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   const { id } = await ctx.params;
   const body = transferSchema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
-  const website = await prisma.website.findFirst({ where: { id, organizationId: auth.user.organizationId } });
+  // A-SEC-17: source-website manage access (SUPER_ADMIN, or isAdmin of
+  // the website's team). `website.transfer` is SUPER_ADMIN-only today,
+  // but if the role table ever grants it to TEAM_ADMIN, a team admin must
+  // not be able to transfer a website outside their teams. The guard
+  // loads the website with the same org scope, so the 404 contract for a
+  // missing website is unchanged — out-of-scope websites are
+  // indistinguishable from missing ones.
+  const website = await assertWebsiteManageAccess(auth.user, id).catch(() => null);
   if (!website) return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
   const toTeam = await prisma.team.findFirst({
     where: { id: body.data.toTeamId, organizationId: auth.user.organizationId },
@@ -26,7 +33,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
   const open = await prisma.websiteTransfer.findFirst({
     where: { websiteId: id, status: { in: OPEN_TRANSFER_STATUSES } },
   });
-  if (open) return NextResponse.json({ error: "transfer_in_progress", transferId: open.id }, { status: 409 });
+  if (open) return apiError("transfer_in_progress", 409, { transferId: open.id }, requestIdOf(req));
   // F-4.2: two concurrent initiates can both pass the check above; the
   // one-open-transfer partial unique index then rejects the second
   // insert (P2002). Map that race to the same stable 409 contract
@@ -40,6 +47,9 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
         toTeamId: toTeam.id,
         initiatedById: auth.user.id,
         status: "PENDING_ACCEPTANCE",
+        // A-DB-04: record the pre-transfer status so `complete` can
+        // restore it instead of hard-coding ACTIVE.
+        websiteStatusBefore: website.status,
         reason: body.data.reason,
         expiresAt: new Date(Date.now() + TRANSFER_TTL_MS),
       },
@@ -50,10 +60,8 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
         where: { websiteId: id, status: { in: OPEN_TRANSFER_STATUSES } },
         select: { id: true },
       });
-      return NextResponse.json(
-        { error: "transfer_in_progress", ...(raced ? { transferId: raced.id } : {}) },
-        { status: 409 },
-      );
+      // A-API-11: the winning transfer id is client-actionable detail.
+      return apiError("transfer_in_progress", 409, raced ? { transferId: raced.id } : undefined, requestIdOf(req));
     }
     throw e;
   }

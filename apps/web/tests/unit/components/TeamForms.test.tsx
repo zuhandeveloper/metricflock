@@ -52,7 +52,7 @@ describe("DeleteTeamButton", () => {
 
   it("expands team_has_websites with the website count", async () => {
     mockConfirm(true);
-    mockFetch({ error: "team_has_websites", websites: 3 }, false, 409);
+    mockFetch({ error: "team_has_websites", details: { websites: 3 } }, false, 409);
     render(<DeleteTeamButton teamId="t1" teamName="Alpha" />);
     fireEvent.click(screen.getByRole("button", { name: "Delete team" }));
     await waitFor(() =>

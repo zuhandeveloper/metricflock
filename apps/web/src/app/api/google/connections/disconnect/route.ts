@@ -28,7 +28,10 @@ async function post(req: NextRequest) {
     () => false,
   );
   if (!visible) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  await revokeConnection(conn.id);
+  // A-GGL-06: the disconnect also unmaps the connection's MAPPED
+  // integrations (inside revokeConnection, same transaction) — the
+  // count is audited so the change is traceable.
+  const unmappedIntegrations = await revokeConnection(conn.id);
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,
@@ -36,7 +39,7 @@ async function post(req: NextRequest) {
     action: "google.connection.disconnected",
     entityType: "GoogleConnection",
     entityId: conn.id,
-    details: { googleAccountEmail: conn.googleAccountEmail },
+    details: { googleAccountEmail: conn.googleAccountEmail, unmappedIntegrations },
   }).catch(() => undefined); // A-API-04: audit failure must not turn a disconnected connection into a 500.
   await invalidateOrgCache(auth.user.organizationId);
   await invalidateOrgSnapshots(auth.user.organizationId);

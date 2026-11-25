@@ -37,6 +37,22 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     where: { id: body.data.userId, organizationId: auth.user.organizationId },
   });
   if (!target) return NextResponse.json({ error: "user_not_found" }, { status: 404 });
+  // A-DB-09: the audit row is written inside the guarded transaction
+  // when one exists (demote / remove-last-admin), so it commits or
+  // rolls back with the mutation; otherwise it is best-effort and a
+  // failure is logged, never a 500 (see writeAudit in
+  // packages/db/src/audit.ts).
+  const auditOpts = {
+    organizationId: auth.user.organizationId,
+    actorId: auth.user.id,
+    ipAddress: clientIpFromHeaders(req.headers),
+    action: `team.member.${body.data.action}`,
+    entityType: "Team",
+    entityId: id,
+    // DB-10: role (isAdmin) changes are part of the audit record.
+    details: { userId: target.id, isAdmin: body.data.isAdmin ?? undefined },
+  };
+  let audited = false;
   if (body.data.action === "add") {
     // Only change isAdmin when the caller explicitly provides it —
     // re-adding an existing admin must not silently demote them.
@@ -64,9 +80,11 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
             isAdmin: false,
           },
         });
+        await writeAudit(auditOpts, tx);
         return true;
       });
       if (!ok) return NextResponse.json({ error: "last_admin" }, { status: 409 });
+      audited = true;
     } else {
       await prisma.teamMember.upsert({
         where: { teamId_userId: { teamId: id, userId: target.id } },
@@ -91,23 +109,18 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
         const admins = await countTeamAdminsLocked(tx, id);
         if (admins <= 1) return false;
         await tx.teamMember.deleteMany({ where: { teamId: id, userId: target.id } });
+        await writeAudit(auditOpts, tx);
         return true;
       });
       if (!ok) return NextResponse.json({ error: "last_admin" }, { status: 409 });
+      audited = true;
     } else {
       await prisma.teamMember.deleteMany({ where: { teamId: id, userId: target.id } });
     }
   }
-  await writeAudit({
-    organizationId: auth.user.organizationId,
-    actorId: auth.user.id,
-    ipAddress: clientIpFromHeaders(req.headers),
-    action: `team.member.${body.data.action}`,
-    entityType: "Team",
-    entityId: id,
-    // DB-10: role (isAdmin) changes are part of the audit record.
-    details: { userId: target.id, isAdmin: body.data.isAdmin ?? undefined },
-  }).catch(() => undefined); // A-API-04: audit failure must not fail the mutation.
+  if (!audited) {
+    await writeAudit(auditOpts).catch(() => undefined); // A-API-04: audit failure must not fail the mutation.
+  }
   return NextResponse.json({ status: "ok" });
 }
 

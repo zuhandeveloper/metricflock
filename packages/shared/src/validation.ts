@@ -1,13 +1,42 @@
 import { z } from "zod";
+
+/** Strict YYYY-MM-DD calendar-date validation (parseAdManagerDate-style):
+ *  format + a real calendar date. A plain `^\d{4}-\d{2}-\d{2}$` regex
+ *  admits "2026-02-30" and "2026-13-45", and slicing admits "2026-1-5"
+ *  (month NaN); those used to reach Google and fail as confusing provider
+ *  502s (A-GGL-08). The UTC round-trip rejects impossible dates. */
+export function parseStrictDate(d: string): { year: number; month: number; day: number } {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  if (!m) throw new Error("INVALID_DATE");
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) {
+    throw new Error("INVALID_DATE");
+  }
+  return { year, month, day };
+}
+
+export function isValidCalendarDate(d: string): boolean {
+  try {
+    parseStrictDate(d);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A-GGL-08: field-level refine (not an object-level one) so dateRangeSchema
+// stays a plain ZodObject and analyticsQuerySchema's `.extend` keeps
+// working. The startDate <= endDate check lives in resolveRange, which
+// every HTTP path calls after parsing.
+const strictDateString = z.string().refine(isValidCalendarDate, {
+  message: "must be a real calendar date (YYYY-MM-DD)",
+});
 export const dateRangeSchema = z.object({
-  startDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  endDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  startDate: strictDateString.optional(),
+  endDate: strictDateString.optional(),
   range: z.enum(["today", "yesterday", "7d", "28d", "90d", "12m", "custom"]).default("28d"),
 });
 export const websiteCreateSchema = z.object({

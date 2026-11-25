@@ -29,14 +29,17 @@ vi.mock("@metricflock/db", () => ({
     user: { findMany: mocks.userFindMany },
   },
 }));
-vi.mock("@metricflock/db/snapshots", () => ({ readSnapshot: vi.fn(async () => null) }));
+vi.mock("@metricflock/db/snapshots", () => ({ readSnapshots: vi.fn(async () => new Map()) }));
 vi.mock("@metricflock/auth/mailer", () => ({
   sendMail: mocks.sendMail,
   mailerMode: mocks.mailerMode,
 }));
-vi.mock("@metricflock/google/client", () => ({ getPrimaryIntegration: vi.fn(async () => null) }));
+// A-WRK-10: the report reads primaries + snapshots through the A-DB-11
+// batch helpers; this file's fixtures have no websites, so they are
+// never called — but the module must export them.
+vi.mock("@metricflock/google/client", () => ({ getPrimaryIntegrations: vi.fn(async () => new Map()) }));
 vi.mock("@metricflock/google/sync", () => ({
-  last28Days: () => ({ startDate: "2026-10-26", endDate: "2026-11-22" }),
+  last28Days: () => ({ startDate: "2026-10-19", endDate: "2026-11-15" }),
 }));
 
 import { sendOrgReport } from "@metricflock/worker/report";

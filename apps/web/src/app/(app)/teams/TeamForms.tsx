@@ -36,10 +36,15 @@ export function DeleteTeamButton({ teamId, teamName }: { teamId: string; teamNam
     const res = await fetch(`/api/teams/${teamId}`, { method: "DELETE" });
     setBusy(false);
     if (!res.ok) {
-      const data = (await res.json().catch(() => null)) as { error?: string; websites?: number } | null;
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        details?: { websites?: number };
+      } | null;
       setError(
         data?.error === "team_has_websites"
-          ? `team_has_websites (${data.websites} website(s) — move or delete them first)`
+          ? // A-API-11: the website count moved into `details` with the
+            // error-envelope enforcement.
+            `team_has_websites (${data.details?.websites ?? "?"} website(s) — move or delete them first)`
           : (data?.error ?? `request_failed_${res.status}`),
       );
       return;
@@ -52,7 +57,7 @@ export function DeleteTeamButton({ teamId, teamName }: { teamId: string; teamNam
         {busy ? "Deleting…" : "Delete team"}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-700">
+        <span role="alert" className="text-xs text-red-700 dark:text-red-400">
           {error}
         </span>
       )}
@@ -83,7 +88,7 @@ export function CreateTeamForm() {
   return (
     <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
       <div>
-        <label htmlFor="team-name" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="team-name" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Team name
         </label>
         <Input
@@ -98,7 +103,7 @@ export function CreateTeamForm() {
         />
       </div>
       <div>
-        <label htmlFor="team-slug" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="team-slug" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Slug
         </label>
         <Input
@@ -117,7 +122,7 @@ export function CreateTeamForm() {
         {busy ? "Creating…" : "Create team"}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-700">
+        <span role="alert" className="text-xs text-red-700 dark:text-red-400">
           {error}
         </span>
       )}
@@ -168,7 +173,10 @@ export function TeamAdminControls({
         className="flex flex-wrap items-end gap-2"
       >
         <div>
-          <label htmlFor={`rename-${teamId}`} className="mb-1 block text-xs font-medium text-zinc-500">
+          <label
+            htmlFor={`rename-${teamId}`}
+            className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400"
+          >
             Rename team
           </label>
           <Input id={`rename-${teamId}`} value={name} onChange={(e) => setName(e.target.value)} required />
@@ -230,7 +238,10 @@ export function TeamAdminControls({
           className="flex flex-wrap items-end gap-2"
         >
           <div>
-            <label htmlFor={`add-member-${teamId}`} className="mb-1 block text-xs font-medium text-zinc-500">
+            <label
+              htmlFor={`add-member-${teamId}`}
+              className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400"
+            >
               Add member
             </label>
             <select
@@ -257,13 +268,13 @@ export function TeamAdminControls({
           </Button>
         </form>
       ) : (
-        <p className="text-xs text-zinc-500">All organization users are already in this team.</p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">All organization users are already in this team.</p>
       )}
       <div className="border-t border-zinc-100 pt-3 dark:border-zinc-800">
         <DeleteTeamButton teamId={teamId} teamName={teamName} />
       </div>
       {error && (
-        <p role="alert" className="text-xs text-red-700">
+        <p role="alert" className="text-xs text-red-700 dark:text-red-400">
           {error}
         </p>
       )}

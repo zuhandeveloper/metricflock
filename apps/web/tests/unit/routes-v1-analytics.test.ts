@@ -10,13 +10,17 @@ import { NextRequest, NextResponse } from "next/server";
 const mocks = vi.hoisted(() => ({
   apiKeyFindUnique: vi.fn(),
   apiKeyUpdate: vi.fn(),
+  apiKeyCount: vi.fn(),
   websiteFindMany: vi.fn(),
   websiteFindFirst: vi.fn(),
   websiteCount: vi.fn(),
   orgFindUnique: vi.fn(),
   orgDelete: vi.fn(),
+  orgDeleteMany: vi.fn(),
+  txQueryRaw: vi.fn(),
   inviteFindFirst: vi.fn(),
   inviteUpdate: vi.fn(),
+  inviteCount: vi.fn(),
   inviteDelete: vi.fn(),
   userCount: vi.fn(),
   userUpdate: vi.fn(),
@@ -58,13 +62,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@metricflock/db", () => ({
   prisma: {
-    apiKey: { findUnique: mocks.apiKeyFindUnique, update: mocks.apiKeyUpdate },
+    apiKey: { findUnique: mocks.apiKeyFindUnique, update: mocks.apiKeyUpdate, count: mocks.apiKeyCount },
     website: { findMany: mocks.websiteFindMany, findFirst: mocks.websiteFindFirst, count: mocks.websiteCount },
-    organization: { findUnique: mocks.orgFindUnique, delete: mocks.orgDelete },
+    organization: { findUnique: mocks.orgFindUnique, delete: mocks.orgDelete, deleteMany: mocks.orgDeleteMany },
     organizationInvite: {
       findFirst: mocks.inviteFindFirst,
       update: mocks.inviteUpdate,
       delete: mocks.inviteDelete,
+      count: mocks.inviteCount,
     },
     user: { count: mocks.userCount, update: mocks.userUpdate },
     team: { count: mocks.teamCount },
@@ -113,7 +118,10 @@ vi.mock("@metricflock/google/ga4", () => ({
   runEventsReport: mocks.ga4Events,
   runRealtimeReport: mocks.ga4Realtime,
 }));
-vi.mock("@metricflock/google/search-console", () => ({ querySearchAnalytics: mocks.scQuery }));
+vi.mock("@metricflock/google/search-console", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@metricflock/google/search-console")>();
+  return { ...actual, querySearchAnalytics: mocks.scQuery };
+});
 vi.mock("@metricflock/google/adsense", () => ({ runAdSenseReport: mocks.adsenseReport }));
 vi.mock("@metricflock/google/ad-manager", () => ({
   runAdManagerReport: mocks.adManagerReport,
@@ -128,6 +136,19 @@ vi.mock("@metricflock/auth/mailer", () => ({
 }));
 
 import { generateApiKey } from "@metricflock/shared";
+
+// A-DB-05: invites/accept runs the move in an interactive transaction;
+// the tx mock executes callback args with this fake client (array-form
+// callers still get [] as before).
+const fakeTx = {
+  $queryRaw: mocks.txQueryRaw,
+  user: { count: mocks.userCount, update: mocks.userUpdate },
+  team: { count: mocks.teamCount },
+  website: { count: mocks.websiteCount },
+  googleConnection: { count: mocks.connectionCount },
+  apiKey: { count: mocks.apiKeyCount },
+  organizationInvite: { count: mocks.inviteCount, update: mocks.inviteUpdate },
+};
 import { GET as v1Health } from "@/app/api/v1/health/route";
 import { GET as v1Insights } from "@/app/api/v1/insights/route";
 import { GET as v1Portfolio } from "@/app/api/v1/portfolio/route";
@@ -186,6 +207,10 @@ beforeEach(() => {
   // API-key auth: valid key for org1.
   mocks.apiKeyFindUnique.mockResolvedValue({ id: "k1", organizationId: "org1", createdById: "u1", revokedAt: null });
   mocks.apiKeyUpdate.mockResolvedValue({});
+  // A-SEC-20: the invite-accept shell check counts live API keys and
+  // outstanding invites — default to none (empty shell).
+  mocks.apiKeyCount.mockResolvedValue(0);
+  mocks.inviteCount.mockResolvedValue(0);
   mocks.rateLimit.mockResolvedValue({ allowed: true, remaining: 119 });
   // Session auth: signed-in SUPER_ADMIN.
   mocks.requireApiAuth.mockResolvedValue({ user: admin });
@@ -219,8 +244,10 @@ beforeEach(() => {
   mocks.mailerMode.mockReturnValue("smtp");
   mocks.writeAudit.mockResolvedValue(undefined);
   mocks.orgFindUnique.mockResolvedValue({ name: "Org One" });
-  mocks.tx.mockImplementation(async (arg: unknown) => (Array.isArray(arg) ? [] : arg));
+  mocks.tx.mockImplementation(async (arg: unknown) => (typeof arg === "function" ? arg(fakeTx) : []));
+  mocks.txQueryRaw.mockResolvedValue([]);
   mocks.orgDelete.mockResolvedValue({});
+  mocks.orgDeleteMany.mockResolvedValue({ count: 1 });
 });
 
 describe("v1 routes (API-key auth)", () => {
@@ -307,6 +334,30 @@ describe("v1 routes (API-key auth)", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: "no_snapshot_yet" });
   });
+
+  it("GET /api/v1/websites/[id]/analytics: search-console uses the clamped range for key and response (A-GGL-07)", async () => {
+    mocks.websiteFindFirst.mockResolvedValue({ id: "w1" });
+    mocks.readSnapshot.mockResolvedValue({
+      payload: { totals: { clicks: 5 } },
+      updatedAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const res = await v1WebsiteAnalytics(
+      apiKeyReq("http://localhost/api/v1/websites/w1/analytics?report=search-console&range=28d", key),
+      { params: Promise.resolve({ id: "w1" }) },
+    );
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const today = new Date();
+    const expectedStart = fmt(new Date(today.getTime() - 27 * 86400000));
+    const expectedEnd = fmt(new Date(today.getTime() - 3 * 86400000));
+    // The snapshot lookup hits the key the worker warmed.
+    expect(mocks.readSnapshot).toHaveBeenCalledWith(expect.stringContaining(`:${expectedStart}_${expectedEnd}:`));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: "ok",
+      range: { startDate: expectedStart, endDate: expectedEnd },
+    });
+  });
 });
 
 describe("analytics routes (session auth + shared handler)", () => {
@@ -354,12 +405,21 @@ describe("analytics routes (session auth + shared handler)", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: "missing_data", data: null });
   });
-  it("ad-manager: disabled provider → 200 disabled without calling auth", async () => {
+  it("ad-manager: disabled provider → 503 ad_manager_disabled without calling auth (A-API-10)", async () => {
     mocks.adManagerEnabled.mockReturnValueOnce(false);
     const res = await analyticsAdManager(url("/api/analytics/ad-manager"));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ status: "disabled" });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: "ad_manager_disabled" });
     expect(mocks.requireApiAuth).not.toHaveBeenCalled();
+  });
+  it("ad-manager: disabled provider → 503 carries the standard error shape (requestId)", async () => {
+    mocks.adManagerEnabled.mockReturnValueOnce(false);
+    const res = await analyticsAdManager(url("/api/analytics/ad-manager"));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("ad_manager_disabled");
+    expect(typeof body.requestId).toBe("string");
+    expect(body.requestId.length).toBeGreaterThan(0);
   });
 });
 

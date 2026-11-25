@@ -37,7 +37,7 @@ Repo: main HEAD `6e6d2b21`.
 
 ## 0.3 Findings
 
-### A-PERF-01 (P2) — No load, latency, or Core Web Vitals evidence exists
+### A-PERF-01 (P2) — No load, latency, or Core Web Vitals evidence exists · FIXED 2026-11-24
 
 - **Evidence:** no load-test script, no k6/Artillery config, no
   Lighthouse CI, no Web Vitals instrumentation, no APM in the repo.
@@ -50,9 +50,10 @@ Repo: main HEAD `6e6d2b21`.
 - **Correction:** run a controlled load test against a staging deploy
   (10/50/100 concurrent users, record p50/p95/p99 + error rate), and
   add Lighthouse CI or Vercel Speed Insights for Core Web Vitals.
-- **Status:** CONFIRMED (absence verified by search).
+- **Status:** FIXED 2026-11-24 (tooling + procedure; the run itself is pending the owner's explicit staging approval — no traffic has been sent to any deployment).
+- **Verification note:** revalidation confirmed the absence — the only load-test-like artefact is `apps/worker/scripts/load-test-scheduler.ts`, which measures in-memory scheduler planning capacity at 100/500 sites, not HTTP latency; no k6/Artillery config, Lighthouse CI, Speed Insights, or APM exists anywhere (repo-wide grep). Delivered `apps/web/scripts/load-test.mjs` (dependency-free Node, global fetch): ramps 10 → 50 → 100 concurrent users, `--seconds` per stage (default 30), per-endpoint p50/p95/p99 + error rate, human table + `--json`/`--out`. Guards mirror the benchmark scripts: refuses without `LOAD_TEST_CONFIRM=1`, refuses the four production hosts (`metricflock.bond`, `metricflock.vercel.app`, `metricflock-zuhan4.vercel.app`, `metricflock-git-main-zuhan4.vercel.app` — from the live project object), https-only for remote targets. `--dry-run` prints the plan and sends no traffic. Authenticated paths (`/dashboard`, `/api/websites`, `/api/analytics/overview`) run only when `LOAD_TEST_COOKIE` (+ `LOAD_TEST_WEBSITE_ID`) is set from the environment — never logged or committed. Proof: dry run on a staging preview URL prints the plan, exit 0; prod host / missing confirmation / http-remote each refuse with exit 1. +16 tests in `apps/web/tests/unit/load-test-script.test.ts` (percentiles, guards, plan). Run procedure: deploy staging first, then `LOAD_TEST_CONFIRM=1 node apps/web/scripts/load-test.mjs --url <staging-url>` (add `LOAD_TEST_COOKIE` + `LOAD_TEST_WEBSITE_ID` for the authenticated paths); record p50/p95/p99 + error rate per endpoint. Proposed bar (owner to confirm, not a committed SLO): overall error rate ≤ 1% and p95 < 2000 ms per endpoint. Speed Insights is NOT enabled: no `@vercel/speed-insights` package and no `<SpeedInsights/>` in the layout (grep); Vercel's own quickstart requires the package + component in `app/layout.tsx` for App Router, so it is a code change, not a dashboard-only toggle — adding it needs a package.json change (frozen for this fix) + layout edit, i.e. an owner decision. The Vercel MCP `get_project` summary exposes no Speed Insights field, so dashboard state could not be read via the connector; with no code integration, no Speed Insights data is collected either way. Lighthouse CI likewise needs a workflow change via the GitHub web UI.
 
-### A-PERF-02 (P2) — Scale benchmark (100/1k/10k sites) never executed against a real DB
+### A-PERF-02 (P2) — Scale benchmark (100/1k/10k sites) never executed against a real DB · FIXED 2026-11-24
 
 - **File:** `packages/db/scripts/benchmark-scale.ts`, `docs/audit/BENCHMARKS.md`.
 - **Evidence:** the script exists and refuses to run without
@@ -65,6 +66,38 @@ Repo: main HEAD `6e6d2b21`.
 - **Correction:** run `benchmark-scale.ts` against a staging Postgres
   at 100/1k/10k and record real timings before claiming scale.
 - **Status:** CONFIRMED.
+- **Verification (2026-11-24):** revalidation + procedure only — the run
+  itself is still pending the owner's explicit staging-DB approval.
+  The scheduler has not changed since A-WRK-12 (no later fix touched
+  `apps/worker/src/scheduler.ts`; constants RETENTION_DAYS=30,
+  WEBSITE_PAGE_SIZE=500, PRUNE_BATCH_SIZE=1000, STALE_RUNNING_MS=6h),
+  and the script was still aligned on all four compared shapes: page
+  scan (`status: { in: ["ACTIVE", "PENDING_SETUP"] }` + MAPPED filter,
+  `take: 500`), per-page scoped last-success groupBy
+  (`by: ["websiteId", "type"]`, 500 ids, 30-day window), stale RUNNING
+  → FAILED (6h, `lastError: "stale_running"`), retention prune
+  (30-day, SUCCEEDED/FAILED/PENDING/RETRYING, 1000 ids/batch). Two
+  realignments made in `benchmark-scale.ts`: (1) the prune id-select
+  now carries `orderBy: { id: "asc" }` like production's
+  `pruneInBatches`; (2) the dashboard's FE-4 per-page last-sync
+  groupBy (`by: ["websiteId"]`, first 50 page ids — dashboard
+  PAGE_SIZE=50) is now measured alongside the scheduler's variant.
+  The dashboard page query set was also re-checked against
+  `dashboard/page.tsx` — count, 50-row page, connected count and
+  provider groupBy all still match. Safety rails re-verified live
+  (exit 1, no connection attempted): scale script refuses without
+  `BENCH_CONFIRM=1` and refuses a `prisma.io` DATABASE_URL;
+  throughput script refuses without `BENCH_CONFIRM=1`, without
+  `REDIS_URL`, and against the production Redis host. Run procedure
+  (see BENCHMARKS.md): staging Postgres + staging Redis, then
+  `BENCH_CONFIRM=1 pnpm --filter @metricflock/db exec tsx
+scripts/benchmark-scale.ts` (subset `BENCH_SIZES=100,1000`) and the
+  throughput companion; record per-query timings at 100/1k/10k in
+  BENCHMARKS.md "Results". Residual gaps (documented, not measured):
+  the production analytics-cache prune and OAuth-state prune are not
+  seeded/measured, and the org-level counts (team/user/connection)
+  are not measured — none scales with website count.
+  **The "345×" figure must still not be cited as scale evidence.**
 
 ### A-PERF-03 (P3) — All 75 routes are dynamic; no caching headers for pages
 

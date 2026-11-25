@@ -20,7 +20,7 @@ export default async function ReportsSettingsPage() {
       <h1 className="text-2xl font-bold">Weekly reports</h1>
       <Card className="p-4">
         <h2 className="font-semibold">Scheduled email report</h2>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
           Once a week, the worker emails a portfolio summary (GA4, Search Console, AdSense and integration health for
           the last 28 days) built from synced snapshots. Leave recipients empty to send to all Super Admins. Sending
           needs the worker running and SMTP configured.

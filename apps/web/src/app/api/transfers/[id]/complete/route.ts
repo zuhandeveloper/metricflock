@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withApiErrors } from "@/lib/api-error";
+import { apiError, requestIdOf, withApiErrors } from "@/lib/api-error";
 import { canActForDestination, expireIfStale, loadTransferInOrg, transferStaleStateResponse } from "@/lib/transfers";
 import { requireApiAuth, requireFreshSession } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
@@ -28,18 +28,19 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   if (transfer.status === "EXPIRED") return NextResponse.json({ error: "transfer_expired" }, { status: 409 });
   if (transfer.status !== "PENDING_CONNECTION")
-    return NextResponse.json({ error: "invalid_state", status: transfer.status }, { status: 409 });
+    return apiError("invalid_state", 409, { status: transfer.status }, requestIdOf(req));
   const destinationConnection = await prisma.googleConnection.findFirst({
     where: { organizationId: auth.user.organizationId, teamId: transfer.toTeamId, status: "ACTIVE" },
     select: { id: true },
   });
   if (!destinationConnection)
-    return NextResponse.json(
+    return apiError(
+      "destination_not_connected",
+      409,
       {
-        error: "destination_not_connected",
         note: "The destination team must connect its own Google account (Integrations) before the transfer can complete.",
       },
-      { status: 409 },
+      requestIdOf(req),
     );
   // A-DB-01: the status guard runs FIRST inside the transaction as a
   // conditional updateMany. Under Read Committed the guarded write takes
@@ -56,7 +57,11 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     if (guard.count === 0) return null;
     await tx.website.update({
       where: { id: transfer.websiteId },
-      data: { teamId: transfer.toTeamId, status: "ACTIVE" },
+      // A-DB-04: restore the status the website had when the transfer
+      // was initiated instead of hard-coding ACTIVE — a manual ARCHIVED
+      // decision must survive completion. Transfers initiated before
+      // this field existed (null) fall back to ACTIVE, as before.
+      data: { teamId: transfer.toTeamId, status: transfer.websiteStatusBefore ?? "ACTIVE" },
     });
     await tx.websiteAssignment.deleteMany({ where: { websiteId: transfer.websiteId } });
     await tx.websiteIntegration.deleteMany({ where: { websiteId: transfer.websiteId } });

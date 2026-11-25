@@ -34,7 +34,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
             Your password has been reset and all existing sessions were signed out. Sign in with your new password.
           </p>
           <p className="text-sm">
-            <Link href="/login" className="text-blue-600 hover:underline">
+            <Link href="/login" className="text-blue-600 hover:underline dark:text-blue-400">
               Go to sign in
             </Link>
           </p>
@@ -54,10 +54,10 @@ export default function ResetPasswordForm({ token }: { token: string }) {
               required
               autoComplete="new-password"
             />
-            <p className="mt-1 text-xs text-zinc-500">At least 12 characters.</p>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">At least 12 characters.</p>
           </div>
           {error && (
-            <p role="alert" className="text-sm text-red-700">
+            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
               {error}
             </p>
           )}

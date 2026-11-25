@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from "vite
 const mocks = vi.hoisted(() => ({
   analyticsUpsert: vi.fn(),
   analyticsFindUnique: vi.fn(),
+  analyticsFindMany: vi.fn(),
   analyticsDeleteMany: vi.fn(),
   orgUpsert: vi.fn(),
   userUpsert: vi.fn(),
@@ -48,6 +49,7 @@ function registerClientMock() {
       analyticsCache: {
         upsert: mocks.analyticsUpsert,
         findUnique: mocks.analyticsFindUnique,
+        findMany: mocks.analyticsFindMany,
         deleteMany: mocks.analyticsDeleteMany,
       },
       organization: { upsert: mocks.orgUpsert },
@@ -79,6 +81,7 @@ describe("snapshots (packages/db/src/snapshots.ts)", () => {
     vi.clearAllMocks();
     mocks.analyticsUpsert.mockResolvedValue({});
     mocks.analyticsFindUnique.mockResolvedValue(null);
+    mocks.analyticsFindMany.mockResolvedValue([]);
     mocks.analyticsDeleteMany.mockResolvedValue({ count: 0 });
     mocks.disconnect.mockResolvedValue(undefined);
   });
@@ -120,6 +123,30 @@ describe("snapshots (packages/db/src/snapshots.ts)", () => {
 
   it("readSnapshot returns null when there is no row", async () => {
     await expect(snapshots.readSnapshot("missing-key")).resolves.toBeNull();
+  });
+
+  // A-DB-11: the batch read — one findMany for any number of keys.
+  it("readSnapshots returns one map entry per row from a single findMany", async () => {
+    const expiresAt = new Date("2026-11-20T00:00:00Z");
+    const createdAt = new Date("2026-11-19T00:00:00Z");
+    mocks.analyticsFindMany.mockResolvedValue([
+      { cacheKey: "k1", payload: { clicks: 5 }, expiresAt, createdAt },
+      { cacheKey: "k2", payload: { clicks: 9 }, expiresAt, createdAt },
+    ]);
+    const out = await snapshots.readSnapshots(["k1", "k2", "k3"]);
+    expect(mocks.analyticsFindMany).toHaveBeenCalledTimes(1);
+    expect(mocks.analyticsFindMany).toHaveBeenCalledWith({
+      where: { cacheKey: { in: ["k1", "k2", "k3"] } },
+      select: { cacheKey: true, payload: true, expiresAt: true, createdAt: true },
+    });
+    expect(out.get("k1")).toEqual({ payload: { clicks: 5 }, expiresAt, updatedAt: createdAt });
+    expect(out.get("k2")).toEqual({ payload: { clicks: 9 }, expiresAt, updatedAt: createdAt });
+    expect(out.has("k3")).toBe(false);
+  });
+
+  it("readSnapshots returns an empty map without querying for no keys", async () => {
+    await expect(snapshots.readSnapshots([])).resolves.toEqual(new Map());
+    expect(mocks.analyticsFindMany).not.toHaveBeenCalled();
   });
 
   it("invalidateWebsiteSnapshots deletes every snapshot for the website", async () => {

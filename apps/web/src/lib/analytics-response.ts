@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isValidCalendarDate } from "@metricflock/shared";
 import { ApiError } from "./api-error";
 export function analyticsEnvelope(opts: {
   data: unknown;
@@ -68,11 +69,18 @@ export function resolveRange(
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
   const today = new Date();
   const days = { today: 0, yesterday: 1, "7d": 7, "28d": 28, "90d": 90, "12m": 365 } as Record<string, number>;
-  const validDate = (d?: string) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
   if (range === "custom") {
-    if (!validDate(startDate) || !validDate(endDate)) {
+    // A-GGL-08: a format regex alone admits impossible dates ("2026-02-30")
+    // and says nothing about order — both must be real calendar dates with
+    // startDate <= endDate before any provider call.
+    if (!isValidCalendarDate(startDate ?? "") || !isValidCalendarDate(endDate ?? "")) {
       throw new ApiError("invalid_range", 400, {
-        message: "range=custom requires valid startDate and endDate (YYYY-MM-DD).",
+        message: "range=custom requires real calendar dates (YYYY-MM-DD).",
+      });
+    }
+    if ((startDate as string) > (endDate as string)) {
+      throw new ApiError("invalid_range", 400, {
+        message: "startDate must be on or before endDate.",
       });
     }
     return { startDate: startDate as string, endDate: endDate as string };

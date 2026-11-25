@@ -93,7 +93,7 @@ without the worker, scheduled sync simply doesn't happen and manual
 ## Local development
 
 ```bash
-docker compose up -d        # Postgres 16 + Redis 7
+POSTGRES_PASSWORD=<password from your DATABASE_URL> docker compose up -d  # Postgres 16 + Redis 7
 cp apps/web/.env.example apps/web/.env
 pnpm install
 pnpm db:migrate && pnpm db:seed

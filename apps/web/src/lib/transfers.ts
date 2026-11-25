@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { apiError } from "./api-error";
 import { prisma } from "@metricflock/db";
 import type { TransferStatus, User } from "@metricflock/db";
 
@@ -49,8 +49,12 @@ export async function expireIfStale<T extends { id: string; status: TransferStat
  *  contract, including the EXPIRED case, so a race loser gets the same
  *  stable error a sequential caller would. */
 export function transferStaleStateResponse(status: TransferStatus) {
-  if (status === "EXPIRED") return NextResponse.json({ error: "transfer_expired" }, { status: 409 });
-  return NextResponse.json({ error: "invalid_state", status }, { status: 409 });
+  // A-API-11: the observed status is client-actionable detail, so it
+  // lives in `details` — the error envelope is `{ error, requestId }`
+  // plus `details` only. No request in scope here; apiError mints the id
+  // and the `withApiErrors` wrapper preserves it.
+  if (status === "EXPIRED") return apiError("transfer_expired", 409);
+  return apiError("invalid_state", 409, { status });
 }
 
 /** Destination-side authority: SUPER_ADMIN, or an isAdmin member of the

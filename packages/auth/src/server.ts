@@ -191,6 +191,14 @@ export const auth = betterAuth({
     // Secure cookies in production (F-2.5) — never send session cookies
     // over plain HTTP outside local development.
     useSecureCookies: process.env.NODE_ENV === "production",
+    // A-SEC-16: session IPs feed the `auth.sign_in` audit rows (and the
+    // Sessions UI). better-auth defaults to `x-forwarded-for` alone,
+    // whose single entry any client can forge. Prefer `x-real-ip` — the
+    // hosting platform sets it from the TCP connection, replacing any
+    // client value (same preference order as A-SEC-05's
+    // `clientIpFromHeaders`) — and fall back to the first
+    // `x-forwarded-for` entry only when no platform header is present.
+    ipAddress: { ipAddressHeaders: ["x-real-ip", "x-forwarded-for"] },
   },
   session: {
     expiresIn: 60 * 60 * 24 * 30, // 30 days, as before

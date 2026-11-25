@@ -32,7 +32,7 @@ export default async function ApiKeysPage() {
       <h1 className="text-2xl font-bold">API keys</h1>
       <Card className="p-4">
         <h2 className="font-semibold">Public API (read-only)</h2>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
           API keys give read-only access to your organization&apos;s data via <code>/api/v1/*</code> (websites,
           analytics snapshots, portfolio totals, health, insights). Send the key as{" "}
           <code>Authorization: Bearer mf_…</code>. Limit: 120 requests/minute per key. The secret is shown once when

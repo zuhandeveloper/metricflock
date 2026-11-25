@@ -35,9 +35,19 @@ export function ReportScheduleForm({ initial }: { initial: Schedule }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled, dayOfWeek, hourUtc, recipients: list }),
     });
-    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    const data = (await res.json().catch(() => null)) as {
+      error?: string;
+      details?: { invalidRecipients?: unknown[] };
+    } | null;
     setBusy(false);
-    if (!res.ok) return setError(data?.error ?? `request_failed_${res.status}`);
+    if (!res.ok) {
+      // A-API-07: the server names the invalid addresses — show them
+      // instead of only the error code.
+      const invalid = data?.details?.invalidRecipients;
+      if (data?.error === "invalid_recipients" && Array.isArray(invalid) && invalid.length > 0)
+        return setError(`Invalid recipient emails: ${invalid.map(String).join(", ")}`);
+      return setError(data?.error ?? `request_failed_${res.status}`);
+    }
     setNotice("Schedule saved.");
   }
 
@@ -64,7 +74,7 @@ export function ReportScheduleForm({ initial }: { initial: Schedule }) {
       </label>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label htmlFor="report-day" className="block text-xs font-medium text-zinc-500">
+          <label htmlFor="report-day" className="block text-xs font-medium text-zinc-500 dark:text-zinc-400">
             Day (UTC)
           </label>
           <select
@@ -81,7 +91,7 @@ export function ReportScheduleForm({ initial }: { initial: Schedule }) {
           </select>
         </div>
         <div>
-          <label htmlFor="report-hour" className="block text-xs font-medium text-zinc-500">
+          <label htmlFor="report-hour" className="block text-xs font-medium text-zinc-500 dark:text-zinc-400">
             Hour (UTC, 0–23)
           </label>
           <Input
@@ -95,7 +105,7 @@ export function ReportScheduleForm({ initial }: { initial: Schedule }) {
         </div>
       </div>
       <div>
-        <label htmlFor="report-recipients" className="block text-xs font-medium text-zinc-500">
+        <label htmlFor="report-recipients" className="block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Recipients (one email per line; empty = all Super Admins)
         </label>
         <textarea
@@ -107,10 +117,12 @@ export function ReportScheduleForm({ initial }: { initial: Schedule }) {
         />
       </div>
       {initial.lastSentAt && (
-        <p className="text-xs text-zinc-500">Last sent: {new Date(initial.lastSentAt).toLocaleString()}</p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Last sent: {new Date(initial.lastSentAt).toLocaleString()}
+        </p>
       )}
       {error && (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
           {error}
         </p>
       )}

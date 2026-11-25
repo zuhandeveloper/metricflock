@@ -1,6 +1,7 @@
 import { prisma } from "@metricflock/db";
 import { listAccessibleWebsiteIds } from "@metricflock/auth";
 import { deriveHealthState, HEALTH_STALE_AFTER_MS, type HealthState } from "@metricflock/shared";
+import { MAX_OFFSET } from "./pagination";
 
 // Phase 7.2 — integration health overview. Reads the IntegrationHealth
 // rows the sync engine maintains (one per website+provider), scoped to
@@ -29,9 +30,16 @@ export type HealthOverview = {
 
 const PAGE_SIZE = 50;
 
+// A-API-09: the page cap, expressed in 50-row pages — the same 10,000-row
+// offset cap parsePagination enforces, so page 10⁹ cannot force a huge
+// skip. The clamp lives here (not in the two routes or the /health
+// page) so every caller gets it.
+const MAX_PAGE = Math.floor(MAX_OFFSET / PAGE_SIZE) + 1;
+
 type HealthUser = { id: string; organizationId: string; role: string };
 
 export async function loadHealthOverview(user: HealthUser, page = 1): Promise<HealthOverview> {
+  const safePage = Number.isFinite(page) ? Math.min(MAX_PAGE, Math.max(1, Math.floor(page))) : 1;
   const ids = await listAccessibleWebsiteIds(user as never);
   const websiteWhere =
     ids === null ? { organizationId: user.organizationId } : { organizationId: user.organizationId, id: { in: ids } };
@@ -43,7 +51,7 @@ export async function loadHealthOverview(user: HealthUser, page = 1): Promise<He
       where: healthWhere,
       include: { website: { select: { name: true, domain: true } } },
       orderBy: [{ status: "asc" }, { checkedAt: "desc" }],
-      skip: (page - 1) * PAGE_SIZE,
+      skip: (safePage - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
     prisma.websiteIntegration.count({
@@ -81,7 +89,7 @@ export async function loadHealthOverview(user: HealthUser, page = 1): Promise<He
         checkedAt: r.checkedAt.toISOString(),
       })),
     total,
-    page,
+    page: safePage,
     pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
   };
 }

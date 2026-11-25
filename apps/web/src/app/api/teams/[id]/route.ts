@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withApiErrors } from "@/lib/api-error";
+import { apiError, requestIdOf, withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertTeamAccess } from "@metricflock/auth";
@@ -14,6 +14,15 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
   const body = teamCreateSchema.partial().safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
   const updated = await prisma.team.update({ where: { id }, data: body.data });
+  await writeAudit({
+    organizationId: auth.user.organizationId,
+    actorId: auth.user.id,
+    ipAddress: clientIpFromHeaders(req.headers),
+    action: "team.updated",
+    entityType: "Team",
+    entityId: id,
+    details: { name: updated.name },
+  }).catch(() => undefined); // A-API-04: audit failure must not turn an updated team into a 500.
   return NextResponse.json({ team: updated });
 }
 
@@ -30,7 +39,7 @@ async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   // members and team-level Google connections cascade with the team.
   const websiteCount = await prisma.website.count({ where: { teamId: id } });
   if (websiteCount > 0) {
-    return NextResponse.json({ error: "team_has_websites", websites: websiteCount }, { status: 409 });
+    return apiError("team_has_websites", 409, { websites: websiteCount }, requestIdOf(req));
   }
   await prisma.team.delete({ where: { id } });
   await writeAudit({

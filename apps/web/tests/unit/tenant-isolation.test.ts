@@ -30,6 +30,7 @@ describe("tenant isolation (unit-level)", () => {
   it("team admins lack super-admin-only permissions", () => {
     expect(hasPermission("TEAM_ADMIN", "organization.manage")).toBe(false);
     expect(hasPermission("TEAM_ADMIN", "audit.view")).toBe(false);
-    expect(hasPermission("TEAM_ADMIN", "website.transfer")).toBe(false);
+    // A-API-12: `website.transfer` is NOT super-admin-only anymore —
+    // TEAM_ADMIN holds it (permissions.test.ts pins the grant).
   });
 });

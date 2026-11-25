@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "./page-mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import WebsitesPage from "@/app/(app)/websites/page";
 import WebsitePage from "@/app/(app)/websites/[id]/page";
 import { memberUser, pageMocks, resetPageMocks, superAdminUser } from "./page-state";
@@ -122,6 +122,7 @@ describe("WebsitePage", () => {
   beforeEach(() => {
     pageMocks.assertWebsiteAccess.mockResolvedValue({ id: "w1" });
     pageMocks.websiteFindUnique.mockResolvedValue(fullWebsite);
+    pageMocks.analyticsSyncJobFindFirst.mockResolvedValue(null);
     pageMocks.teamFindMany.mockResolvedValue(teamOptions);
     pageMocks.userFindMany.mockResolvedValue([
       { id: "u1", email: "admin@example.com", role: "SUPER_ADMIN" },
@@ -186,5 +187,51 @@ describe("WebsitePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete website" }));
     await screen.findByText("Delete website");
     expect(fetch).toHaveBeenCalledWith("/api/websites/w1", expect.objectContaining({ method: "DELETE" }));
+  });
+
+  it("A-FE-07: shows the latest sync job with status, type and error", async () => {
+    mockFetch(null);
+    pageMocks.analyticsSyncJobFindFirst.mockResolvedValue({
+      type: "GA4_REALTIME",
+      status: "FAILED",
+      lastError: "quota exceeded",
+      updatedAt: new Date("2026-11-24T10:00:00.000Z"),
+    });
+    const el = await WebsitePage({ params: Promise.resolve({ id: "w1" }), searchParams: Promise.resolve({}) });
+    render(el);
+    // Scope to the Latest sync section: "GA4 realtime" also appears as a
+    // SyncNowForm <option> on this page.
+    const latest = screen.getByRole("heading", { name: "Latest sync" }).parentElement!;
+    expect(within(latest).getByText("GA4 realtime")).toBeInTheDocument();
+    expect(within(latest).getByText("FAILED")).toBeInTheDocument();
+    expect(within(latest).getByText("quota exceeded")).toBeInTheDocument();
+    expect(within(latest).getByText("2026-11-24T10:00:00.000Z")).toBeInTheDocument();
+    // One bounded row for this website, newest first — not an unbounded list.
+    expect(pageMocks.analyticsSyncJobFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { websiteId: "w1" }, orderBy: { updatedAt: "desc" } }),
+    );
+  });
+
+  it("A-FE-07: shows 'No syncs yet' when the website has never synced", async () => {
+    mockFetch(null);
+    const el = await WebsitePage({ params: Promise.resolve({ id: "w1" }), searchParams: Promise.resolve({}) });
+    render(el);
+    expect(screen.getByText("No syncs yet.")).toBeInTheDocument();
+  });
+
+  it("A-FE-07: viewers without manage permission still see the latest sync", async () => {
+    mockFetch(null);
+    pageMocks.getSessionUser.mockResolvedValue(memberUser);
+    pageMocks.analyticsSyncJobFindFirst.mockResolvedValue({
+      type: "GA4_HISTORICAL",
+      status: "RUNNING",
+      lastError: null,
+      updatedAt: new Date("2026-11-24T11:00:00.000Z"),
+    });
+    const el = await WebsitePage({ params: Promise.resolve({ id: "w1" }), searchParams: Promise.resolve({}) });
+    render(el);
+    expect(screen.getByText("GA4 historical")).toBeInTheDocument();
+    expect(screen.getByText("RUNNING")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Sync type")).not.toBeInTheDocument();
   });
 });

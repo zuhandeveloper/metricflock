@@ -10,6 +10,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
   update: vi.fn(),
+  updateMany: vi.fn(),
+  $transaction: vi.fn(),
   writeAudit: vi.fn(),
   refreshAccessToken: vi.fn(),
   revokeToken: vi.fn(),
@@ -18,7 +20,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@metricflock/db", () => ({
-  prisma: { googleConnection: { findUnique: mocks.findUnique, update: mocks.update } },
+  prisma: {
+    googleConnection: { findUnique: mocks.findUnique, update: mocks.update },
+    websiteIntegration: { updateMany: mocks.updateMany },
+    $transaction: mocks.$transaction,
+  },
 }));
 vi.mock("@metricflock/db/audit", () => ({ writeAudit: mocks.writeAudit }));
 vi.mock("@metricflock/shared", async (importOriginal) => {
@@ -372,6 +378,10 @@ describe("revokeConnection", () => {
     delete process.env.GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS;
     mocks.findUnique.mockResolvedValue(expiredConn());
     mocks.update.mockResolvedValue({});
+    mocks.updateMany.mockResolvedValue({ count: 2 });
+    // Array-form $transaction: run the operations through (the mocks
+    // resolve plain values, so Promise.all is the faithful stand-in).
+    mocks.$transaction.mockImplementation(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[]));
     mocks.revokeToken.mockResolvedValue(undefined);
   });
 
@@ -416,5 +426,32 @@ describe("revokeConnection", () => {
     expect(mocks.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "DISCONNECTED" }) }),
     );
+  });
+
+  it("unmaps MAPPED integrations in the same transaction and returns the count (A-GGL-06)", async () => {
+    const count = await revokeConnection("conn-1");
+    expect(count).toBe(2);
+    expect(mocks.$transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.$transaction.mock.calls[0]![0]).toHaveLength(2);
+    expect(mocks.updateMany).toHaveBeenCalledWith({
+      where: { googleConnectionId: "conn-1", mappingStatus: "MAPPED" },
+      data: { mappingStatus: "UNMAPPED", isPrimary: false },
+    });
+  });
+
+  it("still unmaps when the Google revoke fails (best-effort)", async () => {
+    mocks.revokeToken.mockRejectedValue(new Error("network down"));
+    const count = await revokeConnection("conn-1");
+    expect(count).toBe(2);
+    expect(mocks.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not touch integrations for an unknown connection", async () => {
+    mocks.findUnique.mockResolvedValue(null);
+    const count = await revokeConnection("conn-1");
+    expect(count).toBe(0);
+    expect(mocks.revokeToken).not.toHaveBeenCalled();
+    expect(mocks.$transaction).not.toHaveBeenCalled();
+    expect(mocks.updateMany).not.toHaveBeenCalled();
   });
 });

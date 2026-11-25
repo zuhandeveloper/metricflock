@@ -18,15 +18,16 @@ const pct = (v: number | null | undefined) => (v === null || v === undefined ? "
 export default async function InsightsPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  const { range, summary, websites, unavailableCount } = await loadInsights(user);
+  const { range, summary, websites, unavailableCount, truncated } = await loadInsights(user);
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold">Insights</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
           Last 28 days ({range.startDate} to {range.endDate}), from synced snapshots.
           {unavailableCount > 0 && ` ${unavailableCount} website(s) have no snapshot yet.`}
+          {truncated && ` Showing insights for the first 50 websites.`}
         </p>
       </div>
 
@@ -52,7 +53,7 @@ export default async function InsightsPage() {
         <Card key={w.websiteId} className="p-4">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="font-semibold">{w.name}</h2>
-            <span className="text-sm text-zinc-500">{w.domain}</span>
+            <span className="text-sm text-zinc-500 dark:text-zinc-400">{w.domain}</span>
             {w.seo?.truncated && <Badge tone="amber">Search Console rows truncated</Badge>}
           </div>
 
@@ -86,7 +87,7 @@ export default async function InsightsPage() {
               <h3 className="text-sm font-semibold">Striking-distance queries (position 4–20)</h3>
               <table className="mt-1 w-full text-sm">
                 <thead>
-                  <tr className="text-left text-xs text-zinc-500">
+                  <tr className="text-left text-xs text-zinc-500 dark:text-zinc-400">
                     <th scope="col" className="py-1 pr-2">
                       Query
                     </th>

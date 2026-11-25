@@ -34,10 +34,13 @@ and what an organization export contains. Implemented in Phase 4
   Google (best-effort) so no live grants survive; then audit rows and
   the organization are deleted in one transaction — teams, websites,
   connections (including encrypted tokens), integrations, transfers,
-  sync jobs and users cascade.
+  sync jobs and users cascade. Deletion is refused (409
+  `export_required`) until a completed export exists — the
+  `organization.exported` audit row left by an export is the record.
 - Because the audit table is deleted with the organization, the
-  deletion itself is recorded in server logs (`organization-delete`),
-  not the audit table. Export first if you need an archive.
+  deletion itself is recorded in server logs at error level
+  (`organization-delete`: actor, slug, member/website/team counts),
+  not the audit table.
 - UI: Members page → Organization → Delete organization (slug input +
   confirmation prompt; redirects to login afterwards).
 
@@ -51,12 +54,13 @@ sync jobs and website-level connections.
 
 The worker scheduler prunes operational rows every tick:
 
-| Data                        | Retention               | Mechanism                                                       |
-| --------------------------- | ----------------------- | --------------------------------------------------------------- |
-| AnalyticsSyncJob (finished) | 30 days                 | `updatedAt` older than 30d, status SUCCEEDED/FAILED             |
-| OAuthState                  | ~1 day past expiry      | single-use, 10-minute TTL; rows deleted 1 day after `expiresAt` |
-| AnalyticsCache              | until `expiresAt`       | expired rows deleted                                            |
-| AuditLog                    | 365 days (configurable) | `AUDIT_RETENTION_DAYS` env; invalid values fall back to 365     |
+| Data                        | Retention               | Mechanism                                                                                                                            |
+| --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| AnalyticsSyncJob (finished) | 30 days                 | `updatedAt` older than 30d, status SUCCEEDED/FAILED/PENDING/RETRYING; pruned in 1,000-row batches, max 10 batches per table per tick |
+| AnalyticsSyncJob (stuck)    | 6 hours                 | `RUNNING` with `updatedAt` older than 6h → marked FAILED, `lastError: "stale_running"` (removed by the 30-day FAILED prune)          |
+| OAuthState                  | ~1 day past expiry      | single-use, 10-minute TTL; rows deleted 1 day after `expiresAt`                                                                      |
+| AnalyticsCache              | until `expiresAt`       | expired rows deleted                                                                                                                 |
+| AuditLog                    | 365 days (configurable) | `AUDIT_RETENTION_DAYS` env; invalid values fall back to 365                                                                          |
 
 Business data (organizations, teams, websites, connections,
 integrations, transfers) is never auto-pruned.

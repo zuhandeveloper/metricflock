@@ -43,7 +43,10 @@ vi.mock("@metricflock/google/ga4", () => ({
   runHistoricalReport: mocks.runHistoricalReport,
 }));
 vi.mock("@metricflock/google/adsense", () => ({ runAdSenseReport: mocks.runAdSenseReport }));
-vi.mock("@metricflock/google/search-console", () => ({ querySearchAnalytics: mocks.querySearchAnalytics }));
+vi.mock("@metricflock/google/search-console", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@metricflock/google/search-console")>();
+  return { ...actual, querySearchAnalytics: mocks.querySearchAnalytics };
+});
 vi.mock("@metricflock/db/health", () => ({ lastSuccessfulSync: mocks.lastSuccessfulSync }));
 vi.mock("@metricflock/db/snapshots", () => ({
   readSnapshot: mocks.readSnapshot,
@@ -165,7 +168,7 @@ describe("handleAnalyticsRequest — auth, input, access", () => {
     const md = await handleAnalyticsRequest(req("/api/analytics/overview?websiteId=w1&range=28d"), baseOpts);
     expect((await md.json()).status).toBe("missing_data");
   });
-  it("client auth CONNECTION_REQUIRED → not_connected; other auth error → 502", async () => {
+  it("client auth CONNECTION_REQUIRED → not_connected; other auth error → classified 502", async () => {
     mocks.getAuthorizedClient.mockRejectedValueOnce(new Error("CONNECTION_REQUIRED"));
     const nc = await handleAnalyticsRequest(req("/api/analytics/overview?websiteId=w1&range=28d"), baseOpts);
     expect((await nc.json()).status).toBe("not_connected");
@@ -173,7 +176,34 @@ describe("handleAnalyticsRequest — auth, input, access", () => {
     const err = await handleAnalyticsRequest(req("/api/analytics/overview?websiteId=w1&range=28d"), baseOpts);
     expect(err.status).toBe(502);
     // API-9: raw provider text stays server-side; the client gets the stable code + requestId.
-    expect(await err.json()).toMatchObject({ error: "connection_error", requestId: expect.any(String) });
+    // A-GGL-15: the code is the classified one (google_api_error), not the old connection_error.
+    expect(await err.json()).toMatchObject({ error: "google_api_error", requestId: expect.any(String) });
+  });
+  it("client auth SCOPE_MISSING → scope_missing, same contract as the fetch path (A-GGL-15)", async () => {
+    mocks.getAuthorizedClient.mockRejectedValueOnce(new Error("SCOPE_MISSING for GA4"));
+    const res = await handleAnalyticsRequest(req("/api/analytics/overview?websiteId=w1&range=28d"), baseOpts);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ error: "scope_missing", requestId: expect.any(String) });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+  it("client auth TOKEN_REFRESH_LOCK_UNAVAILABLE → temporarily_unavailable; quota → 429 (A-GGL-15)", async () => {
+    mocks.getAuthorizedClient.mockRejectedValueOnce(new Error("TOKEN_REFRESH_LOCK_UNAVAILABLE"));
+    const busy = await handleAnalyticsRequest(req("/api/analytics/overview?websiteId=w1&range=28d"), baseOpts);
+    expect(busy.status).toBe(502);
+    expect(await busy.json()).toMatchObject({ error: "temporarily_unavailable" });
+    mocks.getAuthorizedClient.mockRejectedValueOnce(new Error("quota exceeded for project"));
+    const quota = await handleAnalyticsRequest(req("/api/analytics/overview?websiteId=w1&range=28d"), baseOpts);
+    expect(quota.status).toBe(429);
+    expect(await quota.json()).toMatchObject({ error: "google_quota_exceeded" });
+  });
+  it("legacy mapping without a connection → 200 missing_data prompting re-map (A-DB-12)", async () => {
+    mocks.getAuthorizedClient.mockRejectedValueOnce(new Error("LEGACY_CONNECTION_MISSING"));
+    const res = await handleAnalyticsRequest(req("/api/analytics/overview?websiteId=w1&range=28d"), baseOpts);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("missing_data");
+    expect(body.unavailableWebsites[0].reason).toMatch(/re-map/i);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
 
@@ -325,5 +355,39 @@ describe("thin analytics routes — csv closures", () => {
     const res = await searchConsoleGet(req("/api/analytics/search-console?websiteId=w1&range=28d&format=csv"));
     expect(res.headers.get("Content-Type")).toContain("text/csv");
     expect(await res.text()).toContain("q");
+  });
+
+  it("search-console 28d clamps endDate to 3 days ago and the envelope reports the effective range (A-GGL-07)", async () => {
+    mocks.querySearchAnalytics.mockResolvedValue({ rows: [{ query: "q", clicks: 1 }] });
+    const res = await searchConsoleGet(req("/api/analytics/search-console?websiteId=w1&range=28d"));
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const today = new Date();
+    const expectedEnd = fmt(new Date(today.getTime() - 3 * 86400000));
+    const expectedStart = fmt(new Date(today.getTime() - 27 * 86400000));
+    // The Google call never asks for days with no data yet.
+    expect(mocks.querySearchAnalytics).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expectedStart,
+      expectedEnd,
+      expect.anything(),
+    );
+    const body = await res.json();
+    expect(body.range).toEqual({ startDate: expectedStart, endDate: expectedEnd });
+  });
+
+  it("GA4 28d is NOT clamped (A-GGL-07)", async () => {
+    mocks.runHistoricalReport.mockResolvedValue({ summary: { totalUsers: 10 } });
+    const res = await overviewGet(req("/api/analytics/overview?websiteId=w1&range=28d"));
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const today = new Date();
+    const expectedStart = fmt(new Date(today.getTime() - 27 * 86400000));
+    expect(mocks.runHistoricalReport).toHaveBeenCalledWith(
+      expect.anything(),
+      "properties/123",
+      expectedStart,
+      fmt(today),
+    );
+    expect((await res.json()).range).toEqual({ startDate: expectedStart, endDate: fmt(today) });
   });
 });

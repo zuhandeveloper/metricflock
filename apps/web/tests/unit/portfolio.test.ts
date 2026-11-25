@@ -4,17 +4,17 @@ import { aggregatePayloads, loadPortfolio } from "@/lib/portfolio";
 const mocks = vi.hoisted(() => ({
   count: vi.fn(),
   findMany: vi.fn(),
-  readSnapshot: vi.fn(),
+  readSnapshots: vi.fn(),
   listAccessibleWebsiteIds: vi.fn(),
-  getPrimaryIntegration: vi.fn(),
+  getPrimaryIntegrations: vi.fn(),
 }));
 
 vi.mock("@metricflock/db", () => ({
   prisma: { website: { count: mocks.count, findMany: mocks.findMany } },
 }));
-vi.mock("@metricflock/db/snapshots", () => ({ readSnapshot: mocks.readSnapshot }));
+vi.mock("@metricflock/db/snapshots", () => ({ readSnapshots: mocks.readSnapshots }));
 vi.mock("@metricflock/auth", () => ({ listAccessibleWebsiteIds: mocks.listAccessibleWebsiteIds }));
-vi.mock("@metricflock/google/client", () => ({ getPrimaryIntegration: mocks.getPrimaryIntegration }));
+vi.mock("@metricflock/google/client", () => ({ getPrimaryIntegrations: mocks.getPrimaryIntegrations }));
 
 // Phase 7.1 (DATA-6): portfolio aggregation math — sums are honest,
 // rates are recomputed from summed totals, underivable metrics stay null.
@@ -154,18 +154,28 @@ describe("loadPortfolio", () => {
       { id: "w2", name: "Site Two", domain: "two.example" },
       { id: "w3", name: "Site Three", domain: "three.example" },
     ]);
-    mocks.getPrimaryIntegration.mockImplementation(async (websiteId: string) =>
-      websiteId === "w3" ? null : { externalId: `properties/${websiteId}` },
-    );
-    mocks.readSnapshot.mockImplementation(async (key: string) =>
-      key.includes("w1")
-        ? {
-            payload: { summary: { sessions: 42, engagedSessions: 21, keyEvents: 2 } },
-            expiresAt: new Date(Date.now() + 60_000),
-            updatedAt: new Date("2026-11-22T00:00:00Z"),
-          }
-        : null,
-    );
+    // A-DB-11: one batched primaries map (w3 has no mapping) and one
+    // batched snapshots map (only w1 has a snapshot).
+    mocks.getPrimaryIntegrations.mockImplementation(async (websiteIds: string[], providers: string[]) => {
+      const out = new Map();
+      for (const id of websiteIds) {
+        if (id === "w3") continue;
+        out.set(id, new Map(providers.map((p) => [p, { externalId: `properties/${id}` }])));
+      }
+      return out;
+    });
+    mocks.readSnapshots.mockImplementation(async (keys: string[]) => {
+      const out = new Map();
+      for (const key of keys) {
+        if (!key.includes("w1")) continue;
+        out.set(key, {
+          payload: { summary: { sessions: 42, engagedSessions: 21, keyEvents: 2 } },
+          expiresAt: new Date(Date.now() + 60_000),
+          updatedAt: new Date("2026-11-22T00:00:00Z"),
+        });
+      }
+      return out;
+    });
   });
 
   it("includes snapshotted websites and reports the rest unavailable with reasons", async () => {
@@ -184,11 +194,17 @@ describe("loadPortfolio", () => {
   });
 
   it("treats integration/snapshot lookup failures as unavailable, not fatal", async () => {
-    mocks.getPrimaryIntegration.mockImplementation(async (websiteId: string) => {
-      if (websiteId === "w1") throw new Error("db down");
-      return { externalId: `properties/${websiteId}` };
+    // A-DB-11: the batch equivalents of the old per-website failures —
+    // w1 is missing from the primaries map, the snapshots batch rejects.
+    mocks.getPrimaryIntegrations.mockImplementation(async (websiteIds: string[], providers: string[]) => {
+      const out = new Map();
+      for (const id of websiteIds) {
+        if (id === "w1") continue;
+        out.set(id, new Map(providers.map((p) => [p, { externalId: `properties/${id}` }])));
+      }
+      return out;
     });
-    mocks.readSnapshot.mockRejectedValue(new Error("cache down"));
+    mocks.readSnapshots.mockRejectedValue(new Error("cache down"));
     const result = await loadPortfolio(user, opts);
     expect(result.websites).toHaveLength(0);
     expect(result.unavailableWebsites).toEqual(
@@ -198,6 +214,34 @@ describe("loadPortfolio", () => {
         { websiteId: "w3", reason: "no_snapshot_yet" },
       ]),
     );
+  });
+
+  it("issues one batched primaries query and one batched snapshot query (A-DB-11)", async () => {
+    await loadPortfolio(user, opts);
+    expect(mocks.getPrimaryIntegrations).toHaveBeenCalledTimes(1);
+    expect(mocks.getPrimaryIntegrations).toHaveBeenCalledWith(["w1", "w2", "w3"], ["GA4"]);
+    expect(mocks.readSnapshots).toHaveBeenCalledTimes(1);
+    const keys = mocks.readSnapshots.mock.calls[0]![0] as string[];
+    expect(keys).toHaveLength(2); // w1 + w2 (w3 has no mapping)
+    expect(keys.every((k) => k.startsWith("analytics:org1:"))).toBe(true);
+  });
+
+  it("clamps the Search Console range when building snapshot keys (A-GGL-07)", async () => {
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const today = new Date();
+    const start = fmt(new Date(today.getTime() - 27 * 86400000));
+    const maxEnd = fmt(new Date(today.getTime() - 3 * 86400000));
+    await loadPortfolio(user, {
+      provider: "SEARCH_CONSOLE",
+      source: "search-console",
+      report: "search-console",
+      startDate: start,
+      endDate: fmt(today),
+    });
+    const keys = mocks.readSnapshots.mock.calls[0]![0] as string[];
+    expect(keys).toHaveLength(2);
+    // The key is what the worker warms — endDate 3 days ago, not today.
+    expect(keys.every((k) => k.includes(`:${start}_${maxEnd}:`))).toBe(true);
   });
 
   it("scopes the query to accessible websites for restricted users", async () => {

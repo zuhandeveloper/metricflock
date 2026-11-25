@@ -97,6 +97,21 @@ describe("loadHealthOverview", () => {
       }),
     );
   });
+
+  // A-API-09: an unbounded page used to force a huge skip (page 10⁹ =
+  // 50-billion-row skip). The page is clamped to the same offset cap
+  // as parsePagination, expressed in 50-row pages (201 pages).
+  it("clamps an absurd page to the offset cap", async () => {
+    const result = await loadHealthOverview(user, 1_000_000_000);
+    expect(result.page).toBe(201);
+    expect(mocks.healthFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 10_000, take: 50 }));
+  });
+
+  it("keeps in-range pages unchanged", async () => {
+    const result = await loadHealthOverview(user, 2);
+    expect(result.page).toBe(2);
+    expect(mocks.healthFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 50, take: 50 }));
+  });
 });
 
 // A-LIVE-01 (Stage 1, row 18 — code-side part only): the readiness logic

@@ -133,7 +133,7 @@ describe("POST /api/websites/[id]/transfer", () => {
     mocks.transferFindFirst.mockResolvedValue({ id: "tr0", status: "PENDING_ACCEPTANCE" });
     const res = await initiatePost(jsonReq(url, "POST", { toTeamId: "t2" }), ctx("w1"));
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: "transfer_in_progress", transferId: "tr0" });
+    expect(await res.json()).toMatchObject({ error: "transfer_in_progress", details: { transferId: "tr0" } });
     expect(mocks.transferCreate).not.toHaveBeenCalled();
   });
   it("P2002 race → 409 with the winning transferId (or without, if none found)", async () => {
@@ -144,7 +144,7 @@ describe("POST /api/websites/[id]/transfer", () => {
       .mockImplementationOnce(async () => ({ id: "tr-race" }));
     const raced = await initiatePost(jsonReq(url, "POST", { toTeamId: "t2" }), ctx("w1"));
     expect(raced.status).toBe(409);
-    expect(await raced.json()).toMatchObject({ error: "transfer_in_progress", transferId: "tr-race" });
+    expect(await raced.json()).toMatchObject({ error: "transfer_in_progress", details: { transferId: "tr-race" } });
     mocks.transferCreate.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "P2002" }));
     mocks.transferFindFirst.mockImplementationOnce(async () => null).mockImplementationOnce(async () => null);
     const racedGone = await initiatePost(jsonReq(url, "POST", { toTeamId: "t2" }), ctx("w1"));
@@ -174,6 +174,39 @@ describe("POST /api/websites/[id]/transfer", () => {
         entityId: "w1",
         details: expect.objectContaining({ fromTeamId: "t1", toTeamId: "t2", transferId: "tr1" }),
       }),
+    );
+  });
+  it("A-DB-04: initiate records the website's pre-transfer status", async () => {
+    mocks.websiteFindFirst.mockResolvedValue({ ...website, status: "ARCHIVED" });
+    const res = await initiatePost(jsonReq(url, "POST", { toTeamId: "t2" }), ctx("w1"));
+    expect(res.status).toBe(200);
+    expect(mocks.transferCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ websiteStatusBefore: "ARCHIVED" }) }),
+    );
+  });
+  it("A-SEC-17: TEAM_ADMIN granted website.transfer cannot initiate for a website outside their teams → 404", async () => {
+    // `website.transfer` is SUPER_ADMIN-only today; requireApiAuth is
+    // mocked, so returning a TEAM_ADMIN simulates the role table ever
+    // granting it. The website (team t1) has no isAdmin membership for u2.
+    mocks.requireApiAuth.mockResolvedValue({
+      user: { id: "u2", organizationId: "org1", role: "TEAM_ADMIN", email: "ta@example.com" },
+    });
+    mocks.teamMemberFindFirst.mockResolvedValue(null);
+    const res = await initiatePost(jsonReq(url, "POST", { toTeamId: "t2" }), ctx("w1"));
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ error: "not_found_or_forbidden" });
+    expect(mocks.transferCreate).not.toHaveBeenCalled();
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
+  });
+  it("A-SEC-17: TEAM_ADMIN who administers the source website's team can still initiate → 200", async () => {
+    mocks.requireApiAuth.mockResolvedValue({
+      user: { id: "u2", organizationId: "org1", role: "TEAM_ADMIN", email: "ta@example.com" },
+    });
+    mocks.teamMemberFindFirst.mockResolvedValue({ isAdmin: true });
+    const res = await initiatePost(jsonReq(url, "POST", { toTeamId: "t2" }), ctx("w1"));
+    expect(res.status).toBe(200);
+    expect(mocks.transferCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ websiteId: "w1", fromTeamId: "t1" }) }),
     );
   });
 });
@@ -207,13 +240,13 @@ describe("POST /api/transfers/[id]/accept", () => {
     mocks.transferFindFirst.mockResolvedValue({ ...transfer, status: "PENDING_CONNECTION" });
     const wrong = await acceptPost(new NextRequest(url, { method: "POST" }), ctx("tr1"));
     expect(wrong.status).toBe(409);
-    expect(await wrong.json()).toMatchObject({ error: "invalid_state", status: "PENDING_CONNECTION" });
+    expect(await wrong.json()).toMatchObject({ error: "invalid_state", details: { status: "PENDING_CONNECTION" } });
     mocks.transferFindFirst.mockResolvedValue(transfer);
     mocks.transferUpdateMany.mockResolvedValue({ count: 0 });
     mocks.transferFindUnique.mockResolvedValue({ status: "CANCELLED" });
     const stale = await acceptPost(new NextRequest(url, { method: "POST" }), ctx("tr1"));
     expect(stale.status).toBe(409);
-    expect(await stale.json()).toMatchObject({ error: "invalid_state", status: "CANCELLED" });
+    expect(await stale.json()).toMatchObject({ error: "invalid_state", details: { status: "CANCELLED" } });
   });
   it("valid → 200 + audit website.transfer.accepted", async () => {
     const res = await acceptPost(new NextRequest(url, { method: "POST" }), ctx("tr1"));
@@ -264,7 +297,7 @@ describe("POST /api/transfers/[id]/complete", () => {
     mocks.transferFindFirst.mockResolvedValue({ ...transfer, status: "PENDING_ACCEPTANCE" });
     const wrong = await completePost(new NextRequest(url, { method: "POST" }), ctx("tr1"));
     expect(wrong.status).toBe(409);
-    expect(await wrong.json()).toMatchObject({ error: "invalid_state", status: "PENDING_ACCEPTANCE" });
+    expect(await wrong.json()).toMatchObject({ error: "invalid_state", details: { status: "PENDING_ACCEPTANCE" } });
   });
   it("destination not connected → 409 destination_not_connected", async () => {
     mocks.connFindFirst.mockResolvedValue(null);
@@ -278,7 +311,7 @@ describe("POST /api/transfers/[id]/complete", () => {
     mocks.transferFindUnique.mockResolvedValue({ status: "COMPLETED" });
     const res = await completePost(new NextRequest(url, { method: "POST" }), ctx("tr1"));
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: "invalid_state", status: "COMPLETED" });
+    expect(await res.json()).toMatchObject({ error: "invalid_state", details: { status: "COMPLETED" } });
     expect(mocks.websiteUpdateTx).not.toHaveBeenCalled();
   });
   it("valid → 200 completed + website moved + mappings cleared + audit + invalidates", async () => {
@@ -308,5 +341,21 @@ describe("POST /api/transfers/[id]/complete", () => {
     );
     expect(mocks.invalidateWebsiteCache).toHaveBeenCalledWith("org1", "w1");
     expect(mocks.invalidateWebsiteSnapshots).toHaveBeenCalledWith("w1");
+  });
+  it("A-DB-04: complete restores the pre-transfer status — ARCHIVED survives completion", async () => {
+    mocks.transferFindFirst.mockResolvedValue({ ...pendingConnection, websiteStatusBefore: "ARCHIVED" });
+    const res = await completePost(new NextRequest(url, { method: "POST" }), ctx("tr1"));
+    expect(res.status).toBe(200);
+    expect(mocks.websiteUpdateTx).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "w1" }, data: { teamId: "t2", status: "ARCHIVED" } }),
+    );
+  });
+  it("A-DB-04: complete falls back to ACTIVE for legacy transfers with no recorded status", async () => {
+    mocks.transferFindFirst.mockResolvedValue({ ...pendingConnection, websiteStatusBefore: null });
+    const res = await completePost(new NextRequest(url, { method: "POST" }), ctx("tr1"));
+    expect(res.status).toBe(200);
+    expect(mocks.websiteUpdateTx).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "w1" }, data: { teamId: "t2", status: "ACTIVE" } }),
+    );
   });
 });

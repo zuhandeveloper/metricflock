@@ -11,10 +11,18 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
+  // A-SEC-13: no legitimate cross-origin embed or opener use exists
+  // (no iframes, no window.open/popups; Google sign-in is a full-page
+  // redirect), so same-origin isolation is safe. X-Frame-Options: DENY
+  // and CSP frame-ancestors 'none' already forbid framing entirely.
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
 ];
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // A-SEC-13: do not advertise the framework (Next defaults this to true).
+  poweredByHeader: false,
   // Workspace packages ship TypeScript source; Next must transpile them.
   transpilePackages: [
     "@metricflock/db",

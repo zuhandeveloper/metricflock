@@ -94,51 +94,85 @@ async function post(req: NextRequest) {
     return NextResponse.json({ error: "connection_scope_mismatch" }, { status: 400 });
   }
   const isPrimary = body.data.isPrimary ?? false;
+  // A-DB-07: write the full property-FK set on every map — exactly the
+  // provider's FK, the other three NULL. A row created before the A-DB-07
+  // CHECKs existed may still carry a stale FK from another provider; without
+  // the NULLs, re-mapping it would keep the stale FK and the CHECK would
+  // reject the update, so the row could only be healed by direct SQL.
+  const fkFields = {
+    googlePropertyId: null as string | null,
+    searchConsolePropertyId: null as string | null,
+    adsenseAccountId: null as string | null,
+    adManagerNetworkId: null as string | null,
+    ...resolved.fk,
+  };
   // One transaction: demote the previous primary (if any) and upsert the
   // mapping with its connection/property FKs. The partial unique index
   // (Stage 2, DB-3) is the database backstop for the single-primary rule.
-  const integration = await prisma.$transaction(async (tx) => {
-    if (isPrimary) {
-      await tx.websiteIntegration.updateMany({
-        where: { websiteId: website.id, provider: body.data.provider, isPrimary: true },
-        data: { isPrimary: false },
-      });
-    }
-    const integration = await tx.websiteIntegration.upsert({
-      where: {
-        websiteId_provider_externalId: {
+  const mapInTransaction = () =>
+    prisma.$transaction(async (tx) => {
+      if (isPrimary) {
+        await tx.websiteIntegration.updateMany({
+          where: { websiteId: website.id, provider: body.data.provider, isPrimary: true },
+          data: { isPrimary: false },
+        });
+      }
+      const integration = await tx.websiteIntegration.upsert({
+        where: {
+          websiteId_provider_externalId: {
+            websiteId: website.id,
+            provider: body.data.provider,
+            externalId: body.data.externalId,
+          },
+        },
+        update: {
+          resourceName: body.data.resourceName,
+          isPrimary,
+          mappingStatus: "MAPPED",
+          googleConnectionId: resolved.connectionId,
+          ...fkFields,
+        },
+        create: {
           websiteId: website.id,
           provider: body.data.provider,
           externalId: body.data.externalId,
+          resourceName: body.data.resourceName,
+          isPrimary,
+          mappingStatus: "MAPPED",
+          googleConnectionId: resolved.connectionId,
+          ...fkFields,
         },
-      },
-      update: {
-        resourceName: body.data.resourceName,
-        isPrimary,
-        mappingStatus: "MAPPED",
-        googleConnectionId: resolved.connectionId,
-        ...resolved.fk,
-      },
-      create: {
-        websiteId: website.id,
-        provider: body.data.provider,
-        externalId: body.data.externalId,
-        resourceName: body.data.resourceName,
-        isPrimary,
-        mappingStatus: "MAPPED",
-        googleConnectionId: resolved.connectionId,
-        ...resolved.fk,
-      },
+      });
+      // First successful mapping completes setup: a website stuck at
+      // PENDING_SETUP becomes ACTIVE. Only that transition is automatic —
+      // manually set states (DISCONNECTED/ARCHIVED) are left alone.
+      await tx.website.updateMany({
+        where: { id: website.id, status: "PENDING_SETUP" },
+        data: { status: "ACTIVE" },
+      });
+      return integration;
     });
-    // First successful mapping completes setup: a website stuck at
-    // PENDING_SETUP becomes ACTIVE. Only that transition is automatic —
-    // manually set states (DISCONNECTED/ARCHIVED) are left alone.
-    await tx.website.updateMany({
-      where: { id: website.id, status: "PENDING_SETUP" },
-      data: { status: "ACTIVE" },
-    });
-    return integration;
-  });
+  // A-DB-03: two concurrent primary maps can both demote and then collide
+  // on the partial unique index (P2002). Retry the whole transaction once
+  // — the re-run re-reads the current primary and demotes the winner, so
+  // it normally succeeds. If it collides again, return a typed 409
+  // instead of the generic conflict code. Same P2002 pattern as the
+  // transfer-initiate route (doc 03:193). No SERIALIZABLE/advisory lock:
+  // the retry closes the observed race and the index stays the backstop.
+  let integration;
+  try {
+    integration = await mapInTransaction();
+  } catch (e) {
+    if ((e as { code?: string }).code !== "P2002") throw e;
+    try {
+      integration = await mapInTransaction();
+    } catch (retryError) {
+      if ((retryError as { code?: string }).code === "P2002") {
+        return NextResponse.json({ error: "primary_conflict" }, { status: 409 });
+      }
+      throw retryError;
+    }
+  }
   await writeAudit({
     organizationId: auth.user.organizationId,
     actorId: auth.user.id,

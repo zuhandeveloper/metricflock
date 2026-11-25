@@ -1,19 +1,26 @@
 // ESLint 10 flat config. Run with `pnpm lint`.
 //
-// NOTE (2026-11-19): `next/core-web-vitals` (eslint-config-next) cannot be
-// used right now — it loads typescript-eslint 8.73.0, and typescript-eslint
-// does not support TypeScript 7.0 ("typescript-eslint does not support
-// TS 7.0", upstream issue #10940; no stable release supports TS 7 yet).
-// This config therefore uses @eslint/js recommended + react-hooks, which
-// run cleanly on TS 7. Re-add `next/core-web-vitals` (via FlatCompat) once
-// a stable typescript-eslint supports TS 7.
+// NOTE (2026-11-19, re-checked 2026-11-24): `next/core-web-vitals`
+// (eslint-config-next) cannot be used right now — it loads
+// typescript-eslint, and typescript-eslint does not support TypeScript 7.0
+// ("typescript-eslint does not support TS 7.0", upstream issue #10940).
+// Latest stable typescript-eslint is 8.74.0 with peer range
+// typescript >=4.8.4 <6.1.0 — still no TS 7 support. This config
+// therefore uses @eslint/js recommended + react-hooks, which run cleanly
+// on TS 7. Re-add `next/core-web-vitals` (via FlatCompat) once a stable
+// typescript-eslint supports TS 7.
 //
-// NOTE (2026-11-19, monorepo step 3.7): the same blocker means ESLint 10
-// lints only .js/.mjs/.cjs by default — the .ts/.tsx files are NOT linted
-// yet. The `pnpm lint` green checks are real for the config files but
-// vacuous for TypeScript. Once a stable typescript-eslint supports TS 7,
-// add its parser + `files: ["**/*.ts", "**/*.tsx"]` so the boundary rules
-// (added in step 3.8) actually apply to the code.
+// NOTE (2026-11-19, monorepo step 3.7; interim enforced 2026-11-24,
+// A-COV-09): the same blocker means ESLint 10 lints only .js/.mjs/.cjs
+// by default — the .ts/.tsx files are NOT linted yet. The boundary rules
+// below are therefore enforced for .ts/.tsx by the grep checks in
+// scripts/check-boundaries.sh (7 import rules + console + explicit `any`,
+// with a self-test that plants one violating fixture per rule), and
+// `pnpm lint` prints a WARNING naming the gap on every run. Unused
+// imports/variables are still unenforced — see A-COV-09. Once a stable
+// typescript-eslint supports TS 7, add its parser +
+// `files: ["**/*.ts", "**/*.tsx"]` so the boundary rules actually apply
+// in ESLint itself.
 //
 // Ignore patterns use `**/` so they match at any depth: each package and
 // app has its own node_modules/.next/.turbo (pnpn workspaces), and a
@@ -45,8 +52,10 @@ const crossPackageRelative = {
 //     @google-analytics/data
 //   - only packages/jobs and apps/worker may import bullmq
 //   - only packages/shared may import ioredis
-// NOTE: these are dormant for .ts/.tsx today (see the NOTE above) and
-// take effect once a TS parser lands. They already apply to .js/.mjs.
+// NOTE: these ESLint rules are dormant for .ts/.tsx today (see the NOTE
+// above) and take effect once a TS parser lands. They already apply to
+// .js/.mjs — and the same boundaries are enforced for .ts/.tsx by the
+// grep checks in scripts/check-boundaries.sh (A-COV-09).
 const boundaries = [
   {
     files: ["packages/db/**"],

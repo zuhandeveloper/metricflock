@@ -275,6 +275,9 @@ describe("POST /api/google/connections/disconnect", () => {
     mocks.assertConnectionVisible.mockRejectedValueOnce(new Error("NOPE"));
     const hidden = await disconnectPost(jsonReq(url, { connectionId: "conn1" }));
     expect(hidden.status).toBe(404);
+    // A-GGL-06: the disconnect unmaps the connection's MAPPED
+    // integrations; the count is audited on the disconnect event.
+    mocks.revokeConnection.mockResolvedValue(2);
     const res = await disconnectPost(jsonReq(url, { connectionId: "conn1" }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: "ok" });
@@ -284,6 +287,7 @@ describe("POST /api/google/connections/disconnect", () => {
         action: "google.connection.disconnected",
         entityType: "GoogleConnection",
         entityId: "conn1",
+        details: expect.objectContaining({ googleAccountEmail: "ga@example.com", unmappedIntegrations: 2 }),
       }),
     );
     expect(mocks.invalidateOrgCache).toHaveBeenCalledWith("org1");

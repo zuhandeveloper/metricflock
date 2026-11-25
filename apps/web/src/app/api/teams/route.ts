@@ -9,7 +9,18 @@ async function get(req: NextRequest) {
   const auth = await requireApiAuth("team.view", { req });
   if ("error" in auth) return auth.error;
   const { limit, offset } = parsePagination(req);
-  const where = { organizationId: auth.user.organizationId };
+  // A-SEC-11: TEAM_ADMIN sees only teams they administer (isAdmin
+  // membership) — the same rule as connectionVisibilityWhere /
+  // listAccessibleWebsiteIds in @metricflock/auth. SUPER_ADMIN sees
+  // every team in the organization. TEAM_MEMBER has no team.view and
+  // is already blocked above.
+  const where =
+    auth.user.role === "SUPER_ADMIN"
+      ? { organizationId: auth.user.organizationId }
+      : {
+          organizationId: auth.user.organizationId,
+          members: { some: { userId: auth.user.id, isAdmin: true } },
+        };
   const [teams, total] = await Promise.all([
     prisma.team.findMany({
       where,

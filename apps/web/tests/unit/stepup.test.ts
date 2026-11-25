@@ -6,10 +6,15 @@ const mocks = vi.hoisted(() => ({
   requireFreshSession: vi.fn(),
   assertConnectionVisible: vi.fn(),
   orgFindUnique: vi.fn(),
+  orgAuditExportFindFirst: vi.fn(),
+  orgUserCount: vi.fn(),
+  orgWebsiteCount: vi.fn(),
+  orgTeamCount: vi.fn(),
   orgGoogleConnections: vi.fn(),
   orgTxAuditDeleteMany: vi.fn(),
   orgTxOrgDelete: vi.fn(),
   revokeConnection: vi.fn(),
+  revokeConnectionToken: vi.fn(),
   apiKeyCreate: vi.fn(),
   apiKeyFindFirst: vi.fn(),
   apiKeyUpdate: vi.fn(),
@@ -38,13 +43,16 @@ vi.mock("@metricflock/auth", async (importOriginal) => {
 vi.mock("@metricflock/db", () => ({
   prisma: {
     organization: { findUnique: mocks.orgFindUnique },
+    auditLog: { findFirst: mocks.orgAuditExportFindFirst },
+    website: { count: mocks.orgWebsiteCount },
+    team: { count: mocks.orgTeamCount },
     googleConnection: {
       findMany: mocks.orgGoogleConnections,
       count: mocks.googleConnectionCount,
       findFirst: mocks.connFindFirst,
     },
     apiKey: { create: mocks.apiKeyCreate, findFirst: mocks.apiKeyFindFirst, update: mocks.apiKeyUpdate },
-    user: { findFirst: mocks.userFindFirst, update: mocks.userUpdate },
+    user: { findFirst: mocks.userFindFirst, update: mocks.userUpdate, count: mocks.orgUserCount },
     websiteTransfer: { count: mocks.websiteTransferCount },
     $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
       cb({
@@ -55,7 +63,10 @@ vi.mock("@metricflock/db", () => ({
   },
 }));
 vi.mock("@metricflock/db/audit", () => ({ writeAudit: mocks.writeAudit }));
-vi.mock("@metricflock/google/tokens", () => ({ revokeConnection: mocks.revokeConnection }));
+vi.mock("@metricflock/google/tokens", () => ({
+  revokeConnection: mocks.revokeConnection,
+  revokeConnectionToken: mocks.revokeConnectionToken,
+}));
 vi.mock("@metricflock/db/snapshots", () => ({ invalidateOrgSnapshots: mocks.invalidateOrgSnapshots }));
 vi.mock("@metricflock/shared", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@metricflock/shared")>();
@@ -119,6 +130,7 @@ describe("step-up enforcement on destructive routes", () => {
     mocks.requireApiAuth.mockResolvedValue({ user: authUser });
     mocks.writeAudit.mockResolvedValue(undefined);
     mocks.revokeConnection.mockResolvedValue(undefined);
+    mocks.revokeConnectionToken.mockResolvedValue(true);
     mocks.invalidateOrgCache.mockResolvedValue(undefined);
     mocks.invalidateOrgSnapshots.mockResolvedValue(undefined);
   });
@@ -140,6 +152,8 @@ describe("step-up enforcement on destructive routes", () => {
   it("DELETE /api/organization: fresh session → proceeds", async () => {
     mocks.requireFreshSession.mockResolvedValue(freshOk);
     mocks.orgFindUnique.mockResolvedValue({ id: "org-a", slug: "main-org", name: "Main" });
+    // A-SEC-19: a completed export exists, so the export gate passes.
+    mocks.orgAuditExportFindFirst.mockResolvedValue({ id: "audit-export-1" });
     mocks.orgGoogleConnections.mockResolvedValue([]);
     mocks.orgTxAuditDeleteMany.mockResolvedValue({ count: 0 });
     mocks.orgTxOrgDelete.mockResolvedValue({ id: "org-a" });

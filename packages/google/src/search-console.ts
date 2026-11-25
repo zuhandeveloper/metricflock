@@ -3,6 +3,31 @@ import type { OAuth2Client } from "./auth-types";
 import { GOOGLE_API_TIMEOUT_MS, withGoogleTimeout } from "./timeout";
 // Search Console data is delayed by 2-3 days; never present it as real-time.
 export const GSC_DATA_DELAY_NOTE = "Search Console data is delayed by approximately 2-3 days and is not real-time.";
+
+/** Days of Search Console data that do not exist yet (A-GGL-07). */
+export const GSC_DATA_DELAY_DAYS = 3;
+
+/** A-GGL-07: clamp a requested range to the days Search Console can
+ *  actually report — endDate never later than 3 days ago, and the
+ *  start pulled back with it when the range would otherwise invert
+ *  (e.g. range "today" collapses to a single day, 3 days ago).
+ *  Fixed 3-day clamp, not "the latest date the totals query returns
+ *  data for": the totals-query alternative costs an extra API call per
+ *  fetch and would make cache keys depend on data availability instead
+ *  of the requested range. GA4/AdSense/Ad Manager ranges are untouched
+ *  — only Search Console has this delay. `now` is injectable so tests
+ *  can pin the "today" the clamp is measured against. */
+export function clampSearchConsoleRange(
+  startDate: string,
+  endDate: string,
+  now: Date = new Date(),
+): { startDate: string; endDate: string } {
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const maxEnd = fmt(new Date(now.getTime() - GSC_DATA_DELAY_DAYS * 86400000));
+  const clampedEnd = endDate <= maxEnd ? endDate : maxEnd;
+  const clampedStart = startDate <= clampedEnd ? startDate : clampedEnd;
+  return { startDate: clampedStart, endDate: clampedEnd };
+}
 export function parseGscRows(
   rows: { keys?: string[]; clicks?: number; impressions?: number; ctr?: number; position?: number }[] | undefined,
 ) {

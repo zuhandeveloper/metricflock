@@ -67,10 +67,10 @@ function ErrorNote({ error, onRetry }: { error: unknown; onRetry: () => void }) 
   };
   return (
     <div role="alert" className="mt-2 text-sm">
-      <p role="alert" className="text-red-700">
+      <p role="alert" className="text-red-700 dark:text-red-400">
         Couldn&apos;t load this data ({code}){hints[code] ?? ""}.
       </p>
-      <button type="button" onClick={onRetry} className="mt-1 text-blue-600 hover:underline">
+      <button type="button" onClick={onRetry} className="mt-1 text-blue-600 hover:underline dark:text-blue-400">
         Retry
       </button>
     </div>
@@ -109,7 +109,7 @@ function StatusNote({
   if (data.dataSource) parts.push(`Source: ${data.dataSource}`);
   if (data.freshness) parts.push(`Freshness: ${data.freshness}`);
   parts.push(`Last synced: ${data.lastSyncedAt ?? "never"}`);
-  return <p className="text-xs text-zinc-500">{parts.join(" · ")}</p>;
+  return <p className="text-xs text-zinc-500 dark:text-zinc-400">{parts.join(" · ")}</p>;
 }
 export default function WebsiteAnalytics({ websiteId, range }: { websiteId: string; range: string }) {
   const rt = useQuery({
@@ -143,7 +143,7 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
       <Card className="p-4">
         <h2 className="font-semibold">Realtime — active users (last 30 min, approximate)</h2>
         {rt.isLoading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
         ) : rt.isError ? (
           <ErrorNote error={rt.error} onRetry={() => rt.refetch()} />
         ) : rt.data?.status === "ok" ? (
@@ -152,14 +152,14 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
             <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
               <div>
                 <p className="text-2xl font-bold">{rt.data.data.activeUsers}</p>
-                <p className="text-xs text-zinc-500">Active users</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Active users</p>
               </div>
               <div>
                 <p className="text-2xl font-bold">{rt.data.data.eventCount}</p>
-                <p className="text-xs text-zinc-500">Events</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Events</p>
               </div>
               <div className="col-span-2">
-                <p className="text-xs text-zinc-500">Top countries</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Top countries</p>
                 {(rt.data.data.byCountry ?? []).slice(0, 5).map((c: { name: string; activeUsers: number }) => (
                   <p key={c.name} className="text-sm">
                     {c.name}: {c.activeUsers}
@@ -175,20 +175,20 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
       <Card className="p-4">
         <h2 className="font-semibold">Historical overview</h2>
         {ov.isLoading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
         ) : ov.isError ? (
           <ErrorNote error={ov.error} onRetry={() => ov.refetch()} />
         ) : ov.data?.status === "ok" ? (
           <>
             <StatusNote data={ov.data} />
             {ov.data.data.sampling?.sampled && (
-              <p className="mt-1 text-xs text-amber-700">
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
                 Sampled data: GA4 read {ov.data.data.sampling.samplesReadCount?.toLocaleString()} of{" "}
                 {ov.data.data.sampling.samplingSpaceSize?.toLocaleString()} sessions — figures are estimates.
               </p>
             )}
             {ov.data.data.sampling?.subjectToThresholding && (
-              <p className="mt-1 text-xs text-amber-700">
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
                 Some data was withheld by GA4 thresholding (low-volume segments).
               </p>
             )}
@@ -198,7 +198,7 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
                 .map(([k, v]) => (
                   <div key={k}>
                     <p className="text-lg font-bold">{formatMetric(k, v)}</p>
-                    <p className="text-xs text-zinc-500">{METRIC_LABELS[k] ?? k}</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">{METRIC_LABELS[k] ?? k}</p>
                   </div>
                 ))}
             </div>
@@ -224,7 +224,7 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
         <Card className="p-4">
           <h2 className="font-semibold">Top pages</h2>
           {pages.isLoading ? (
-            <p className="text-sm text-zinc-500">Loading…</p>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
           ) : pages.isError ? (
             <ErrorNote error={pages.error} onRetry={() => pages.refetch()} />
           ) : pages.data?.status === "ok" ? (
@@ -250,7 +250,7 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
         <Card className="p-4">
           <h2 className="font-semibold">Search Console (delayed 2–3 days, not real-time)</h2>
           {gsc.isLoading ? (
-            <p className="text-sm text-zinc-500">Loading…</p>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
           ) : gsc.isError ? (
             <ErrorNote error={gsc.error} onRetry={() => gsc.refetch()} />
           ) : gsc.data?.status === "ok" ? (
@@ -260,7 +260,7 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
                 {Object.entries(gsc.data.data.totals ?? {}).map(([k, v]) => (
                   <div key={k}>
                     <p className="text-lg font-bold">{formatMetric(k, v)}</p>
-                    <p className="text-xs text-zinc-500">{METRIC_LABELS[k] ?? k}</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">{METRIC_LABELS[k] ?? k}</p>
                   </div>
                 ))}
               </div>
@@ -273,7 +273,7 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
       <Card className="p-4">
         <h2 className="font-semibold">AdSense — estimated earnings (not finalized payments)</h2>
         {ads.isLoading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
         ) : ads.isError ? (
           <ErrorNote error={ads.error} onRetry={() => ads.refetch()} />
         ) : ads.data?.status === "ok" ? (
@@ -283,11 +283,11 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
               {Object.entries(ads.data.data.totalsByMetric ?? {}).map(([k, v]) => (
                 <div key={k}>
                   <p className="text-lg font-bold">{formatMetric(k, v)}</p>
-                  <p className="text-xs text-zinc-500">{METRIC_LABELS[k] ?? k}</p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">{METRIC_LABELS[k] ?? k}</p>
                 </div>
               ))}
             </div>
-            <p className="mt-2 text-sm text-zinc-500">
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
               {ads.data.data.note} · {(ads.data.data.rows ?? []).length} daily rows returned.
             </p>
           </>
@@ -295,7 +295,7 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
           <StatusNote data={ads.data} />
         )}
         <a
-          className="mt-3 inline-block text-sm text-blue-600 hover:underline"
+          className="mt-3 inline-block text-sm text-blue-600 hover:underline dark:text-blue-400"
           href={`/api/analytics/pages?websiteId=${websiteId}&range=${range}&format=csv`}
         >
           Download pages CSV

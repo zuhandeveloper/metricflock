@@ -99,6 +99,32 @@ describe("sync engine (mocked Google clients)", () => {
     expect(last28Days(NOW)).toEqual({ startDate: "2026-10-23", endDate: "2026-11-19" });
   });
 
+  it("search-console sync clamps the range to 3 days ago, fetch and cache key alike (A-GGL-07)", async () => {
+    const { deps, cacheWrites } = fakeDeps();
+    const r = await syncWebsite("site-1", "search-console", deps);
+    expect(r.status).toBe("ok");
+    // The Google call never asks for days with no data yet.
+    expect(deps.searchConsole.querySearchAnalytics).toHaveBeenCalledWith(
+      expect.anything(),
+      "123456",
+      "2026-10-23",
+      "2026-11-16",
+      ["date", "query", "page"],
+    );
+    // And the warmed cache key matches the key the web handler builds
+    // for the same requested range, so the dashboard hits it.
+    expect(cacheWrites).toHaveLength(1);
+    expect(cacheWrites[0]!.key).toContain("2026-10-23_2026-11-16");
+  });
+
+  it("ga4-historical sync keeps the unclamped 28-day window (A-GGL-07)", async () => {
+    const { deps, cacheWrites } = fakeDeps();
+    const r = await syncWebsite("site-1", "ga4-historical", deps);
+    expect(r.status).toBe("ok");
+    expect(deps.ga4.runHistoricalReport).toHaveBeenCalledWith(expect.anything(), "123456", "2026-10-23", "2026-11-19");
+    expect(cacheWrites[0]!.key).toContain("2026-10-23_2026-11-19");
+  });
+
   it("returns not_connected without fetching or caching", async () => {
     const { deps, cacheWrites } = fakeDeps({
       getAuthorizedClientForIntegration: vi.fn(async () => {
@@ -116,6 +142,39 @@ describe("sync engine (mocked Google clients)", () => {
     const r = await syncWebsite("site-1", "search-console", deps);
     expect(r.status).toBe("no_mapping");
     expect(cacheWrites).toEqual([]);
+  });
+
+  it("returns no_mapping for a legacy mapping without a connection (A-DB-12)", async () => {
+    // Terminal, not a retry: no credential can fix a mapping that was
+    // never linked to a connection, and the fallback to another
+    // connection's token is gone.
+    const { deps, cacheWrites } = fakeDeps({
+      getAuthorizedClientForIntegration: vi.fn(async () => {
+        throw new Error("LEGACY_CONNECTION_MISSING");
+      }),
+    });
+    const r = await syncWebsite("site-1", "ga4-historical", deps);
+    expect(r.status).toBe("no_mapping");
+    expect(r.detail).toMatch(/re-map/);
+    expect(cacheWrites).toEqual([]);
+    expect(deps.ga4.runHistoricalReport).not.toHaveBeenCalled();
+  });
+
+  it("health-check records error health for a legacy mapping and does not throw (A-DB-12)", async () => {
+    const { deps, health } = fakeDeps({
+      getAuthorizedClientForIntegration: vi.fn(async () => {
+        throw new Error("LEGACY_CONNECTION_MISSING");
+      }),
+    });
+    const r = await syncWebsite("site-1", "health-check", deps);
+    expect(r.status).toBe("no_mapping");
+    // GA4 + Search Console + AdSense all hit the legacy error (Ad Manager
+    // is disabled in the fakes); each records error health, none throws.
+    expect(health).toHaveLength(3);
+    for (const h of health) {
+      expect(h).toMatchObject({ status: "error" });
+      expect(String(h.lastError)).toMatch(/re-map/);
+    }
   });
 
   it("GA4 historical fetches all 5 reports and warms the web cache keys", async () => {
@@ -203,9 +262,15 @@ describe("sync engine (mocked Google clients)", () => {
     });
     const r = await syncWebsite("site-1", "health-check", deps);
     expect(r.status).toBe("skipped");
-    expect(r.detail).toBe("SCOPE_MISSING");
+    // A-WRK-08: the detail now lists every failed provider instead of
+    // only the first failure's message.
+    expect(r.detail).toBe("GA4: SCOPE_MISSING; SEARCH_CONSOLE: SCOPE_MISSING; ADSENSE: SCOPE_MISSING");
+    // A-WRK-08: the check no longer aborts on the first provider — every
+    // mapped provider gets its own needs_reauth health record.
     expect(health).toEqual([
       expect.objectContaining({ provider: "GA4", status: "needs_reauth", lastError: "SCOPE_MISSING" }),
+      expect.objectContaining({ provider: "SEARCH_CONSOLE", status: "needs_reauth", lastError: "SCOPE_MISSING" }),
+      expect.objectContaining({ provider: "ADSENSE", status: "needs_reauth", lastError: "SCOPE_MISSING" }),
     ]);
   });
 

@@ -55,4 +55,26 @@ describe("resolveRange", () => {
     expect(yesterday.startDate).toBe(yesterday.endDate);
     expect(yesterday.endDate < today.endDate).toBe(true);
   });
+
+  it("rejects impossible custom dates and inverted ranges (A-GGL-08)", () => {
+    // A format regex admits these; only a calendar check catches them.
+    for (const bad of ["2026-02-30", "2026-13-01", "2026-1-5"]) {
+      expect(() => resolveRange("custom", bad, "2026-02-28")).toThrowError(ApiError);
+      expect(() => resolveRange("custom", "2026-02-01", bad)).toThrowError(ApiError);
+    }
+    try {
+      resolveRange("custom", "2026-02-30", "2026-03-01");
+      expect.unreachable("impossible date must throw");
+    } catch (e) {
+      expect((e as ApiError).code).toBe("invalid_range");
+      expect((e as ApiError).status).toBe(400);
+    }
+    // startDate after endDate is a client error, not an empty fetch.
+    expect(() => resolveRange("custom", "2026-02-10", "2026-02-01")).toThrowError(ApiError);
+    // A real leap day still passes.
+    expect(resolveRange("custom", "2024-02-29", "2024-03-01")).toEqual({
+      startDate: "2024-02-29",
+      endDate: "2024-03-01",
+    });
+  });
 });

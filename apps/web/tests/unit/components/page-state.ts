@@ -27,6 +27,7 @@ export const pageMocks = {
   websiteIntegrationGroupBy: vi.fn(),
   analyticsSyncJobGroupBy: vi.fn(),
   analyticsSyncJobFindMany: vi.fn(),
+  analyticsSyncJobFindFirst: vi.fn(),
   websiteTransferFindMany: vi.fn(),
   teamMemberFindMany: vi.fn(),
   organizationInviteFindMany: vi.fn(),

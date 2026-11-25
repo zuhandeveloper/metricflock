@@ -37,6 +37,22 @@ export async function readSnapshot(cacheKey: string): Promise<Snapshot | null> {
   return { payload: row.payload, expiresAt: row.expiresAt, updatedAt: row.createdAt };
 }
 
+/** A-DB-11: batch snapshot read — one query for any number of cache
+ * keys. The map holds exactly the rows `readSnapshot` would have
+ * returned for each key (same shape, same staleness contract). */
+export async function readSnapshots(cacheKeys: string[]): Promise<Map<string, Snapshot>> {
+  const out = new Map<string, Snapshot>();
+  if (cacheKeys.length === 0) return out;
+  const rows = await prisma.analyticsCache.findMany({
+    where: { cacheKey: { in: cacheKeys } },
+    select: { cacheKey: true, payload: true, expiresAt: true, createdAt: true },
+  });
+  for (const row of rows) {
+    out.set(row.cacheKey, { payload: row.payload, expiresAt: row.expiresAt, updatedAt: row.createdAt });
+  }
+  return out;
+}
+
 /** Drop every snapshot for one website (mapping/assignment/website
  * changes — mirrors invalidateWebsiteCache for Redis). */
 export async function invalidateWebsiteSnapshots(websiteId: string): Promise<void> {

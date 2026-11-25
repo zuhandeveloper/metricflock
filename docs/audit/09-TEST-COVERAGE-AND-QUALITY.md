@@ -583,7 +583,7 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
 - **Regression-test requirement:** refresh-path tests incl. invalid-grant →
   connection marked revoked; scope-mismatch → `SCOPE_MISSING`.
 
-### A-COV-07 — P2 — CONFIRMED — Redis cache read/write/invalidate + env parsing untested
+### A-COV-07 — P2 — CONFIRMED — Redis cache read/write/invalidate + env parsing untested · FIXED 2026-11-24
 
 - **Location:** `packages/shared/src/cache.ts:70,88,108,117`
   (`cacheGet`, `cacheSet`, `invalidateWebsiteCache`, `invalidateOrgCache`),
@@ -600,8 +600,32 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   env vars.
 - **Regression-test requirement:** invalidation-pattern tests asserting the
   exact key prefixes invalidated per website/org.
+- **Verification note (2026-11-24):** revalidation found the finding's
+  evidence stale — the coverage-gap closure had already added
+  `lib-cache.test.ts` (12 tests) and `lib-env.test.ts` (6 tests) covering
+  `cacheGet`/`cacheSet` (miss/fresh/stale, error/corrupt-JSON), the SCAN
+  cursor loop, `getRedis`/`bullConnectionOptions`, `getEnv` and
+  `googleEnabled`. What was still missing was closed by this fix (+12
+  tests, 30 total in the two files): a true `cacheSet` → `cacheGet`
+  round-trip against an in-memory store (fakeredis-style, with a
+  snapshot-paged SCAN), store-backed invalidation proving only the target
+  website's / org's keys disappear, exact-prefix assertions with negative
+  scoping (website pattern matches no sibling website or org), the
+  `invalidateOrgCache` no-Redis branch (the one uncovered branch), the
+  `getRedis` error-listener registration, an empty-string miss, a
+  URL-encoded password in `bullConnectionOptions`, and env edge cases
+  (empty `DATABASE_URL`, absent optionals, only exact `'false'` disables).
+  Per-file coverage from these tests alone: `cache.ts` 100/100/100/100
+  (was 98.18/97.05/88.88/100), `env.ts` 100/100/100/100. Fail-without-fix
+  verified twice: widening the website pattern to the org pattern fails
+  3 tests; renaming the cache envelope's `value` key to `data` fails
+  exactly the round-trip test (the old stub tests cannot catch that).
+  No production bug was found — the production code was correct; the
+  gaps were test-only. One test-only defect surfaced and was fixed: the
+  env test file leaked `GOOGLE_CLIENT_ID` between tests (the `KEYS`
+  cleanup list now covers every optional schema key).
 
-### A-COV-08 — P2 — CONFIRMED — 6 of 8 Zod validation schemas untested
+### A-COV-08 — P2 — CONFIRMED — 6 of 8 Zod validation schemas untested · FIXED 2026-11-24
 
 - **Location:** `packages/shared/src/validation.ts:2,29,37,48,52,58`
   (`dateRangeSchema`, `teamCreateSchema`, `transferSchema`,
@@ -616,7 +640,29 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
 - **Regression-test requirement:** one test file asserting accept/reject +
   error paths per schema.
 
-### A-COV-09 — P2 — CONFIRMED — ESLint does not lint any `.ts`/`.tsx` file
+- **Verification note (2026-11-24):** revalidation found the finding's
+  evidence partly stale — `dateRangeSchema` was already covered by the
+  A-GGL-08 tests (strict dates, presets). The other 5 schemas
+  (`teamCreateSchema`, `transferSchema`, `analyticsQuerySchema`,
+  `inviteCreateSchema`, `memberRoleSchema`) were genuinely untested
+  despite being used by live routes/handlers. Tests only, no production
+  change: `validation.test.ts` extended in place (8 → 23 tests, +15
+  table-driven — valid / each invalid field / boundary values, with the
+  failing field's issue path asserted per case). `dateRangeSchema` gains
+  range-enum + default tests; `teamCreateSchema` includes the `.partial()`
+  form the PATCH route uses; `inviteCreateSchema` pins that `SUPER_ADMIN`
+  is never granted by invite. Fail-without-fix verified by mutating the
+  production schemas (slug regex dropped, transfer reason cap dropped,
+  invite role widened to `SUPER_ADMIN`) — exactly the 4 tests guarding
+  those constraints failed; schemas restored byte-identical (diff-verified).
+  No production bug was found. One mid-session type error in the new test
+  helper (`(string | number)[]` vs Zod 4's `PropertyKey[]` issue paths)
+  failed `tsc` and the Next build; fixed by typing the helper with
+  `PropertyKey[]`, all gates re-run green after the fix. Per-file coverage:
+  `validation.ts` 100/100/100/100. Full suite: 121 files, 1,327 tests,
+  coverage 95.96/90.58/90.51/97.69 vs thresholds 90/80/90/90.
+
+### A-COV-09 — P2 — CONFIRMED — ESLint does not lint any `.ts`/`.tsx` file · FIXED 2026-11-24
 
 - **Location:** `eslint.config.mjs:11-16` (header comment, verified in current
   source: "the .ts/.tsx files are NOT linted yet" pending typescript-eslint
@@ -639,7 +685,30 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   at least one `.ts` file (e.g. `eslint --print-config` check or a deliberate
   lint-error fixture).
 
-### A-COV-10 — P2 — CONFIRMED — Barrel mocks can hide real wiring regressions
+- **Verification note (2026-11-24):** interim path taken — latest stable
+  typescript-eslint is 8.74.0 with peer range `typescript >=4.8.4 <6.1.0`
+  (checked 2026-11-24), so TS 7.0.2 is still unsupported and no stable
+  release adds it; a version bump was NOT done (a lockfile change needs a
+  separate decision). `scripts/check-boundaries.sh` now enforces all 7
+  boundary rules for `.ts`/`.tsx` (Google SDK, Prisma, relative
+  cross-package, better-auth, bullmq, ioredis) plus the console check and
+  a new explicit-`any` check on src (0 hits; tests out of scope — test
+  doubles use `any`, e.g. `worker-index.test.ts`); every check is also run
+  against a fixture tree in a self-test that plants one violating fixture
+  per rule plus legal-import fixtures that must not trip, so the
+  enforcement cannot silently go vacuous. Proof: a planted `googleapis`
+  import in `packages/db` fails the real run (exit 1), and breaking the
+  google/`any` patterns fails the self-test (exit 1). `pnpm lint` now
+  prints two `WARNING (A-COV-09)` lines on every run naming the gap.
+  Residual: unused imports/variables are still unenforced — a
+  `tsc --noUnusedLocals --noUnusedParameters` run finds 5 violations (4 in
+  test files owned by pending fixes, 1 in `packages/db/src/client.ts` —
+  the unused `Prisma` import, fixed here); the follow-up is to enable
+  `noUnusedLocals`/`noUnusedParameters` in the tsconfigs once those pushes
+  land. Full suite unchanged: 121 files, 1,327 tests, coverage
+  95.96/90.58/90.51/97.69, gate green.
+
+### A-COV-10 — P2 — CONFIRMED — Barrel mocks can hide real wiring regressions · FIXED 2026-11-24
 
 - **Location:** `apps/web/tests/unit/portfolio.test.ts:12-17`,
   `insights-loader.test.ts:11-15`, `health.test.ts:12-18`,
@@ -658,6 +727,32 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
 - **Regression-test requirement:** a test that fails if a loader calls a
   Prisma method the test stub does not provide (e.g. assert on the mock
   factory's completeness, or run loaders against a recording fake).
+
+- **Verification note (2026-11-24):** fixed by adding
+  `apps/web/tests/unit/loaders-wiring.test.ts` (6 tests, tests only — no
+  production change). The new suite runs the real `loadPortfolio` +
+  `loadInsights` pair against a recording fake Prisma only (no stubbed
+  sibling loader): `vi.mock("@metricflock/db")` covers the loaders, the
+  google client and auth, plus `vi.doMock` on the computed absolute
+  `@metricflock/db` client path covers `packages/db/src/snapshots.ts`,
+  which imports via `./client` (the same alias gap documented in
+  `db-snapshots-seed.test.ts`). The fake is a strict Proxy that throws on
+  any Prisma method it does not provide (one allowlisted import-time read:
+  better-auth's `prismaAdapter` reads `prisma._runtimeDataModel` while
+  building the auth instance — returns `undefined`, exactly as a
+  plain-object mock does). Tests assert the exact recorded call set per
+  loader (including the A-GGL-07 clamped SC range key and the A-DB-11
+  batched single-call-per-method shape), pair consistency between the two
+  loaders, and restricted-user scoping through the real
+  `listAccessibleWebsiteIds`. Fail-without-fix verified: temporarily
+  switching `loadPortfolio` to per-website `getPrimaryIntegration` calls
+  fails 4 of 6 tests (the loader's try/catch degrades to an empty primaries
+  map, so the result is 0 websites instead of 1); `portfolio.ts` restored
+  byte-identical (sha256 verified). The existing barrel-mock suites
+  (`portfolio.test.ts`, `insights-loader.test.ts`, `health.test.ts`,
+  `api-key-auth.test.ts`) were NOT rewritten — their tests and assertions
+  are untouched. Full suite: 122 files, 1,333 tests, coverage
+  95.96/90.77/90.51/97.69, gate green.
 
 ### A-COV-11 — P3 — CONFIRMED — Weak-assertion inventory (config-shape and pure-function tests)
 

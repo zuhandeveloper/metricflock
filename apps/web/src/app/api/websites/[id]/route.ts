@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withApiErrors } from "@/lib/api-error";
+import { apiError, requestIdOf, withApiErrors } from "@/lib/api-error";
+import { OPEN_TRANSFER_STATUSES } from "@/lib/transfers";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { assertWebsiteAccess, assertWebsiteManageAccess, assertTeamManageAccess } from "@metricflock/auth";
@@ -43,6 +44,18 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
   if (d.teamId) {
     const team = await assertTeamManageAccess(auth.user, d.teamId).catch(() => null);
     if (!team) return NextResponse.json({ error: "team_not_found" }, { status: 404 });
+  }
+  // A-DB-04: a website with an open transfer cannot be moved to another
+  // team or re-statused — the transfer row (fromTeamId) and the manual
+  // status decision would otherwise be silently discarded at completion.
+  // Other fields (name, domain, url, ...) stay editable. Mirrors the
+  // initiate guard in websites/[id]/transfer/route.ts.
+  if (d.teamId !== undefined || d.status !== undefined) {
+    const open = await prisma.websiteTransfer.findFirst({
+      where: { websiteId: id, status: { in: OPEN_TRANSFER_STATUSES } },
+      select: { id: true },
+    });
+    if (open) return apiError("transfer_in_progress", 409, { transferId: open.id }, requestIdOf(req));
   }
   let updated;
   try {

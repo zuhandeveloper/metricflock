@@ -24,7 +24,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <header className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
           <div className="flex min-w-0 items-center gap-2">
             <MobileNav user={{ name: user.name, email: user.email, role: user.role }} />
-            <span className="truncate text-sm text-zinc-500">Multi-website Analytics &amp; Publisher Management</span>
+            <span className="truncate text-sm text-zinc-500 dark:text-zinc-400">
+              Multi-website Analytics &amp; Publisher Management
+            </span>
           </div>
           <ThemeToggle />
         </header>

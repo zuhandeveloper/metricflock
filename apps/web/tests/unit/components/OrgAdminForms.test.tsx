@@ -73,6 +73,20 @@ describe("OrgAdminActions", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("slug_mismatch"));
     expect(nav.push).not.toHaveBeenCalled();
   });
+
+  it("maps export_required to a friendly message (A-SEC-19)", async () => {
+    mockConfirm(true);
+    mockFetch({ error: "export_required" }, false, 409);
+    render(<OrgAdminActions orgSlug="acme" />);
+    fireEvent.change(screen.getByLabelText("Organization slug"), { target: { value: "acme" } });
+    fireEvent.click(screen.getByRole("button", { name: "Delete organization" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Export your organization data first — deletion requires a completed export.",
+      ),
+    );
+    expect(nav.push).not.toHaveBeenCalled();
+  });
 });
 
 describe("gap closure: json parse failure and busy guard", () => {

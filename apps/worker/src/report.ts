@@ -4,10 +4,11 @@
 // schedule's recipients (or the org's SUPER_ADMINs when none are
 // configured).
 import { prisma } from "@metricflock/db";
-import { readSnapshot } from "@metricflock/db/snapshots";
+import { readSnapshots } from "@metricflock/db/snapshots";
 import { sendMail, mailerMode } from "@metricflock/auth/mailer";
-import { getPrimaryIntegration } from "@metricflock/google/client";
+import { getPrimaryIntegrations } from "@metricflock/google/client";
 import { last28Days } from "@metricflock/google/sync";
+import { clampSearchConsoleRange } from "@metricflock/google/search-console";
 import {
   aggregatePayloads,
   buildCacheKey,
@@ -34,41 +35,92 @@ export async function sendOrgReport(organizationId: string): Promise<SyncResult>
   if (!org) return { status: "skipped", reports: [], detail: "organization not found" };
   const schedule = await prisma.reportSchedule.findUnique({ where: { organizationId } });
 
-  const websites = await prisma.website.findMany({
-    where: { organizationId },
-    select: { id: true },
-    orderBy: { createdAt: "asc" },
-    take: 200,
-  });
   const range = last28Days(new Date());
+  // A-GGL-07: the Search Console snapshots the sync engine writes live
+  // under the clamped range (endDate 3 days ago), so the report's SC
+  // section must read that key — otherwise every website would show
+  // unavailable for Search Console. GA4/AdSense keep the 28d window.
+  // The email's rangeLabel stays the requested 28d window: it covers
+  // three providers, and only the SC slice inside it is clamped.
+  const scRange = clampSearchConsoleRange(range.startDate, range.endDate);
+
+  // A-WRK-10: the website load is paginated instead of capped at 200 —
+  // an org with 500 sites used to get a report that silently omitted
+  // 300 of them, with totals that looked complete. Pages are processed
+  // one at a time (bounded memory per page) and the A-DB-11 batch
+  // helpers keep each page to one primaries + one snapshots query per
+  // section, instead of the old 2N per-website round-trips. A failed
+  // batch degrades the way a failed per-website lookup used to: the
+  // affected websites are reported unavailable, never fatal.
+  const PAGE_SIZE = 200;
+  const accumulators: Record<string, { payloads: unknown[]; unavailable: number }> = {
+    ga4: { payloads: [], unavailable: 0 },
+    searchConsole: { payloads: [], unavailable: 0 },
+    adsense: { payloads: [], unavailable: 0 },
+  };
+  let skip = 0;
+  for (;;) {
+    const page = await prisma.website.findMany({
+      where: { organizationId },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+      skip,
+      take: PAGE_SIZE,
+    });
+    if (page.length === 0) break;
+    skip += page.length;
+    const pageIds = page.map((w) => w.id);
+    for (const cfg of REPORTS) {
+      const acc = accumulators[cfg.key]!;
+      const cfgRange = cfg.provider === "SEARCH_CONSOLE" ? scRange : range;
+      let primaries: Awaited<ReturnType<typeof getPrimaryIntegrations>>;
+      try {
+        primaries = await getPrimaryIntegrations(pageIds, [cfg.provider]);
+      } catch {
+        primaries = new Map();
+      }
+      const cacheKeys = new Map<string, string>();
+      for (const w of page) {
+        const integration = primaries.get(w.id)?.get(cfg.provider);
+        if (!integration) {
+          acc.unavailable += 1;
+          continue;
+        }
+        cacheKeys.set(
+          w.id,
+          buildCacheKey({
+            organizationId,
+            websiteId: w.id,
+            propertyId: integration.externalId,
+            source: cfg.source,
+            report: cfg.report,
+            range: `${cfgRange.startDate}_${cfgRange.endDate}`,
+          }),
+        );
+      }
+      let snapshots: Awaited<ReturnType<typeof readSnapshots>>;
+      try {
+        snapshots = await readSnapshots([...cacheKeys.values()]);
+      } catch {
+        snapshots = new Map();
+      }
+      for (const w of page) {
+        const key = cacheKeys.get(w.id);
+        if (!key) continue;
+        const snapshot = snapshots.get(key);
+        if (!snapshot) {
+          acc.unavailable += 1;
+          continue;
+        }
+        acc.payloads.push(snapshot.payload);
+      }
+    }
+    if (page.length < PAGE_SIZE) break;
+  }
 
   const sections: Record<string, ReportSection> = {};
   for (const cfg of REPORTS) {
-    const payloads: unknown[] = [];
-    let unavailable = 0;
-    await Promise.all(
-      websites.map(async (w) => {
-        const integration = await getPrimaryIntegration(w.id, cfg.provider).catch(() => null);
-        if (!integration) {
-          unavailable += 1;
-          return;
-        }
-        const cacheKey = buildCacheKey({
-          organizationId,
-          websiteId: w.id,
-          propertyId: integration.externalId,
-          source: cfg.source,
-          report: cfg.report,
-          range: `${range.startDate}_${range.endDate}`,
-        });
-        const snapshot = await readSnapshot(cacheKey).catch(() => null);
-        if (!snapshot) {
-          unavailable += 1;
-          return;
-        }
-        payloads.push(snapshot.payload);
-      }),
-    );
+    const { payloads, unavailable } = accumulators[cfg.key]!;
     const { totals, note } = aggregatePayloads(cfg.report, payloads);
     sections[cfg.key] = {
       totals: payloads.length ? totals : null,

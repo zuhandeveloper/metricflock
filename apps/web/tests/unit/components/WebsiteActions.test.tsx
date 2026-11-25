@@ -264,11 +264,59 @@ describe("SyncNowForm", () => {
     );
   });
 
-  it("lists all five sync types", () => {
+  it("already_queued shows the hour message instead of Queued.", async () => {
+    mockFetch({ status: "already_queued", queued: true, syncJobId: "job-row-1" });
     render(<SyncNowForm websiteId="w1" />);
-    for (const label of ["GA4 historical", "Search Console", "AdSense", "Ad Manager", "Health check"]) {
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+    await waitFor(() => expect(screen.getByText("Already queued for this hour.")).toBeInTheDocument());
+    expect(screen.queryByText("Queued.")).not.toBeInTheDocument();
+  });
+
+  it("already_completed shows the synced message", async () => {
+    mockFetch({ status: "already_completed", queued: false, syncJobId: "job-row-1" });
+    render(<SyncNowForm websiteId="w1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+    await waitFor(() => expect(screen.getByText("Already synced this hour.")).toBeInTheDocument());
+  });
+
+  it("lists all seven sync types", () => {
+    render(<SyncNowForm websiteId="w1" />);
+    for (const label of [
+      "GA4 realtime",
+      "GA4 historical",
+      "Search Console",
+      "AdSense",
+      "Ad Manager",
+      "Cache refresh",
+      "Health check",
+    ]) {
       expect(screen.getByRole("option", { name: label })).toBeInTheDocument();
     }
+  });
+
+  it("A-FE-07: queues a GA4 realtime sync and refreshes the page to show the new job", async () => {
+    const fetchMock = mockFetch(null);
+    render(<SyncNowForm websiteId="w1" />);
+    fireEvent.change(screen.getByLabelText("Sync type"), { target: { value: "ga4-realtime-sync" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+    await waitFor(() => expect(screen.getByText("Queued.")).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sync",
+      expect.objectContaining({ body: JSON.stringify({ websiteId: "w1", type: "ga4-realtime-sync" }) }),
+    );
+    expect(nav.refresh).toHaveBeenCalled();
+  });
+
+  it("A-FE-07: queues a cache refresh", async () => {
+    const fetchMock = mockFetch(null);
+    render(<SyncNowForm websiteId="w1" />);
+    fireEvent.change(screen.getByLabelText("Sync type"), { target: { value: "analytics-cache-refresh" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+    await waitFor(() => expect(screen.getByText("Queued.")).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sync",
+      expect.objectContaining({ body: JSON.stringify({ websiteId: "w1", type: "analytics-cache-refresh" }) }),
+    );
   });
 });
 

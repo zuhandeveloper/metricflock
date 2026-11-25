@@ -29,7 +29,9 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
         </div>
         <Card className="space-y-3 p-4">
           {!invite ? (
-            <p className="text-sm text-zinc-500">This invite link is invalid, expired, or already used.</p>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              This invite link is invalid, expired, or already used.
+            </p>
           ) : (
             <>
               <p className="text-sm">
@@ -40,13 +42,13 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
                 user.email.toLowerCase() === invite.email.toLowerCase() ? (
                   <AcceptInviteButton token={token} />
                 ) : (
-                  <p className="text-sm text-zinc-500">
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
                     You are signed in as {user.email}. Sign out and sign in with {invite.email} to accept this invite.
                   </p>
                 )
               ) : (
                 <div className="space-y-2 text-sm">
-                  <p className="text-zinc-500">
+                  <p className="text-zinc-500 dark:text-zinc-400">
                     Sign up or sign in with <strong>{invite.email}</strong> and you will join automatically.
                   </p>
                   <Link

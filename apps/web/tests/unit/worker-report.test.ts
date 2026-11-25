@@ -16,8 +16,12 @@ const mocks = vi.hoisted(() => ({
   userFindMany: vi.fn(),
   sendMail: vi.fn(),
   mailerMode: vi.fn(),
-  readSnapshot: vi.fn(),
-  getPrimaryIntegration: vi.fn(),
+  readSnapshots: vi.fn(),
+  getPrimaryIntegrations: vi.fn(),
+  // Mutable report window (A-GGL-07): the default is safely in the past
+  // so the SC clamp is a no-op for the other tests; the clamp test below
+  // moves it to a window ending today.
+  window: { startDate: "2026-10-19", endDate: "2026-11-15" },
 }));
 
 vi.mock("@metricflock/db", () => ({
@@ -30,19 +34,21 @@ vi.mock("@metricflock/db", () => ({
     user: { findMany: mocks.userFindMany },
   },
 }));
-vi.mock("@metricflock/db/snapshots", () => ({ readSnapshot: mocks.readSnapshot }));
+// A-WRK-10: the report reads primaries + snapshots through the A-DB-11
+// batch helpers, one call per page per section.
+vi.mock("@metricflock/db/snapshots", () => ({ readSnapshots: mocks.readSnapshots }));
 vi.mock("@metricflock/auth/mailer", () => ({
   sendMail: mocks.sendMail,
   mailerMode: mocks.mailerMode,
 }));
-vi.mock("@metricflock/google/client", () => ({ getPrimaryIntegration: mocks.getPrimaryIntegration }));
+vi.mock("@metricflock/google/client", () => ({ getPrimaryIntegrations: mocks.getPrimaryIntegrations }));
 vi.mock("@metricflock/google/sync", () => ({
-  last28Days: () => ({ startDate: "2026-10-26", endDate: "2026-11-22" }),
+  last28Days: () => ({ ...mocks.window }),
 }));
 
 import { sendOrgReport } from "@metricflock/worker/report";
 
-const RANGE = "2026-10-26_2026-11-22";
+const RANGE = "2026-10-19_2026-11-15";
 const RECIPIENTS = ["a@example.com", "b@example.com"];
 
 function cacheKey(websiteId: string, propertyId: string, source: string, report: string) {
@@ -55,6 +61,8 @@ describe("sendOrgReport (worker report builder)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
+    mocks.window.startDate = "2026-10-19";
+    mocks.window.endDate = "2026-11-15";
     mocks.orgFindUnique.mockResolvedValue({ id: "org-1", name: "Acme" });
     mocks.scheduleFindUnique.mockResolvedValue({ organizationId: "org-1", recipients: RECIPIENTS });
     mocks.scheduleUpdateMany.mockResolvedValue({ count: 1 });
@@ -64,8 +72,8 @@ describe("sendOrgReport (worker report builder)", () => {
     mocks.userFindMany.mockResolvedValue([]);
     mocks.mailerMode.mockReturnValue("smtp");
     mocks.sendMail.mockResolvedValue(undefined);
-    mocks.readSnapshot.mockResolvedValue(null);
-    mocks.getPrimaryIntegration.mockResolvedValue(null);
+    mocks.readSnapshots.mockResolvedValue(new Map());
+    mocks.getPrimaryIntegrations.mockResolvedValue(new Map());
   });
 
   afterEach(() => {
@@ -84,10 +92,18 @@ describe("sendOrgReport (worker report builder)", () => {
   it("aggregates snapshots across websites, summarizes health, and mails the configured recipients", async () => {
     const now = new Date();
     mocks.websiteFindMany.mockResolvedValue([{ id: "w1" }, { id: "w2" }]);
-    mocks.getPrimaryIntegration.mockImplementation(async (websiteId: string, provider: string) => {
-      if (provider === "GA4") return { externalId: websiteId === "w1" ? "ga-1" : "ga-2" };
-      if (provider === "SEARCH_CONSOLE") return websiteId === "w1" ? { externalId: "sc-1" } : null;
-      return websiteId === "w2" ? { externalId: "ad-1" } : null; // ADSENSE
+    mocks.getPrimaryIntegrations.mockImplementation(async (websiteIds: string[], providers: string[]) => {
+      const out = new Map<string, Map<string, { externalId: string }>>();
+      for (const id of websiteIds) {
+        const perSite = new Map<string, { externalId: string }>();
+        for (const provider of providers) {
+          if (provider === "GA4") perSite.set(provider, { externalId: id === "w1" ? "ga-1" : "ga-2" });
+          if (provider === "SEARCH_CONSOLE" && id === "w1") perSite.set(provider, { externalId: "sc-1" });
+          if (provider === "ADSENSE" && id === "w2") perSite.set(provider, { externalId: "ad-1" });
+        }
+        if (perSite.size > 0) out.set(id, perSite);
+      }
+      return out;
     });
     const snapshots = new Map<string, unknown>([
       [
@@ -112,7 +128,11 @@ describe("sendOrgReport (worker report builder)", () => {
       ],
       // w2 AdSense has an integration but no snapshot: unavailable.
     ]);
-    mocks.readSnapshot.mockImplementation(async (key: string) => snapshots.get(key) ?? null);
+    mocks.readSnapshots.mockImplementation(async (keys: string[]) => {
+      const out = new Map<string, unknown>();
+      for (const key of keys) if (snapshots.has(key)) out.set(key, snapshots.get(key));
+      return out;
+    });
     mocks.healthFindMany.mockResolvedValue([
       { status: "ok", lastSuccessAt: now },
       { status: "error", lastSuccessAt: null },
@@ -127,7 +147,7 @@ describe("sendOrgReport (worker report builder)", () => {
     expect(mocks.sendMail).toHaveBeenCalledTimes(2);
     const mail = mocks.sendMail.mock.calls[0][0] as { to: string; subject: string; text: string };
     expect(mail.to).toBe("a@example.com");
-    expect(mail.subject).toBe("Acme weekly report — 2026-10-26 to 2026-11-22");
+    expect(mail.subject).toBe("Acme weekly report — 2026-10-19 to 2026-11-15");
     expect(mail.text).toContain("Sessions: 3,000"); // 1000 + 2000 summed across websites
     expect(mail.text).toContain("Active users: 2,300");
     expect(mail.text).toContain("Clicks: 100");
@@ -138,6 +158,54 @@ describe("sendOrgReport (worker report builder)", () => {
       where: { organizationId: "org-1" },
       data: { lastSentAt: expect.any(Date) },
     });
+  });
+
+  it("reads the Search Console snapshot under the clamped range (A-GGL-07)", async () => {
+    // Window ending today: the sync engine writes the SC snapshot under
+    // the clamped key (endDate 3 days ago), the GA4 snapshot under the
+    // full window. The report must find both.
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const today = new Date();
+    const start = fmt(new Date(today.getTime() - 27 * 86400000));
+    const maxEnd = fmt(new Date(today.getTime() - 3 * 86400000));
+    const end = fmt(today);
+    mocks.window.startDate = start;
+    mocks.window.endDate = end;
+    mocks.websiteFindMany.mockResolvedValue([{ id: "w1" }]);
+    mocks.getPrimaryIntegrations.mockImplementation(async (websiteIds: string[], providers: string[]) => {
+      const out = new Map<string, Map<string, { externalId: string }>>();
+      for (const id of websiteIds) {
+        const perSite = new Map<string, { externalId: string }>();
+        for (const provider of providers) {
+          if (provider === "GA4") perSite.set(provider, { externalId: "ga-1" });
+          if (provider === "SEARCH_CONSOLE") perSite.set(provider, { externalId: "sc-1" });
+        }
+        if (perSite.size > 0) out.set(id, perSite);
+      }
+      return out;
+    });
+    const key = (propertyId: string, source: string, report: string, range: string) =>
+      buildCacheKey({ organizationId: "org-1", websiteId: "w1", propertyId, source, report, range });
+    const snapshots = new Map<string, unknown>([
+      [key("ga-1", "ga4", "overview", `${start}_${end}`), { payload: { summary: { sessions: 100 } } }],
+      [
+        key("sc-1", "search-console", "search-console", `${start}_${maxEnd}`),
+        { payload: { totals: { clicks: 100, impressions: 5000, avgPosition: 6.5 } } },
+      ],
+    ]);
+    mocks.readSnapshots.mockImplementation(async (keys: string[]) => {
+      const out = new Map<string, unknown>();
+      for (const key of keys) if (snapshots.has(key)) out.set(key, snapshots.get(key));
+      return out;
+    });
+    const result = await sendOrgReport("org-1");
+    expect(result.status).toBe("ok");
+    const mail = mocks.sendMail.mock.calls[0][0] as { subject: string; text: string };
+    // The email's label stays the requested window; the SC section inside
+    // it comes from the clamped snapshot.
+    expect(mail.subject).toBe(`Acme weekly report — ${start} to ${end}`);
+    expect(mail.text).toContain("Sessions: 100");
+    expect(mail.text).toContain("Clicks: 100");
   });
 
   it("falls back to org SUPER_ADMINs when no schedule exists", async () => {
@@ -189,17 +257,24 @@ describe("sendOrgReport (worker report builder)", () => {
     expect(mocks.scheduleUpdateMany).toHaveBeenCalledTimes(1);
   });
 
-  it("treats a throwing integration lookup or snapshot read as unavailable, not fatal", async () => {
+  it("treats a throwing batch lookup or snapshot read as unavailable, not fatal", async () => {
     mocks.websiteFindMany.mockResolvedValue([{ id: "w1" }, { id: "w2" }]);
-    mocks.getPrimaryIntegration.mockImplementation(async (websiteId: string, provider: string) => {
-      if (websiteId === "w1" && provider === "GA4") throw new Error("db blip");
-      if (provider === "GA4") return { externalId: "ga-2" };
-      return null;
+    // A-DB-11 batch equivalents of the old per-website failures: the
+    // GA4 primaries batch throws, and the snapshots batch throws, so
+    // every section reports its websites unavailable instead of failing
+    // the whole report.
+    mocks.getPrimaryIntegrations.mockImplementation(async (_websiteIds: string[], providers: string[]) => {
+      if (providers.includes("GA4")) throw new Error("db blip");
+      const out = new Map<string, Map<string, { externalId: string }>>();
+      for (const id of _websiteIds) {
+        const perSite = new Map<string, { externalId: string }>();
+        if (providers.includes("SEARCH_CONSOLE") && id === "w1") perSite.set("SEARCH_CONSOLE", { externalId: "sc-1" });
+        if (providers.includes("ADSENSE") && id === "w2") perSite.set("ADSENSE", { externalId: "ad-1" });
+        if (perSite.size > 0) out.set(id, perSite);
+      }
+      return out;
     });
-    mocks.readSnapshot.mockImplementation(async (key: string) => {
-      if (key.includes("ga-2")) throw new Error("snapshot store down");
-      return null;
-    });
+    mocks.readSnapshots.mockRejectedValue(new Error("snapshot store down"));
     const result = await sendOrgReport("org-1");
     expect(result.status).toBe("ok");
     const mail = mocks.sendMail.mock.calls[0][0] as { text: string };

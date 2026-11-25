@@ -82,25 +82,27 @@ engines (`~/.cache/prisma/c2990dca591cba766e3b7ef5d9e8a84796e47ab7/debian-openss
 
 ## 0.4 Baseline findings
 
-### A-BASE-01 (P3) — Unit suite fails locally on the default hook timeout; flaky on slow machines
+### A-BASE-01 (P3) — Unit suite fails locally on the default hook timeout; flaky on slow machines · FIXED 2026-11-24
 
 - **File:** `apps/web/tests/unit/rate-limit-failclosed.test.ts:23` (`beforeAll`, `vi.resetModules()` + dynamic `import("@metricflock/shared")`); `apps/web/vitest.config.ts` (no `hookTimeout` configured).
 - **Evidence:** `turbo run test` exit 1; `HookTimeoutError: Hook timed out in 10000ms` (log `/tmp/audit-turbo.log` lines 116–131). Same file passes in isolation in 7.41s and in CI. Full-suite import time 312.88s (217 evaluations) on the 1.5-CPU sandbox vs ~9s unit step in CI.
 - **Impact:** Developers on slow machines / constrained CI runners get a red suite for an environment reason; masks real failures and trains people to ignore test failures.
 - **Correction:** set an explicit `hookTimeout` (e.g. 30s) in `vitest.config.ts`, or avoid `resetModules` + barrel re-import in this test (import the rate-limit module path directly). Regression test: none needed — the test itself is the regression test; verify the suite passes twice in a row locally.
 - **Status:** CONFIRMED (environment-dependent flake, not a product defect).
+- **Verification 2026-11-24:** fixed — `hookTimeout: 30_000` set explicitly in `apps/web/vitest.config.ts` (`test` block; `resolve.alias` entries untouched, `rate-limit-failclosed.test.ts` not rewritten). The flake did NOT reproduce in revalidation: the baseline full-suite run passed (123 files, 1,349 tests, 144s) and the suite then passed twice in a row after the fix (same counts; coverage 95.96/90.77/90.51/97.69, gate green) — so the timeout is cheap-insurance hardening, not a refutation of the original 2026-11-23 failure.
 
 ### A-BASE-02 (P2) — Coverage gate measures a fraction of the codebase (see A-COV-01)
 
 Recorded here as a baseline-scope caveat: the 99.23% headline covers only
 files imported by unit tests. Details and severity in `09-TEST-COVERAGE-AND-QUALITY.md`.
 
-### A-BASE-03 (P3) — `turbo run build` warns `@metricflock/db#build` has no outputs
+### A-BASE-03 (P3) — `turbo run build` warns `@metricflock/db#build` has no outputs · FIXED 2026-11-24
 
 - **Evidence:** `turbo run typecheck test build` output: "WARNING no output files found for task @metricflock/db#build. Please check your `outputs` key in `turbo.json`".
 - **Impact:** cosmetic; `db#build` is `prisma generate` (writes into `node_modules/.prisma`), so the warning is expected but noisy; it can hide real cache misses.
 - **Correction:** declare the generated-client path in `turbo.json` outputs for the db build task (or silence by design with a comment).
 - **Status:** CONFIRMED (cosmetic).
+- **Verification 2026-11-24:** the finding's literal correction (declare the generated-client path) is not safely possible, so the "silence by design" alternative was taken. Verified empirically: Prisma 7.10.1 generates into the pnpm store at `../../node_modules/.pnpm/@prisma+client@7.10.1_<peer-dep hash>/node_modules/@prisma/client` — outside the package, and the hash segment changes with the dependency graph (two distinct `r_*` dirs already exist on disk), so no stable in-package path exists to declare. `turbo.json` now carries a package-scoped `"@metricflock/db#build": { "outputs": [] }` with a comment explaining why. Forced rebuild of the db task and a full `turbo run build` both run with no WARNING; a second full build is a full cache hit (2 cached / 2 total) with the generated client still on disk and `typecheck` (8/8) green afterwards, so the empty outputs list does not skip a generate the client needs. Full suite: 123 files, 1,349 tests, coverage 95.96/90.77/90.51/97.69, gate green.
 
 ## 0.5 Untested / dead-code notes
 

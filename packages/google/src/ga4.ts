@@ -55,18 +55,21 @@ export function parseReportRows(rows: RowLike[] | null | undefined, metrics: str
     return out;
   });
 }
-const REALTIME_BREAKDOWN_DIMENSIONS = [
+export const REALTIME_BREAKDOWN_DIMENSIONS = [
   "country",
   "city",
   "deviceCategory",
-  "browser",
-  "operatingSystem",
-  "unifiedPagePathScreen",
-  // NOTE: session-scoped dimensions (sessionDefaultChannelGroup etc.) are
-  // NOT valid in realtime reports — Google rejects the whole request with
-  // INVALID_ARGUMENT. "platform" (web/iOS/Android) is the realtime-safe
-  // traffic split.
+  // Realtime API schema
+  // (https://developers.google.com/analytics/devguides/reporting/data/v1/realtime-api-schema):
+  // only 15 dimensions are valid in realtime reports. `browser`,
+  // `operatingSystem` and `unifiedPagePathScreen` are core-reporting
+  // dimensions and the whole request fails with INVALID_ARGUMENT when
+  // requested here — live 2026-11-24 the worker's realtime job failed on
+  // `operatingSystem` ("Did you mean platform?"). `platform`
+  // (web/iOS/Android) is the realtime-safe traffic split and
+  // `unifiedScreenName` is the realtime page dimension.
   "platform",
+  "unifiedScreenName",
 ] as const;
 
 export async function runRealtimeReport(client: Ga4Client, propertyId: string) {
@@ -112,17 +115,35 @@ export async function runRealtimeReport(client: Ga4Client, propertyId: string) {
     byCountry: by(0),
     byCity: by(1),
     byDevice: by(2),
-    byBrowser: by(3),
-    byOperatingSystem: by(4),
-    byPage: by(5),
-    byPlatform: by(6),
+    byPlatform: by(3),
+    byPage: by(4),
     eventCount,
     rowCount: totals.rowCount ? Number(totals.rowCount) : (totals.rows ?? []).length,
     // GA4 realtime is a sampled near-real-time window, not an exact live-session census.
     reportingWindow: "Last 30 minutes (GA4 realtime, approximate)",
   };
 }
-export const GA4_CORE_METRICS = [
+/** A GA4 metric: a base metric name, or a derived metric defined by an
+ *  expression. `averageEngagementTime` is NOT a base metric in the Data
+ *  API v1 schema
+ *  (https://developers.google.com/analytics/devguides/reporting/data/v1/api-schema)
+ *  — there is no `averageEngagementTime`, `averageEngagementTimePerSession`
+ *  or `averageEngagementTimePerUser` in the metrics table, and live
+ *  2026-11-24 the worker's GA4 jobs failed with "Field
+ *  averageEngagementTime is not a valid metric". Google's own
+ *  predefined-reports queries define the `averageEngagementTime` column as
+ *  the metric expression `userEngagementDuration/activeUsers`
+ *  (https://developers.google.com/analytics/devguides/reporting/data/v1/predefined-reports),
+ *  so request it that way. The alias keeps the summary/row key
+ *  `averageEngagementTime` stable for the UI, portfolio aggregation and
+ *  snapshots. */
+export type Ga4Metric = string | { name: string; expression: string };
+export const ga4MetricName = (m: Ga4Metric): string => (typeof m === "string" ? m : m.name);
+export const AVERAGE_ENGAGEMENT_TIME: Ga4Metric = {
+  name: "averageEngagementTime",
+  expression: "userEngagementDuration/activeUsers",
+};
+export const GA4_CORE_METRICS: Ga4Metric[] = [
   "totalUsers",
   "activeUsers",
   "newUsers",
@@ -130,11 +151,14 @@ export const GA4_CORE_METRICS = [
   "screenPageViews",
   "engagedSessions",
   "engagementRate",
-  "averageEngagementTime",
-  "bounceRate",
+  AVERAGE_ENGAGEMENT_TIME,
   "eventCount",
   "keyEvents",
-  "sessionConversionRate",
+  // Exactly 10: the Data API caps a runReport request at 10 metrics (an
+  // 11th fails the whole call). `bounceRate` and `sessionConversionRate`
+  // are dropped here because portfolio-aggregate recomputes both from
+  // engagedSessions/sessions/keyEvents, and neither is in the UI's first-8
+  // summary cards.
 ];
 /** Summary from the provider's TOTAL aggregation row. A missing totals row
  *  yields null per metric — never 0, which would be indistinguishable from
@@ -194,8 +218,9 @@ export async function runHistoricalReport(
   startDate: string,
   endDate: string,
   dimensions: { name: string }[] = [{ name: "date" }],
-  metrics: string[] = GA4_CORE_METRICS,
+  metrics: Ga4Metric[] = GA4_CORE_METRICS,
 ) {
+  const metricNames = metrics.map(ga4MetricName);
   const res = await withGoogleTimeout(
     client.properties.runReport(
       {
@@ -203,7 +228,7 @@ export async function runHistoricalReport(
         requestBody: {
           dateRanges: [{ startDate, endDate }],
           dimensions,
-          metrics: metrics.map((name) => ({ name })),
+          metrics: metrics.map((m) => (typeof m === "string" ? { name: m } : m)),
           // DATA-8: ask the provider for the TOTAL aggregation so the summary
           // comes from GA4, not from summing (possibly truncated) detail rows.
           metricAggregations: ["TOTAL"],
@@ -215,13 +240,13 @@ export async function runHistoricalReport(
   );
   const data = res.data;
   const totals = (data.totals ?? [])[0] as RowLike | undefined;
-  const rows = parseReportRows((data.rows ?? []) as RowLike[], metrics);
+  const rows = parseReportRows((data.rows ?? []) as RowLike[], metricNames);
   const rowCount = data.rowCount ? Number(data.rowCount) : 0;
   return {
     propertyId,
     startDate,
     endDate,
-    summary: parseHistoricalSummary(totals, metrics),
+    summary: parseHistoricalSummary(totals, metricNames),
     rows,
     rowCount,
     // F-3.3: GA4 caps detail rows (10k default); flag when the returned
@@ -272,7 +297,7 @@ export async function runPagesReport(client: Ga4Client, propertyId: string, star
     startDate,
     endDate,
     [{ name: "pagePath" }, { name: "landingPage" }],
-    ["screenPageViews", "activeUsers", "engagedSessions", "averageEngagementTime"],
+    ["screenPageViews", "activeUsers", "engagedSessions", AVERAGE_ENGAGEMENT_TIME],
   );
 }
 export async function runEventsReport(client: Ga4Client, propertyId: string, startDate: string, endDate: string) {

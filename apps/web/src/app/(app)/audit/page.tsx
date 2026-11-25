@@ -10,7 +10,7 @@ export default async function AuditPage() {
     return (
       <Card className="p-6">
         <h1 className="text-lg font-bold">Permission denied</h1>
-        <p className="text-sm text-zinc-500">Audit logs are visible to Super Admins only.</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Audit logs are visible to Super Admins only.</p>
       </Card>
     );
   const logs = await prisma.auditLog.findMany({
@@ -28,7 +28,7 @@ export default async function AuditPage() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-zinc-500">
+              <tr className="text-left text-zinc-500 dark:text-zinc-400">
                 <th scope="col" className="py-2">
                   Time
                 </th>

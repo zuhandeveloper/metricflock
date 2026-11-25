@@ -101,7 +101,7 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-2">
         <div>
-          <label htmlFor="api-key-name" className="mb-1 block text-xs font-medium text-zinc-500">
+          <label htmlFor="api-key-name" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
             Key name (e.g. &quot;Reporting script&quot;)
           </label>
           <Input
@@ -112,7 +112,10 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
           />
         </div>
         <div>
-          <label htmlFor="api-key-expiry-days" className="mb-1 block text-xs font-medium text-zinc-500">
+          <label
+            htmlFor="api-key-expiry-days"
+            className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400"
+          >
             Expires in days (optional, max 365)
           </label>
           <Input
@@ -130,7 +133,9 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
         </Button>
       </div>
       <fieldset>
-        <legend className="mb-1 text-xs font-medium text-zinc-500">Scopes (all checked = full access)</legend>
+        <legend className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          Scopes (all checked = full access)
+        </legend>
         <div className="flex flex-wrap gap-3">
           {SCOPES.map((s) => (
             <label key={s.scope} className="flex items-center gap-1 text-sm">
@@ -147,16 +152,16 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
         </div>
       )}
       {error && (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
           {error}
         </p>
       )}
       {initial.length === 0 ? (
-        <p className="text-sm text-zinc-500">No API keys yet.</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">No API keys yet.</p>
       ) : (
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs text-zinc-500">
+            <tr className="text-left text-xs text-zinc-500 dark:text-zinc-400">
               <th scope="col" className="py-1 pr-2">
                 Name
               </th>

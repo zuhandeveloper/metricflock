@@ -148,7 +148,9 @@ BullMQ 6.7.7 (installed) semantics.
   the 2nd recipient: assert recipient #1 is mailed exactly once across the
   call, `lastSentAt` is set, and the result reports the failure.
 
-### A-WRK-04 — P2 — CONFIRMED — Scheduler lock TTL (55 s) is shorter than an unbounded tick; a slow tick lets a second instance double-schedule
+### A-WRK-04 — P2 — CONFIRMED — Scheduler lock TTL (55 s) is shorter than an unbounded tick; a slow tick lets a second instance double-schedule · FIXED 2026-11-24
+
+- **Verification 2026-11-24:** fixed in `apps/worker/src/scheduler.ts` — the tick now renews the lock while it runs (heartbeat every 20 s, atomic check-and-`PEXPIRE` Lua so a lock we no longer own is never extended), and a watchdog aborts the tick at the next phase boundary if it runs past 120 s (`scheduler.tick_timeout` counter). A lost lock aborts the tick instead of running alongside the instance that took it (`scheduler.lock_lost` counter); a failed renewal (Redis error) does not abort — an unreachable Redis cannot hand the lock to another instance either (`scheduler.lock_renew_failed` counter). Tick duration is recorded as the `scheduler.tick_duration_ms` sum counter plus a `tick completed` log line. The 55 s TTL is kept deliberately: a crashed worker stops renewing, so its lock still frees within ~55 s. `runTick` takes an optional `AbortSignal` and checks it at nine phase boundaries (after the website scan, after the last-success lookup, before/after the bulk enqueue, before the stale-job rule and each prune/sweep). The A-DB-05 shell-org sweep and the A-DB-10 `pruneInBatches` + stale-`RUNNING` rule in the same file are untouched (the batched prunes already cover that half of the finding's correction). Regression tests in `worker-scheduler.test.ts` (6 new: TTL-simulating fake Redis proves a second instance's `SET NX` fails at 60 s into a 70 s tick; lock-lost abort before enqueue; 120 s watchdog abort; failed renewal does not abort; duration recorded; a throwing scan still surfaces as `scheduler.tick_failed`; 5 fail without the fix — the scan-throw test pins the preserved error path).
 
 - **Where:** `apps/worker/src/scheduler.ts:17-19` (`LOCK_TTL_MS = 55_000`,
   `TICK_MS = 60_000`), `runTick()` (paged website scan, unscoped groupBy,
@@ -178,7 +180,9 @@ BullMQ 6.7.7 (installed) semantics.
   slow `runTick` asserting only one instance enqueues; plus a unit test
   that prune deletes are batched.
 
-### A-WRK-05 — P2 — CONFIRMED — Scheduler's last-success lookup is an unscoped full-table groupBy run every minute
+### A-WRK-05 — P2 — CONFIRMED — Scheduler's last-success lookup is an unscoped full-table groupBy run every minute · FIXED 2026-11-24
+
+- **Verification 2026-11-24:** fixed in `apps/worker/src/scheduler.ts` — the last-success groupBy is now scoped per website page: it runs inside the existing page-windowed website scan with `websiteId: { in: pageIds }` (at most 500 ids per call), served by the `@@index([websiteId, type, status, updatedAt])` index, instead of one unscoped groupBy over every SUCCEEDED row in 30 days on every tick. The 30-day window is unchanged. `planDueSyncs` only looks up `lastSucceededAt` for websites in the loaded list, so the due decision is identical — rows for other websites were never read. The groupBy is skipped entirely on ticks with no mapped websites (the old code issued the full-table aggregation even then). No materialised column was added (no schema change, no migration): the per-page IN-list query is the shape the benchmark script already measures as "last-sync groupBy (page ids)", so A-WRK-12's benchmark run can compare it directly against the old "scheduler: last-success groupBy (30d window)" — the benchmark measurement itself is still pending A-WRK-12 (needs a real DB, owner approval). The A-DB-05 shell-org sweep, A-DB-10 `pruneInBatches` + stale-`RUNNING` rule, and A-WRK-04 lock heartbeat/watchdog in the same file are untouched. Regression tests in new `scheduler-last-success-scope.test.ts` (4 new: groupBy scoped to the page's ids with the 30-day window and no unscoped call; same due set as the unscoped lookup on seeded fixtures, including an unrelated website's row having no effect; one scoped groupBy per page across pages; no groupBy at all with no mapped websites; all 4 fail without the fix).
 
 - **Where:** `apps/worker/src/scheduler.ts:84-93`.
 - **Evidence:** `prisma.analyticsSyncJob.groupBy({ by: ["websiteId","type"],
@@ -204,7 +208,9 @@ updatedAt: { gte: windowStart } }, _max: { updatedAt: true } })` — no
 - **Regression test:** benchmark run at 1k/10k (A-WRK-12) with a tick-time
   budget assertion.
 
-### A-WRK-06 — P2 — CONFIRMED — Weekly report has a 1-hour send window and no catch-up; a missed hour loses a whole week
+### A-WRK-06 — P2 — CONFIRMED — Weekly report has a 1-hour send window and no catch-up; a missed hour loses a whole week · FIXED 2026-11-24
+
+- **Verification 2026-11-24:** fixed with a new `getReportDueKind` in `packages/shared/src/report.ts` (`isReportDue` is now `getReportDueKind(...) !== null`, so all existing due/not-due tests still pass): a schedule whose last send is at least 7 days old is due as a "catch-up" on the next tick regardless of the configured weekday/hour, so a missed send hour no longer loses a whole week. A schedule that was never sent is NOT a catch-up (it waits for its first window instead of firing within a minute of being created), and when both apply — stale send, and right now is the configured window — the window wins, so an on-time send is never counted as a missed one. The scheduler (`apps/worker/src/scheduler.ts`, report section only) emits `scheduler.report_missed` plus a warning log when a catch-up fires. The one-send cap: the dayBucket jobId dedupes repeat ticks within the day, and the report job records `lastSentAt` once ≥ 1 recipient is mailed, so the schedule stops being due; a fully-failed job exhausts its BullMQ retries (5 attempts) within ~15 minutes, so at most one live catch-up job exists at a time. Residual: if a catch-up job somehow sat unprocessed across midnight (queue stalled for hours while the scheduler kept ticking), the next day's tick could enqueue a second job with the new dayBucket id and both could send — closing that needs a due-ness re-check inside `sendOrgReport`, flagged as a follow-up. The A-DB-05 sweep, A-DB-10 prune/stale rules, A-WRK-04 heartbeat/watchdog, and A-WRK-05 scoped groupBy in the same file are untouched. Regression tests in `report.test.ts` (5 new: catch-up outside the window, exact 7-day boundary, never-sent is not a catch-up, window precedence, disabled never due) and new `scheduler-report-catchup.test.ts` (3 tests: missed report enqueued + counter, never-sent not a catch-up, repeat ticks reuse the same dayBucket jobId; 4 of the 8 fail without the fix).
 
 - **Where:** `packages/shared/src/report.ts:79-91` (`isReportDue`),
   `apps/worker/src/scheduler.ts:156-166`.
@@ -228,7 +234,7 @@ updatedAt: { gte: windowStart } }, _max: { updatedAt: true } })` — no
   `lastSentAt` outside the configured hour; scheduler test asserting a
   missed report is enqueued on the next tick.
 
-### A-WRK-07 — P2 — CONFIRMED — `cache-refresh` and `ga4-historical` have no per-provider / per-report isolation; one failure aborts the rest and retries redo finished work
+### A-WRK-07 — P2 — CONFIRMED — `cache-refresh` and `ga4-historical` have no per-provider / per-report isolation; one failure aborts the rest and retries redo finished work · FIXED 2026-11-24
 
 - **Where:** `packages/google/src/sync.ts:263-279` (`cache-refresh` loop),
   `sync.ts:196-214` (`syncOneProvider` report loop).
@@ -252,8 +258,9 @@ updatedAt: { gte: windowStart } }, _max: { updatedAt: true } })` — no
 - **Regression test:** sync-engine test with a failing 2nd provider
   asserting later providers still run and the result reports partial
   failure.
+- **Verification 2026-11-24:** revalidation first — the `cache-refresh` half was already covered by A-GGL-12 (per-provider try/catch in `syncWebsite`, aggregate `partial` when some warmed, throw when nothing warmed), so no change was made there except surfacing a provider-level `partial` in the aggregate detail. The remaining gap was the report loop inside `syncOneProvider` (`packages/google/src/sync.ts`): one try/catch around all 5 `ga4-historical` reports, so a failure on report 3 aborted reports 4–5, failed the whole job, and the BullMQ retry refetched all 5. The loop is now per-report: a failed report records error health (best-effort, so a failing health write cannot abort the remaining reports) and the loop continues; when at least one report warmed, the result is `partial` with the failed reports in `detail` (the job SUCCEEDS, so no retry refetches the warmed reports); only when every report failed, or the failure is rate-limit/quota shaped, does the sync throw — a quota error (`quota`/`rateLimitExceeded`/`RESOURCE_EXHAUSTED` message, gRPC code 8, or HTTP 429, mirroring the web layer's `classifyAnalyticsError` plus the 429 status googleapis carries) aborts the loop immediately, because the API is telling us to back off, not to burn more quota on the remaining reports. Single-report kinds are behavior-identical (their one failure is an all-failed throw). On a partial result the error health stands (no `ok` record overwrites it). A-GGL-04 (`SCOPE_MISSING` → skipped), A-DB-12 (`LEGACY_CONNECTION_MISSING` → terminal `no_mapping`), A-GGL-07 (SC clamp), A-GGL-11 (health-check `partial`), A-GGL-12 (cache-refresh partial/throw split), and A-GGL-13 (discovery isolation) in the same file are untouched. Regression tests in new `sync-per-report-isolation.test.ts` (6 tests: failing 2nd report → later reports still run, `partial` with the failed report in `detail`; all reports failing → throws the first error; quota-shaped failure mid-loop aborts and throws with only the earlier reports cached; 429-coded error is quota-shaped; `cache-refresh` surfaces a provider `partial` in the aggregate detail; single-report kind failing still throws — 5 of the 8 new/updated tests fail without the fix; the quota and single-report tests pin preserved behavior and pass against the old code too). Two existing tests in `google-sync-extra.test.ts` were updated to the new contract (mid-loop failure, non-Error thrown mid-fetch). Note: the `throwGa4` helper in `sync-cache-refresh.test.ts` (an A-GGL-12 file) was updated so all five GA4 report fns throw — under per-report isolation, failing only the overview report no longer models "GA4 is down" (the other four would still warm and return `partial`), so the two "nothing warmed + a throw" tests in that file now fail all five reports to keep their original intent and assertions; no test assertion in that file was changed.
 
-### A-WRK-08 — P2 — CONFIRMED — `healthCheckWebsite` early-returns on the first provider failure, so remaining providers go unchecked
+### A-WRK-08 — P2 — CONFIRMED — `healthCheckWebsite` early-returns on the first provider failure, so remaining providers go unchecked · FIXED 2026-11-24
 
 - **Where:** `packages/google/src/sync.ts:282-316`.
 - **Evidence:** the provider loop returns immediately on
@@ -275,7 +282,35 @@ updatedAt: { gte: windowStart } }, _max: { updatedAt: true } })` — no
 - **Regression test:** health-check test with GA4 revoked + AdSense healthy
   asserting both providers get a health row.
 
-### A-WRK-09 — P2 — CONFIRMED — Scheduler syncs websites of any status, including ARCHIVED / SOLD / TRANSFER_PENDING
+  _Verification (2026-11-24): fixed in `packages/google/src/sync.ts`
+  (`healthCheckWebsite` only). The CONNECTION_REQUIRED half was already
+  covered by A-GGL-11; the remaining gap was the token-error early-return
+  (`skipped` on the first token error) and the generic-error `throw`, both
+  of which aborted the check. Per-provider failures are now collected and
+  the loop always continues: a token error records error/`needs_reauth`
+  health, a generic error records error health and is remembered. The
+  aggregate is `partial` (reports: checked, detail lists every failure)
+  when some providers checked ok, `skipped` when nothing checked ok and
+  every failure is a permanent auth failure, `not_connected` when none is
+  connected, and `no_mapping` when nothing is mapped; only when no
+  provider could be checked at all because of a generic error does the
+  check throw (BullMQ retries). `partial`, not the finding's literal
+  `ok` with a detail, so the worker keeps the failure in the job row's
+  `lastError` instead of nulling it (A-GGL-11/A-WRK-07 precedent). The
+  LEGACY branch is deliberately untracked in the aggregate (A-DB-12's
+  `no_mapping` contract: a legacy mapping is "unmappable", not a
+  provider failure). Regression tests in new
+  `health-check-isolation.test.ts` (7 tests) + 2 updated tests in
+  `google-sync-extra.test.ts` and 1 updated test in `sync-engine.test.ts`
+  (the SCOPE_MISSING detail now lists every failed provider, and its
+  health assertion covers all three providers); 9 of the 10 new/updated
+  tests fail against the old code (the legacy test pins the preserved
+  A-DB-12 contract). A-GGL-04/A-DB-12/A-GGL-07/A-GGL-11/A-GGL-12/A-GGL-13/
+  A-WRK-07 in the same file verified intact._
+
+### A-WRK-09 — P2 — CONFIRMED — Scheduler syncs websites of any status, including ARCHIVED / SOLD / TRANSFER_PENDING · FIXED 2026-11-24
+
+- **Verification:** the scan in `apps/worker/src/scheduler.ts` now filters `status: { in: ["ACTIVE", "PENDING_SETUP"] }` alongside the MAPPED-integration filter; no status is threaded through `planDueSyncs` (it only ever sees the filtered page). DISCONNECTED is excluded deliberately: its connection is gone, so every sync would only re-record `not_connected` health; reactivation is a manual status flip in the website actions UI (the map route only auto-flips PENDING_SETUP → ACTIVE and leaves manually set states alone). TRANSFER_PENDING is excluded (mid-transfer; A-DB-04 freezes team/status changes for the open-transfer window); SOLD/ARCHIVED are retired. Mappings are NOT unmapped or auto-paused — they stay intact so a site can be reactivated by a status flip without re-discovery. Regression tests in new `scheduler-status-filter.test.ts` (8 tests; 6 fail without the fix — the ACTIVE/PENDING_SETUP "gets jobs" tests pin preserved behavior). The faithful `website.findMany` mock applies the scan's `where` to the fixtures the way Postgres would. Benchmark note: the A-WRK-12 evidence below still says the benchmark's scan filters `status: "ACTIVE"` — that is now only a PENDING_SETUP-wide divergence from production, not a missing filter.
 
 - **Where:** `apps/worker/src/scheduler.ts:58-66`.
 - **Evidence:** the website scan filters only on
@@ -298,8 +333,9 @@ DISCONNECTED, TRANSFER_PENDING, SOLD, ARCHIVED`
   fixture asserting no jobs are planned for it (requires threading status
   through `planDueSyncs` or the scan query).
 
-### A-WRK-10 — P2 — CONFIRMED — Weekly report (and portfolio totals) silently truncate at 200 websites
+### A-WRK-10 — P2 — CONFIRMED — Weekly report (and portfolio totals) silently truncate at 200 websites · FIXED 2026-11-24
 
+- **Verification (2026-11-24):** fixed by paginating instead of capping. `sendOrgReport` (`apps/worker/src/report.ts`) now pages `website.findMany` in pages of 200 (createdAt asc, `skip`/`take`) and, per page per section, reads primaries + snapshots through the A-DB-11 batch helpers (`getPrimaryIntegrations` + `readSnapshots`) — the old code did 2N per-website round-trips per section on top of the cap. `loadPortfolio` (`apps/web/src/lib/portfolio.ts`) pages the website list the same way (200 per page, one batched primaries + one batched snapshots call per page); with no explicit `limit` the totals cover every website and `truncated` is false. An explicit `limit` keeps the old capped behavior (one page, totals over that page, `truncated` when the cap bites) — no caller passes one today. The A-GGL-07 SC clamp is preserved in both files (report's SC section still reads the clamped key; portfolio still builds SC keys from the clamped range), as are the A-DB-11 batch semantics (failed batch → affected websites unavailable, never fatal) and the A-WRK-03 per-recipient isolation + `lastSentAt` rule in the worker. The dashboard needs no change: `pfGa4.websites.length` is now the true included count, and the top-10-by-sessions table is now computed across the whole org instead of the first 200. Query counts for a 500-site org: worker report 3 findMany pages + 18 batch calls (3 sections × 3 pages × 2) instead of 1 findMany + ~3,000 per-website calls; `loadPortfolio` 1 count + 3 findMany + 3 primaries + 3 snapshots = 10 Prisma-issuing calls (was 4 with the cap); ≤200-site orgs are unchanged at 4 calls, so the A-DB-11 `loaders-query-count` assertions still pass. Regression tests in new `report-truncation.test.ts` (2 tests: 250-site fixtures for the worker report — "Sessions: 2,500", 2 pages — and for `loadPortfolio` — 250,000 sessions, 250 entries, `truncated: false`; both fail against the old cap). Residual (same bug class, different loader, not in this finding's Where list): `loadInsights` (`apps/web/src/lib/insights.ts`) still caps its summary totals at the first 200 websites (`PORTFOLIO_WEBSITES`) — follow-up.
 - **Where:** `apps/worker/src/report.ts:36-41` (`take: 200`),
   `apps/web/src/lib/portfolio.ts:51,61` (default `limit = 200`).
 - **Evidence:** `sendOrgReport` loads `take: 200` websites ordered by
@@ -320,7 +356,9 @@ DISCONNECTED, TRANSFER_PENDING, SOLD, ARCHIVED`
 - **Regression test:** report test with a >200-website fixture asserting
   totals include all sites (or the truncation note appears).
 
-### A-WRK-11 — P2 — CONFIRMED — No crash handlers, no shutdown timeout, in-flight tick not awaited
+### A-WRK-11 — P2 — CONFIRMED — No crash handlers, no shutdown timeout, in-flight tick not awaited · FIXED 2026-11-24
+
+- **Verification (2026-11-24):** fixed in `apps/worker/src/index.ts` + `apps/worker/src/scheduler.ts`. `uncaughtException`/`unhandledRejection` handlers are registered at startup (exported as `handleUncaughtException`/`handleUnhandledRejection` so tests can invoke them directly); each logs the error and exits 1 so the host restarts cleanly instead of crashing silently with only Node's default output. `startScheduler` now tracks the in-flight tick and `stop()` is async — it clears the interval and awaits the tick, so a running tick cannot keep enqueueing while the workers close. Shutdown awaits `scheduler.stop()`, then awaits the health-server close, then bounds the worker drain: `Worker.close()` waits for in-flight jobs, and after `SHUTDOWN_TIMEOUT_MS` the workers are force-closed with `close(true)` instead of being SIGKILLed mid-job; `prisma.$disconnect()` is awaited and the (synchronous) ioredis `disconnect()` runs before `process.exit(0)`. The timeout default is 8 s (`WORKER_SHUTDOWN_TIMEOUT_MS` env override) — the finding's suggested 25 s would be SIGKILLed before it ever fired: Docker `stop` defaults to 10 s, and Railway's `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` defaults to 0 (Railway docs, Deployment Teardown), so on Railway the owner must set the draining seconds in the service settings for graceful shutdown to have any window at all; 8 s leaves 2 s headroom inside Docker's 10 s default and fits inside a 30 s Railway draining window. Regression tests in new `worker-shutdown.test.ts` (4 tests: crash handlers log + exit 1; slow in-flight job exits within the timeout — 368 ms observed with a 200 ms test timeout — and force-closes; stop() awaited before any worker closes) + new `worker-scheduler-stop.test.ts` (2 tests: stop() pending while a tick is in flight, resolves when it finishes; resolves immediately with no tick running); all 6 fail against the old code. The existing `worker-index.test.ts` fast-path shutdown test (26 tests) and `worker-scheduler.test.ts` (26 tests) pass unedited.
 
 - **Where:** `apps/worker/src/index.ts:335-351` (shutdown),
   `apps/worker/src/index.ts:1-40` (no `unhandledRejection` /
@@ -351,7 +389,7 @@ DISCONNECTED, TRANSFER_PENDING, SOLD, ARCHIVED`
   the process exits within the timeout; a test asserting a rejected
   promise in a processor is logged (not silent).
 
-### A-WRK-12 — P2 — CONFIRMED — Scale-benchmark DB timings were never run, and the script does not measure the production queries
+### A-WRK-12 — P2 — CONFIRMED — Scale-benchmark DB timings were never run, and the script does not measure the production queries · FIXED 2026-11-24 (script aligned; first real-DB run still pending owner approval)
 
 - **Where:** `docs/audit/BENCHMARKS.md` ("Results — Not yet run against a
   real database — sandbox has no Postgres. First run pending"),
@@ -364,7 +402,9 @@ DISCONNECTED, TRANSFER_PENDING, SOLD, ARCHIVED`
     production latency.
   - The script itself has real methodology gaps vs production:
     1. Its "scheduler: website page scan" filters `status: "ACTIVE"`; the
-       production tick filters only on mapped integrations (A-WRK-09).
+       production tick filters `status: { in: ["ACTIVE", "PENDING_SETUP"] }`
+       alongside the mapped-integration filter (A-WRK-09, fixed 2026-11-24)
+       — the remaining divergence is PENDING_SETUP sites only.
     2. It seeds **only GA4** integrations, one team, no FAILED/RETRYING
        rows, no audit-log or analytics-cache rows — so the prune deletes
        and the DLQ queries are unmeasured.
@@ -386,6 +426,30 @@ DISCONNECTED, TRANSFER_PENDING, SOLD, ARCHIVED`
   minute at 1k sites).
 - **Regression test:** N/A (benchmark); gate the v2.0.0 scale claim on a
   recorded run.
+- **Verification (2026-11-24):** the script + doc gaps are fixed; the
+  run itself is still outstanding. `benchmark-scale.ts` now matches
+  production exactly (A-WRK-09 page scan with `status: { in: ["ACTIVE",
+"PENDING_SETUP"] }` + MAPPED-integration filter; A-WRK-05 per-page
+  scoped last-success groupBy, 500 ids — the old unscoped variant is
+  removed), seeds FAILED/RETRYING sync-job rows, audit-log rows (2 per
+  website, first 1000 sites) and one analytics-cache snapshot per
+  website, measures the DLQ FAILED count + page, the audit-log count +
+  page, a 200-key cache read, the retention prune (A-DB-10 shape) and
+  the stale-RUNNING rule, and times seed + cleanup (the audit rows are
+  deleted before the org delete because `AuditLog.organization` is
+  `onDelete: Restrict`). A new companion script,
+  `apps/worker/scripts/bench-throughput.ts`, measures enqueue +
+  drain throughput for the real `planDueSyncs` plan at 1k sites on a
+  scratch queue with a no-op worker (production concurrency 5, no
+  limiter — the drain rate is the BullMQ/Redis ceiling, not the
+  rate-limited production rate, and Google API latency is excluded).
+  `BENCHMARKS.md` now states plainly that the "345×" table is a JS
+  in-memory micro-benchmark of a dashboard shape that no longer
+  exists and must not be cited as scale evidence, and the
+  "no uncontrolled fan-out" verdict is withdrawn to "not measured
+  yet". **First real-DB run at 100/1k/10k still pending Gulzaib's
+  explicit staging-DB approval** (owner-flagged); no benchmark was
+  run against any database for this fix.
 
 ### A-WRK-13 — P3 — CONFIRMED — Backoff off-by-one: first retry is 60–120 s, and the 1 h cap is unreachable with 5 attempts
 

@@ -12,7 +12,7 @@ Prerequisites:
   user added (see `docs/google-cloud-setup.md`).
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`,
   `GOOGLE_TOKEN_ENCRYPTION_KEY`, `DATABASE_URL`, `REDIS_URL` set in `.env`.
-- A Postgres + Redis instance running (`docker compose up -d`).
+- A Postgres + Redis instance running (`POSTGRES_PASSWORD=<password from your DATABASE_URL> docker compose up -d`).
 
 Steps:
 

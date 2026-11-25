@@ -19,6 +19,7 @@ import {
   resolveConnectionForWebsite,
 } from "@metricflock/google/client";
 import { getGa4Client } from "@metricflock/google/ga4";
+import { clampSearchConsoleRange } from "@metricflock/google/search-console";
 import { lastSuccessfulSync } from "@metricflock/db/health";
 import { readSnapshot, writeSnapshot } from "@metricflock/db/snapshots";
 import { SYNC_TYPE_BY_REPORT, snapshotTtlSeconds } from "@metricflock/jobs";
@@ -104,7 +105,14 @@ async function handleAnalyticsRequestInner(req: NextRequest, opts: AnalyticsRequ
   const parsed = analyticsQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams.entries()));
   if (!parsed.success) return apiError("invalid_input", 400, parsed.error.issues, requestId);
   const { websiteId, range, startDate, endDate, format } = parsed.data;
-  const { startDate: sd, endDate: ed } = resolveRange(range, startDate, endDate);
+  let { startDate: sd, endDate: ed } = resolveRange(range, startDate, endDate);
+  // A-GGL-07: Search Console data lags 2-3 days — clamp the range
+  // before the cache key, the fetch and the envelope, so a requested
+  // 28d never silently covers ~25 days of real data and the envelope
+  // reports the effective range. GA4/AdSense/Ad Manager are untouched.
+  if (opts.provider === "SEARCH_CONSOLE") {
+    ({ startDate: sd, endDate: ed } = clampSearchConsoleRange(sd, ed));
+  }
   if (!websiteId) {
     // Org-wide aggregate (Phase 7.1, DATA-6): totals are computed from
     // per-website DB snapshots — no live Google fan-out, no invented
@@ -154,9 +162,24 @@ async function handleAnalyticsRequestInner(req: NextRequest, opts: AnalyticsRequ
   } catch (e) {
     const m = e instanceof Error ? e.message : "";
     if (m === "CONNECTION_REQUIRED") return notConnectedEnvelope(websiteId);
-    // API-9: raw provider text stays server-side; the client gets the stable code.
+    // A-DB-12: a MAPPED integration with no connection is unmappable —
+    // never fetch it under another connection's credentials. The
+    // mapping is still there (externalId preserved); the user re-maps it.
+    if (m === "LEGACY_CONNECTION_MISSING")
+      return missingDataEnvelope(
+        websiteId,
+        "This property mapping has no Google connection. Re-map the property to fetch data.",
+      );
+    // A-GGL-15: route through the same classification as the fetch catch
+    // so one state has one contract — a scope-deficient connection yields
+    // `scope_missing` here just as it does from the fetch path, and the UI
+    // can prompt re-connect. Statuses match the fetch catch exactly:
+    // 429 only for quota, 502 otherwise.
+    const code = classifyAnalyticsError(e);
+    const quota = code === "google_quota_exceeded";
     createLogger("analytics").error("authorized client failed", { requestId, websiteId, error: m });
-    return apiError("connection_error", 502, undefined, requestId);
+    incr(quota ? "provider.quota_error" : "provider.error");
+    return apiError(code, quota ? 429 : 502, undefined, requestId);
   }
   const cacheKey = buildCacheKey({
     organizationId: auth.user.organizationId,

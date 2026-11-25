@@ -108,12 +108,18 @@ describe("DELETE /api/members/[id]", () => {
     expect(mocks.txDelete).toHaveBeenCalledWith({ where: { id: "u2" } });
   });
 
-  it("still returns 200 when the audit write fails (audit must not mask a committed delete)", async () => {
+  it("audit failure inside the transaction rolls the delete back (500, not a silent 200)", async () => {
     mocks.userFindFirst.mockResolvedValue({ id: "u2", role: "TEAM_MEMBER", email: "m@example.com" });
     mocks.txDelete.mockResolvedValue({ id: "u2" });
     mocks.writeAudit.mockRejectedValue(new Error("audit down"));
     const res = await DELETE(req("DELETE"), ctx);
-    expect(res.status).toBe(200);
+    // A-DB-09: the audit row is written inside the delete transaction,
+    // so its failure rolls the delete back — the API reports a truthful
+    // 500 for a delete that did not commit, instead of a 200 whose
+    // audit record was silently lost.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ error: "internal_error" });
+    expect(mocks.writeAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "member.deleted" }), tx);
   });
 });
 
@@ -147,6 +153,21 @@ describe("PATCH /api/members/[id] (demote)", () => {
     expect(mocks.txUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "u2" }, data: { role: "TEAM_MEMBER" } }),
     );
+    expect(mocks.writeAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "member.role_changed" }), tx);
+  });
+
+  it("audit failure inside the demote transaction fails the demote (500, nothing committed)", async () => {
+    mocks.userFindFirst.mockResolvedValue({ id: "u2", role: "SUPER_ADMIN", email: "a@example.com" });
+    mocks.txCount.mockResolvedValue(2);
+    mocks.txUpdate.mockResolvedValue({ id: "u2", email: "a@example.com", role: "TEAM_MEMBER" });
+    mocks.writeAudit.mockRejectedValue(new Error("audit down"));
+    const res = await PATCH(req("PATCH", { role: "TEAM_MEMBER" }), ctx);
+    // A-DB-09: the audit row is written inside the demote transaction,
+    // so its failure rolls the demote back — a truthful 500, not a 200
+    // with a lost audit record.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ error: "internal_error" });
+    expect(mocks.writeAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "member.role_changed" }), tx);
   });
 
   it("promotes a non-admin without the transaction (no last-admin risk)", async () => {

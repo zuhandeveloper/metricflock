@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   inviteDeleteMany: vi.fn(),
   orgFindUnique: vi.fn(),
   orgDelete: vi.fn(),
+  orgAuditExportFindFirst: vi.fn(),
   orgGoogleConnections: vi.fn(),
   orgTxAuditDeleteMany: vi.fn(),
   orgTxOrgDelete: vi.fn(),
@@ -52,6 +53,7 @@ const mocks = vi.hoisted(() => ({
   getQueue: vi.fn(),
   counterSnapshot: vi.fn(),
   revokeConnection: vi.fn(),
+  revokeConnectionToken: vi.fn(),
   tx: vi.fn(),
   txQueryRaw: vi.fn(),
   txUserCount: vi.fn(),
@@ -79,6 +81,7 @@ vi.mock("@metricflock/db", () => ({
       deleteMany: mocks.inviteDeleteMany,
     },
     organization: { findUnique: mocks.orgFindUnique, delete: mocks.orgDelete },
+    auditLog: { findFirst: mocks.orgAuditExportFindFirst },
     reportSchedule: { findUnique: mocks.scheduleFindUnique, upsert: mocks.scheduleUpsert },
     analyticsSyncJob: {
       create: mocks.syncJobCreate,
@@ -116,7 +119,10 @@ vi.mock("@metricflock/jobs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@metricflock/jobs")>();
   return { ...actual, enqueue: mocks.enqueue, getQueue: mocks.getQueue };
 });
-vi.mock("@metricflock/google/tokens", () => ({ revokeConnection: mocks.revokeConnection }));
+vi.mock("@metricflock/google/tokens", () => ({
+  revokeConnection: mocks.revokeConnection,
+  revokeConnectionToken: mocks.revokeConnectionToken,
+}));
 
 import { POST as invitePost } from "@/app/api/members/invite/route";
 import { PATCH as memberPatch, DELETE as memberDelete } from "@/app/api/members/[id]/route";
@@ -146,6 +152,7 @@ beforeEach(() => {
   mocks.rateLimit.mockResolvedValue({ allowed: true, remaining: 9 });
   mocks.sendMail.mockResolvedValue(undefined);
   mocks.revokeConnection.mockResolvedValue(undefined);
+  mocks.revokeConnectionToken.mockResolvedValue(true);
   mocks.counterSnapshot.mockReturnValue({});
   mocks.tx.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
     cb({
@@ -158,6 +165,9 @@ beforeEach(() => {
   mocks.txQueryRaw.mockResolvedValue([]);
   mocks.orgTxAuditDeleteMany.mockResolvedValue({ count: 0 });
   mocks.orgTxOrgDelete.mockResolvedValue({ id: "org1" });
+  // A-SEC-19: a completed export exists by default, so the org-delete
+  // export gate passes.
+  mocks.orgAuditExportFindFirst.mockResolvedValue({ id: "audit-export-1" });
 });
 
 describe("POST /api/members/invite", () => {
@@ -330,6 +340,8 @@ describe("DELETE /api/members/[id]", () => {
     expect(await res.json()).toEqual({ deleted: true });
     expect(mocks.writeAudit).toHaveBeenCalledWith(
       expect.objectContaining({ action: "member.deleted", entityId: "u2" }),
+      // A-DB-09: the audit row is written inside the delete transaction.
+      expect.anything(),
     );
   });
 });
@@ -376,27 +388,58 @@ describe("PUT /api/reports/schedule", () => {
   it("unauthenticated → 401; bad day/hour → 400; too many recipients → 400", async () => {
     mocks.requireApiAuth.mockResolvedValueOnce(unauth());
     expect((await schedulePut(jsonReq(url, "PUT", valid))).status).toBe(401);
-    for (const dayOfWeek of [7, -1, "x"]) {
+    for (const dayOfWeek of [7, -1, "x", "2"]) {
       const res = await schedulePut(jsonReq(url, "PUT", { ...valid, dayOfWeek }));
       expect(res.status).toBe(400);
       expect(await res.json()).toMatchObject({ error: "invalid_day_of_week" });
     }
-    for (const hourUtc of [24, -1]) {
+    for (const hourUtc of [24, -1, "8"]) {
       const res = await schedulePut(jsonReq(url, "PUT", { ...valid, hourUtc }));
       expect(res.status).toBe(400);
       expect(await res.json()).toMatchObject({ error: "invalid_hour" });
     }
+    // A-API-07: strict types — no coercion of enabled/dayOfWeek/hourUtc.
+    const badEnabled = await schedulePut(jsonReq(url, "PUT", { ...valid, enabled: "yes" }));
+    expect(badEnabled.status).toBe(400);
+    expect(await badEnabled.json()).toMatchObject({ error: "invalid_input" });
     const many = Array.from({ length: 21 }, (_, i) => `u${i}@example.com`);
     const res = await schedulePut(jsonReq(url, "PUT", { ...valid, recipients: many }));
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: "too_many_recipients" });
   });
-  it("recipients are trimmed, deduped and invalid entries dropped; valid → 200 + audit", async () => {
+  it("invalid recipient → 400 invalid_recipients listing it; nothing saved (A-API-07)", async () => {
+    const res = await schedulePut(jsonReq(url, "PUT", { ...valid, recipients: ["a@example.com", "bad", "also-bad@"] }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toMatchObject({ error: "invalid_recipients" });
+    expect(body.details.invalidRecipients).toEqual(["bad", "also-bad@"]);
+    expect(mocks.scheduleUpsert).not.toHaveBeenCalled();
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
+  });
+  it("non-string recipient entries → 400 invalid_recipients (A-API-07)", async () => {
+    const res = await schedulePut(jsonReq(url, "PUT", { ...valid, recipients: ["a@example.com", 7, null] }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toMatchObject({ error: "invalid_recipients" });
+    expect(body.details.invalidRecipients).toEqual([7, null]);
+    expect(mocks.scheduleUpsert).not.toHaveBeenCalled();
+  });
+  it("25 submitted with 5 invalid → 400: the ≤20 limit is on the submitted list (A-API-07)", async () => {
+    const recipients = Array.from({ length: 20 }, (_, i) => `u${i}@example.com`).concat([
+      "bad1",
+      "bad2",
+      "bad3",
+      "bad4",
+      "bad5",
+    ]);
+    const res = await schedulePut(jsonReq(url, "PUT", { ...valid, recipients }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "too_many_recipients" });
+    expect(mocks.scheduleUpsert).not.toHaveBeenCalled();
+  });
+  it("valid recipients are trimmed and deduped; valid → 200 + audit", async () => {
     const res = await schedulePut(
-      jsonReq(url, "PUT", {
-        ...valid,
-        recipients: [" a@example.com ", "bad", "a@example.com", "b@example.com", 7, null],
-      }),
+      jsonReq(url, "PUT", { ...valid, recipients: [" a@example.com ", "a@example.com", "b@example.com"] }),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -427,7 +470,12 @@ describe("POST /api/sync", () => {
       id: "job-row-1",
       ...data,
     }));
+    // Reset (not just clear): mockResolvedValue set in one test would
+    // otherwise leak into the next — clearAllMocks only clears calls.
+    mocks.enqueue.mockReset();
     mocks.enqueue.mockResolvedValue({ id: "ga4-historical-sync:w1:1" });
+    mocks.syncJobFindFirst.mockReset();
+    mocks.syncJobUpdate.mockReset();
   });
   it("unauthenticated → 401; forbidden role → 403; invalid input → 400", async () => {
     mocks.getSessionUser.mockResolvedValueOnce(null);
@@ -466,6 +514,114 @@ describe("POST /api/sync", () => {
       expect.objectContaining({ where: { id: "job-row-1" }, data: expect.objectContaining({ status: "FAILED" }) }),
     );
   });
+  it("second POST in the same hour → 200 already_queued, exactly one queue entry", async () => {
+    const first = await syncPost(jsonReq(url, "POST", body));
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ status: "ok", queued: true });
+    mocks.syncJobFindFirst.mockResolvedValue({ id: "job-row-1", status: "PENDING" });
+    const second = await syncPost(jsonReq(url, "POST", body));
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual({ status: "already_queued", queued: true, syncJobId: "job-row-1" });
+    expect(mocks.enqueue).toHaveBeenCalledTimes(1);
+    expect(mocks.syncJobCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.writeAudit).toHaveBeenCalledTimes(1);
+  });
+  it("RUNNING row → already_queued; SUCCEEDED row → already_completed; no new enqueue", async () => {
+    mocks.syncJobFindFirst.mockResolvedValue({ id: "job-row-1", status: "RUNNING" });
+    const running = await syncPost(jsonReq(url, "POST", body));
+    expect(running.status).toBe(200);
+    expect(await running.json()).toEqual({ status: "already_queued", queued: true, syncJobId: "job-row-1" });
+    mocks.syncJobFindFirst.mockResolvedValue({ id: "job-row-1", status: "SUCCEEDED" });
+    const done = await syncPost(jsonReq(url, "POST", body));
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual({ status: "already_completed", queued: false, syncJobId: "job-row-1" });
+    expect(mocks.enqueue).not.toHaveBeenCalled();
+    expect(mocks.syncJobCreate).not.toHaveBeenCalled();
+  });
+  it("retry after a FAILED sync in the same hour succeeds (same row, fresh jobId)", async () => {
+    mocks.enqueue.mockResolvedValueOnce(null);
+    mocks.syncJobUpdate.mockResolvedValue({});
+    const down = await syncPost(jsonReq(url, "POST", body));
+    expect(down.status).toBe(503);
+    mocks.syncJobFindFirst.mockResolvedValue({ id: "job-row-1", status: "FAILED" });
+    mocks.enqueue.mockResolvedValue({ id: "retry:job-row-1:123" });
+    const retried = await syncPost(jsonReq(url, "POST", body));
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toEqual({ status: "ok", queued: true });
+    expect(mocks.syncJobCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.enqueue).toHaveBeenCalledWith(
+      "ga4-historical-sync",
+      expect.objectContaining({ websiteId: "w1", syncJobRowId: "job-row-1" }),
+      // The passed jobId is `retry:<rowId>:<Date.now()>`; "retry:job-row-1:123"
+      // is the mocked *returned* job id, which lands on externalId below.
+      expect.objectContaining({ jobId: expect.stringMatching(/^retry:job-row-1:\d+$/), priority: 1 }),
+    );
+    expect(mocks.syncJobUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "job-row-1" },
+        data: expect.objectContaining({ status: "PENDING", externalId: "retry:job-row-1:123", lastError: null }),
+      }),
+    );
+    expect(mocks.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "sync.triggered",
+        details: expect.objectContaining({ retried: true }),
+      }),
+    );
+  });
+  it("retry with Redis still down → 503 and the row stays FAILED", async () => {
+    mocks.syncJobFindFirst.mockResolvedValue({ id: "job-row-1", status: "FAILED" });
+    mocks.enqueue.mockResolvedValue(null);
+    mocks.syncJobUpdate.mockResolvedValue({});
+    const res = await syncPost(jsonReq(url, "POST", body));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: "queue_unavailable" });
+    expect(mocks.syncJobUpdate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "PENDING" }) }),
+    );
+  });
+  it("TEAM_MEMBER trigger → 403 (website.manage required)", async () => {
+    mocks.getSessionUser.mockResolvedValueOnce({ ...admin, role: "TEAM_MEMBER" });
+    const res = await syncPost(jsonReq(url, "POST", body));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: "forbidden" });
+    expect(mocks.syncJobCreate).not.toHaveBeenCalled();
+    expect(mocks.enqueue).not.toHaveBeenCalled();
+  });
+  it("concurrent duplicate (P2002 race) → 200 already_queued", async () => {
+    mocks.syncJobFindFirst.mockResolvedValueOnce(null);
+    mocks.syncJobFindFirst.mockResolvedValue({ id: "job-row-1", status: "PENDING" });
+    mocks.syncJobCreate.mockRejectedValueOnce({ code: "P2002" });
+    const res = await syncPost(jsonReq(url, "POST", body));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "already_queued", queued: true, syncJobId: "job-row-1" });
+    expect(mocks.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("A-FE-07: the previously omitted manual types are accepted (realtime + cache refresh)", async () => {
+    const realtime = await syncPost(jsonReq(url, "POST", { websiteId: "w1", type: "ga4-realtime-sync" }));
+    expect(realtime.status).toBe(200);
+    expect(await realtime.json()).toEqual({ status: "ok", queued: true });
+    expect(mocks.syncJobCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: "GA4_REALTIME" }) }),
+    );
+    expect(mocks.enqueue).toHaveBeenCalledWith(
+      "ga4-realtime-sync",
+      expect.objectContaining({ websiteId: "w1", syncJobRowId: "job-row-1" }),
+      expect.objectContaining({ priority: 1 }),
+    );
+    const refresh = await syncPost(jsonReq(url, "POST", { websiteId: "w1", type: "analytics-cache-refresh" }));
+    expect(refresh.status).toBe(200);
+    expect(await refresh.json()).toEqual({ status: "ok", queued: true });
+    expect(mocks.syncJobCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: "CACHE_REFRESH" }) }),
+    );
+    expect(mocks.enqueue).toHaveBeenCalledWith(
+      "analytics-cache-refresh",
+      expect.objectContaining({ websiteId: "w1", syncJobRowId: "job-row-1" }),
+      expect.objectContaining({ priority: 1 }),
+    );
+  });
 });
 
 describe("POST /api/sync/requeue", () => {
@@ -486,11 +642,11 @@ describe("POST /api/sync/requeue", () => {
     mocks.syncJobFindFirst.mockResolvedValue({ ...row, status: "PENDING" });
     const state = await requeuePost(jsonReq(url, "POST", { jobId: "row1" }));
     expect(state.status).toBe(409);
-    expect(await state.json()).toMatchObject({ error: "invalid_state", status: "PENDING" });
+    expect(await state.json()).toMatchObject({ error: "invalid_state", details: { status: "PENDING" } });
     mocks.syncJobFindFirst.mockResolvedValue({ ...row, type: "BOGUS" });
     const unknown = await requeuePost(jsonReq(url, "POST", { jobId: "row1" }));
     expect(unknown.status).toBe(422);
-    expect(await unknown.json()).toMatchObject({ error: "unknown_job_type", type: "BOGUS" });
+    expect(await unknown.json()).toMatchObject({ error: "unknown_job_type", details: { type: "BOGUS" } });
     mocks.syncJobFindFirst.mockResolvedValue(row);
     mocks.enqueue.mockResolvedValueOnce(null);
     const down = await requeuePost(jsonReq(url, "POST", { jobId: "row1" }));
@@ -639,11 +795,12 @@ describe("DELETE /api/organization (remaining branches)", () => {
   it("valid → revokes each connection best-effort, deletes in tx, 200 deleted", async () => {
     mocks.orgFindUnique.mockResolvedValue({ id: "org1", slug: "org-one", name: "Org One" });
     mocks.connFindMany.mockResolvedValue([{ id: "c1" }, { id: "c2" }]);
-    mocks.revokeConnection.mockRejectedValueOnce(new Error("revoke failed"));
+    // A-DB-06: revoke reports failure as `false` (best-effort), never a throw.
+    mocks.revokeConnectionToken.mockResolvedValueOnce(false);
     const res = await deleteOrg(jsonReq(url, "DELETE", { confirmSlug: "org-one" }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ deleted: true });
-    expect(mocks.revokeConnection).toHaveBeenCalledTimes(2);
+    expect(mocks.revokeConnectionToken).toHaveBeenCalledTimes(2);
     expect(mocks.tx).toHaveBeenCalled();
   });
 });

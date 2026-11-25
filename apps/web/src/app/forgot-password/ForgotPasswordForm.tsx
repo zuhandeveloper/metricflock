@@ -30,7 +30,7 @@ export default function ForgotPasswordForm() {
             The link expires soon and can be used once.
           </p>
           <p className="text-sm">
-            <Link href="/login" className="text-blue-600 hover:underline">
+            <Link href="/login" className="text-blue-600 hover:underline dark:text-blue-400">
               Back to sign in
             </Link>
           </p>
@@ -55,7 +55,7 @@ export default function ForgotPasswordForm() {
             {busy ? "Sending…" : "Send reset link"}
           </Button>
           <p className="text-center text-sm">
-            <Link href="/login" className="text-blue-600 hover:underline">
+            <Link href="/login" className="text-blue-600 hover:underline dark:text-blue-400">
               Back to sign in
             </Link>
           </p>

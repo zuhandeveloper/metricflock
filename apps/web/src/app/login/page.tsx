@@ -13,7 +13,7 @@ export default async function LoginPage() {
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
           <img src="/logo.svg" alt="MetricFlock" width={48} height={48} className="rounded-xl" />
           <h1 className="text-xl font-bold">Sign in to MetricFlock</h1>
-          <p className="text-sm text-zinc-500">Your whole website portfolio, in one dashboard.</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Your whole website portfolio, in one dashboard.</p>
         </div>
         <LoginForm />
       </div>

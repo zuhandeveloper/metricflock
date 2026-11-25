@@ -61,10 +61,14 @@ export function DiscoverButton({ connectionId }: { connectionId: string }) {
       ga4?: unknown[];
       searchConsole?: unknown[];
       adsense?: unknown[];
+      adManager?: unknown[];
       errors?: Record<string, string>;
     } | null;
+    // A-GGL-10: the Ad Manager segment appears only when the response
+    // carries it (Ad Manager disabled → no key), so a disabled setup
+    // never prints a misleading "0 Ad Manager".
     setSummary(
-      `Found ${d?.ga4?.length ?? 0} GA4, ${d?.searchConsole?.length ?? 0} Search Console, ${d?.adsense?.length ?? 0} AdSense.`,
+      `Found ${d?.ga4?.length ?? 0} GA4, ${d?.searchConsole?.length ?? 0} Search Console, ${d?.adsense?.length ?? 0} AdSense${d?.adManager !== undefined ? `, ${d.adManager.length} Ad Manager` : ""}.`,
     );
     const hints: Record<string, string> = {
       api_not_enabled: "API not enabled in Google Cloud Console",
@@ -72,7 +76,12 @@ export function DiscoverButton({ connectionId }: { connectionId: string }) {
       unauthorized: "reconnect the Google account",
       provider_error: "provider error (check server logs)",
     };
-    const labels: Record<string, string> = { ga4: "GA4", searchConsole: "Search Console", adsense: "AdSense" };
+    const labels: Record<string, string> = {
+      ga4: "GA4",
+      searchConsole: "Search Console",
+      adsense: "AdSense",
+      adManager: "Ad Manager",
+    };
     setProviderErrors(Object.entries(d?.errors ?? {}).map(([k, v]) => `${labels[k] ?? k}: ${hints[v] ?? v}`));
     router.refresh();
   }
@@ -105,6 +114,10 @@ export function MapPropertyForm({
   connectionId,
   websites,
   mappedTo,
+  // A-FE-03: the page caps the website options at 20 and narrows them
+  // with its search — when a search matches nothing, say so instead of
+  // claiming no website exists at all. Defaults to the old message.
+  emptyMessage,
 }: {
   provider: "GA4" | "SEARCH_CONSOLE" | "ADSENSE" | "AD_MANAGER";
   externalId: string;
@@ -112,6 +125,7 @@ export function MapPropertyForm({
   connectionId: string;
   websites: WebsiteOption[];
   mappedTo?: string | null;
+  emptyMessage?: string;
 }) {
   const router = useRouter();
   const [websiteId, setWebsiteId] = useState(websites[0]?.id ?? "");
@@ -120,7 +134,7 @@ export function MapPropertyForm({
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   if (websites.length === 0) {
-    return <span className="text-xs text-zinc-500">Add a website first to map this property.</span>;
+    return <span className="text-xs text-zinc-500">{emptyMessage ?? "Add a website first to map this property."}</span>;
   }
   async function submit(e: React.FormEvent) {
     e.preventDefault();

@@ -4,6 +4,7 @@ import { requireApiKey } from "@/lib/api-key-auth";
 import { prisma } from "@metricflock/db";
 import { readSnapshot } from "@metricflock/db/snapshots";
 import { getPrimaryIntegration } from "@metricflock/google/client";
+import { clampSearchConsoleRange } from "@metricflock/google/search-console";
 import { buildCacheKey } from "@metricflock/shared";
 import { resolveRange } from "@/lib/analytics-response";
 
@@ -42,7 +43,13 @@ async function get(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
 
   const integration = await getPrimaryIntegration(websiteId, cfg.provider).catch(() => null);
   if (!integration) return NextResponse.json({ status: "no_property_mapped", data: null, report, websiteId });
-  const { startDate, endDate } = resolveRange(range);
+  let { startDate, endDate } = resolveRange(range);
+  // A-GGL-07: snapshots are written under the clamped range, so a
+  // Search Console lookup must use it too — and the returned range is
+  // the effective one, not the requested one.
+  if (cfg.provider === "SEARCH_CONSOLE") {
+    ({ startDate, endDate } = clampSearchConsoleRange(startDate, endDate));
+  }
   const cacheKey = buildCacheKey({
     organizationId: auth.organizationId,
     websiteId,

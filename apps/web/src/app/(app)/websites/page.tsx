@@ -103,7 +103,7 @@ export default async function WebsitesPage({
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-zinc-500">
+              <tr className="text-left text-zinc-500 dark:text-zinc-400">
                 <th scope="col" className="py-2">
                   Website
                 </th>
@@ -118,7 +118,7 @@ export default async function WebsitesPage({
                 <tr key={w.id} className="border-t border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 font-medium">
                     {w.name}
-                    <span className="block text-xs text-zinc-500">{w.domain}</span>
+                    <span className="block text-xs text-zinc-500 dark:text-zinc-400">{w.domain}</span>
                   </td>
                   <td>{w.team?.name ?? "—"}</td>
                   <td>
@@ -128,7 +128,7 @@ export default async function WebsitesPage({
                   </td>
                   <td>{w.integrations.map((i) => `${i.provider}:${i.mappingStatus}`).join(", ") || "none"}</td>
                   <td className="text-right">
-                    <Link href={`/websites/${w.id}`} className="text-blue-600 hover:underline">
+                    <Link href={`/websites/${w.id}`} className="text-blue-600 hover:underline dark:text-blue-400">
                       Open →
                     </Link>
                   </td>
@@ -139,7 +139,7 @@ export default async function WebsitesPage({
         )}
         {totalPages > 1 && (
           <nav aria-label="Websites pagination" className="mt-3 flex items-center justify-between text-sm">
-            <span className="text-zinc-500">
+            <span className="text-zinc-500 dark:text-zinc-400">
               Page {page} of {totalPages} · {totalWebsites} websites
             </span>
             <span className="flex gap-2">

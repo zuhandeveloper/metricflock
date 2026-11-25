@@ -39,7 +39,7 @@ export function InviteForm() {
     <div className="space-y-2">
       <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
         <div>
-          <label htmlFor="invite-email" className="mb-1 block text-xs font-medium text-zinc-500">
+          <label htmlFor="invite-email" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
             Email
           </label>
           <Input
@@ -52,7 +52,7 @@ export function InviteForm() {
           />
         </div>
         <div>
-          <label htmlFor="invite-role" className="mb-1 block text-xs font-medium text-zinc-500">
+          <label htmlFor="invite-role" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
             Role
           </label>
           <select
@@ -69,13 +69,13 @@ export function InviteForm() {
           {busy ? "Inviting…" : "Send invite"}
         </Button>
         {error && (
-          <span role="alert" className="text-xs text-red-700">
+          <span role="alert" className="text-xs text-red-700 dark:text-red-400">
             {error}
           </span>
         )}
       </form>
       {inviteUrl && (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
           Invite link (also emailed when SMTP is configured):{" "}
           <span className="break-all text-zinc-700 dark:text-zinc-300">{inviteUrl}</span>
         </p>
@@ -103,7 +103,7 @@ export function RevokeInviteButton({ inviteId }: { inviteId: string }) {
         {busy ? "Revoking…" : "Revoke"}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-700">
+        <span role="alert" className="text-xs text-red-700 dark:text-red-400">
           {error}
         </span>
       )}
@@ -142,7 +142,7 @@ export function DeleteMemberButton({ memberId, memberEmail }: { memberId: string
         {busy ? "Deleting…" : "Delete"}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-700">
+        <span role="alert" className="text-xs text-red-700 dark:text-red-400">
           {error}
         </span>
       )}
@@ -197,7 +197,7 @@ export function RoleSelect({
         ))}
       </select>
       {error && (
-        <span role="alert" className="text-xs text-red-700">
+        <span role="alert" className="text-xs text-red-700 dark:text-red-400">
           {error}
         </span>
       )}

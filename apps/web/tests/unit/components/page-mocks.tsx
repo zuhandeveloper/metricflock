@@ -66,7 +66,11 @@ vi.mock("@metricflock/db", () => ({
     user: { count: pageMocks.userCount, findMany: pageMocks.userFindMany },
     googleConnection: { count: pageMocks.googleConnectionCount, findMany: pageMocks.googleConnectionFindMany },
     websiteIntegration: { groupBy: pageMocks.websiteIntegrationGroupBy },
-    analyticsSyncJob: { groupBy: pageMocks.analyticsSyncJobGroupBy, findMany: pageMocks.analyticsSyncJobFindMany },
+    analyticsSyncJob: {
+      groupBy: pageMocks.analyticsSyncJobGroupBy,
+      findMany: pageMocks.analyticsSyncJobFindMany,
+      findFirst: pageMocks.analyticsSyncJobFindFirst,
+    },
     websiteTransfer: { findMany: pageMocks.websiteTransferFindMany },
     teamMember: { findMany: pageMocks.teamMemberFindMany },
     organizationInvite: {

@@ -78,7 +78,7 @@ export default function Sidebar({ user }: { user: SidebarUser }) {
       <div className="mt-auto border-t border-zinc-200 pt-3 dark:border-zinc-800">
         <div className="px-3 pb-2">
           <p className="truncate text-sm font-medium">{user.name ?? user.email}</p>
-          <p className="truncate text-xs text-zinc-500">
+          <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
             {user.email} · {user.role}
           </p>
         </div>

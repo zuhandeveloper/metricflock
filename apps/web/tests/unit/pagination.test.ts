@@ -16,4 +16,21 @@ describe("parsePagination (API-12)", () => {
     expect(parsePagination(req("offset=-5"))).toEqual({ limit: 50, offset: 0 });
     expect(parsePagination(req("limit=abc&offset=xyz"))).toEqual({ limit: 50, offset: 0 });
   });
+
+  // A-API-09: offset is capped so a deep offset cannot force a huge skip.
+  it("caps offset at 10000", () => {
+    expect(parsePagination(req("offset=100000"))).toEqual({ limit: 50, offset: 10000 });
+    expect(parsePagination(req("offset=10000"))).toEqual({ limit: 50, offset: 10000 });
+    expect(parsePagination(req("offset=9999"))).toEqual({ limit: 50, offset: 9999 });
+  });
+
+  it("honours defaultLimit/maxLimit options", () => {
+    expect(parsePagination(req(""), { defaultLimit: 500, maxLimit: 500 })).toEqual({ limit: 500, offset: 0 });
+    expect(parsePagination(req("limit=9999"), { defaultLimit: 500, maxLimit: 500 })).toEqual({
+      limit: 500,
+      offset: 0,
+    });
+    expect(parsePagination(req("limit=150"), { defaultLimit: 100 })).toEqual({ limit: 150, offset: 0 });
+    expect(parsePagination(req(""), { defaultLimit: 100 })).toEqual({ limit: 100, offset: 0 });
+  });
 });

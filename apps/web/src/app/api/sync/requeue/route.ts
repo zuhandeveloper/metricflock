@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withApiErrors, requestIdOf } from "@/lib/api-error";
+import { apiError, requestIdOf, withApiErrors } from "@/lib/api-error";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
@@ -27,10 +27,9 @@ async function post(req: NextRequest) {
     where: { id: body.data.jobId, ...syncJobOrgWhere(auth.user.organizationId) },
   });
   if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (row.status !== "FAILED")
-    return NextResponse.json({ error: "invalid_state", status: row.status }, { status: 409 });
+  if (row.status !== "FAILED") return apiError("invalid_state", 409, { status: row.status }, requestIdOf(req));
   const queue = QUEUE_BY_SYNC_TYPE[row.type];
-  if (!queue) return NextResponse.json({ error: "unknown_job_type", type: row.type }, { status: 422 });
+  if (!queue) return apiError("unknown_job_type", 422, { type: row.type }, requestIdOf(req));
   const payload = (row.payload ?? {}) as Record<string, unknown>;
   // BullMQ custom jobIds may contain ":" only as exactly 3 colon-separated
   // parts (legacy compat check) — the enqueue default embeds JSON, which

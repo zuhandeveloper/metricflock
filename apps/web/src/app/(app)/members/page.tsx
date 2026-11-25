@@ -1,13 +1,28 @@
 import { redirect } from "next/navigation";
 import { getSessionUser, hasPermission } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, EmptyState } from "@/components/ui";
 import { InviteForm, RevokeInviteButton, RoleSelect, DeleteMemberButton } from "./MemberForms";
 import { OrgAdminActions } from "./OrgAdminForms";
 export const dynamic = "force-dynamic";
 export default async function MembersPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  // A-SEC-10: the member directory (emails + roles) and the pending
+  // invites are restricted to member.manage holders. Without this gate
+  // any signed-in TEAM_MEMBER could read every member's email and role.
+  // Same pattern as the /sync page (EmptyState, no directory content).
+  if (!hasPermission(user.role, "member.manage")) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold">Members</h1>
+        <EmptyState
+          title="Admins only"
+          hint="Viewing the member directory is restricted to organization and team admins."
+        />
+      </div>
+    );
+  }
   const canManage = hasPermission(user.role, "member.manage");
   const [members, invites, organization] = await Promise.all([
     prisma.user.findMany({
@@ -28,7 +43,7 @@ export default async function MembersPage() {
         <Card className="p-4">
           <h2 className="mb-2 font-semibold">Invite a member</h2>
           <InviteForm />
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
             Invited users join this organization with the chosen role when they sign up with the invited email. Public
             sign-ups without an invite still get their own workspace.
           </p>
@@ -38,7 +53,7 @@ export default async function MembersPage() {
         <h2 className="font-semibold">Organization members</h2>
         <table className="mt-2 w-full text-sm">
           <thead>
-            <tr className="text-left text-zinc-500">
+            <tr className="text-left text-zinc-500 dark:text-zinc-400">
               <th scope="col" className="py-2">
                 Member
               </th>
@@ -51,7 +66,7 @@ export default async function MembersPage() {
               <tr key={m.id} className="border-t border-zinc-100 dark:border-zinc-800">
                 <td className="py-2">
                   {m.name}
-                  <span className="block text-xs text-zinc-500">
+                  <span className="block text-xs text-zinc-500 dark:text-zinc-400">
                     {m.email}
                     {m.id === user.id ? " (you)" : ""}
                     {m.emailVerified ? "" : " · unverified"}
@@ -69,7 +84,7 @@ export default async function MembersPage() {
                     </Badge>
                   )}
                 </td>
-                <td className="text-xs text-zinc-500">{m.createdAt.toISOString().slice(0, 10)}</td>
+                <td className="text-xs text-zinc-500 dark:text-zinc-400">{m.createdAt.toISOString().slice(0, 10)}</td>
               </tr>
             ))}
           </tbody>
@@ -79,7 +94,7 @@ export default async function MembersPage() {
         <Card className="p-4">
           <h2 className="font-semibold">Pending invites</h2>
           {invites.length === 0 ? (
-            <p className="mt-1 text-sm text-zinc-500">No pending invites.</p>
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">No pending invites.</p>
           ) : (
             <ul className="mt-2 space-y-1 text-sm">
               {invites.map((i) => (

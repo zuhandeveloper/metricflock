@@ -8,6 +8,18 @@ import MyTeamPage from "@/app/(app)/team/page";
 import { memberUser, pageMocks, resetPageMocks, superAdminUser } from "./page-state";
 import { mockFetch } from "./helpers";
 
+// A-SEC-10: page-state.ts is shared (and frozen for this fix), so the
+// team-admin fixture lives here — TEAM_ADMIN holds member.manage and
+// team.view, so both directory pages must stay fully visible to them.
+const teamAdminUser = {
+  id: "u3",
+  organizationId: "org1",
+  role: "TEAM_ADMIN",
+  email: "teamadmin@example.com",
+  name: "Team Admin",
+  twoFactorEnabled: false,
+};
+
 beforeEach(() => {
   resetPageMocks();
   pageMocks.getSessionUser.mockResolvedValue(superAdminUser);
@@ -71,15 +83,59 @@ describe("TeamsPage", () => {
     expect(screen.getByText("Create your first team above, then add websites to it.")).toBeInTheDocument();
   });
 
-  it("hides the create form from non-managers and lists members read-only", async () => {
+  it("gates the directory for team members: no teams, no member emails, no queries", async () => {
+    // A-SEC-10: TEAM_MEMBER has no team.view (GET /api/teams requires
+    // it), so the page renders the gated state and never queries the
+    // team directory at all.
     mockFetch(null);
     pageMocks.getSessionUser.mockResolvedValue(memberUser);
     const el = await TeamsPage();
     render(el);
+    expect(screen.getByText("Admins only")).toBeInTheDocument();
+    expect(screen.getByText("Viewing teams is restricted to organization and team admins.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Team name")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Rename team")).not.toBeInTheDocument();
-    expect(screen.getByText("admin@example.com · SUPER_ADMIN (team admin)")).toBeInTheDocument();
-    expect(screen.getByText("member@example.com · TEAM_MEMBER")).toBeInTheDocument();
+    expect(screen.queryByText("admin@example.com")).not.toBeInTheDocument();
+    expect(screen.queryByText("member@example.com")).not.toBeInTheDocument();
+    expect(pageMocks.teamFindMany).not.toHaveBeenCalled();
+    expect(pageMocks.userFindMany).not.toHaveBeenCalled();
+  });
+
+  it("renders teams and admin controls for a team admin", async () => {
+    // The mock returns the fixture regardless of the where clause; the
+    // A-SEC-11 scoping itself is asserted in the test below.
+    mockFetch(null);
+    pageMocks.getSessionUser.mockResolvedValue(teamAdminUser);
+    const el = await TeamsPage();
+    render(el);
+    expect(screen.getByRole("heading", { name: "Teams" })).toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByLabelText("Team name")).toBeInTheDocument(); // create form
+    expect(screen.getByLabelText("Rename team")).toBeInTheDocument(); // admin controls
+    expect(screen.getByText(/admin@example.com · SUPER_ADMIN \(team admin\)/)).toBeInTheDocument();
+  });
+
+  it("A-SEC-11: scopes the directory for a team admin to teams they administer", async () => {
+    mockFetch(null);
+    pageMocks.getSessionUser.mockResolvedValue(teamAdminUser);
+    const el = await TeamsPage();
+    render(el);
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(pageMocks.teamFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: "org1",
+          members: { some: { userId: "u3", isAdmin: true } },
+        },
+      }),
+    );
+  });
+
+  it("A-SEC-11: super admin sees every team (no membership filter)", async () => {
+    mockFetch(null);
+    const el = await TeamsPage();
+    render(el);
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(pageMocks.teamFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: "org1" } }));
   });
 });
 
@@ -131,18 +187,37 @@ describe("MembersPage", () => {
     expect(screen.getAllByLabelText("Role")).toHaveLength(2);
   });
 
-  it("shows the no-pending-invites state and hides org actions from members", async () => {
+  it("gates the directory for team members: no members, no invites, no queries", async () => {
+    // A-SEC-10: TEAM_MEMBER has no member.manage, so the page renders
+    // the gated state and never queries members or invites at all.
     mockFetch(null);
     pageMocks.getSessionUser.mockResolvedValue(memberUser);
-    pageMocks.organizationInviteFindMany.mockResolvedValue([]);
     const el = await MembersPage();
     render(el);
+    expect(screen.getByText("Admins only")).toBeInTheDocument();
+    expect(
+      screen.getByText("Viewing the member directory is restricted to organization and team admins."),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Pending invites" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Organization" })).not.toBeInTheDocument();
-    // own row shows a badge, not a role select
-    expect(screen.queryByLabelText("Role")).not.toBeInTheDocument();
-    expect(screen.getByText("TEAM_MEMBER")).toBeInTheDocument();
+    expect(screen.queryByText("admin@example.com")).not.toBeInTheDocument();
+    expect(screen.queryByText("member@example.com")).not.toBeInTheDocument();
+    expect(screen.queryByText(/pending@example.com/)).not.toBeInTheDocument();
+    expect(pageMocks.userFindMany).not.toHaveBeenCalled();
+    expect(pageMocks.organizationInviteFindMany).not.toHaveBeenCalled();
+    expect(pageMocks.organizationFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("renders members and invites for a team admin (no org actions)", async () => {
+    mockFetch(null);
+    pageMocks.getSessionUser.mockResolvedValue(teamAdminUser);
+    const el = await MembersPage();
+    render(el);
+    expect(screen.getByRole("heading", { name: "Members" })).toBeInTheDocument();
+    expect(screen.getByText(/admin@example.com/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeInTheDocument(); // invite form
+    expect(screen.getByText(/pending@example.com · TEAM_MEMBER · expires 2026-12-01/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Organization" })).not.toBeInTheDocument(); // super admin only
   });
 });
 

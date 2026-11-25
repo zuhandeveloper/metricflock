@@ -119,7 +119,7 @@ describe("syncWebsite — remaining kinds", () => {
     const r = await syncWebsite("site-1", "search-console", deps);
     expect(r).toEqual({ status: "ok", reports: ["search-console"] });
     expect(cacheWrites).toEqual([
-      { key: "analytics:org-1:site-1:123456:search-console:search-console:2026-10-23_2026-11-19:all", ttl: 3600 },
+      { key: "analytics:org-1:site-1:123456:search-console:search-console:2026-10-23_2026-11-16:all", ttl: 3600 },
     ]);
     expect(snapshots).toHaveLength(1);
     expect((snapshots[0] as { ttl: number }).ttl).toBe(28_800);
@@ -177,13 +177,16 @@ describe("syncWebsite — remaining kinds", () => {
     expect(cacheWrites).toHaveLength(1);
   });
 
-  it("a failure mid-loop throws after the earlier reports were cached", async () => {
+  it("a failure mid-loop is isolated: later reports still run and the result is partial (A-WRK-07)", async () => {
     const { deps, cacheWrites, health } = fakeDeps();
     (deps.ga4 as unknown as Record<string, unknown>).runPagesReport = vi.fn(async () => {
       throw new Error("ga4 pages exploded");
     });
-    await expect(syncWebsite("site-1", "ga4-historical", deps)).rejects.toThrow("ga4 pages exploded");
-    expect(cacheWrites.map((w) => w.key.split(":")[5])).toEqual(["overview", "traffic", "audience"]);
+    const r = await syncWebsite("site-1", "ga4-historical", deps);
+    expect(r.status).toBe("partial");
+    expect(r.reports).toEqual(["overview", "traffic", "audience", "events"]);
+    expect(r.detail).toBe("pages: ga4 pages exploded");
+    expect(cacheWrites.map((w) => w.key.split(":")[5])).toEqual(["overview", "traffic", "audience", "events"]);
     expect(health).toEqual([
       expect.objectContaining({ provider: "GA4", status: "error", lastError: "ga4 pages exploded" }),
     ]);
@@ -220,7 +223,7 @@ describe("healthCheckWebsite — error branches", () => {
     });
   });
 
-  it("returns not_connected when the first provider has no connection", async () => {
+  it("records not_connected health for every provider and returns not_connected when none is connected", async () => {
     const { deps, health } = fakeDeps({
       getAuthorizedClientForIntegration: vi.fn(async () => {
         throw new Error("CONNECTION_REQUIRED");
@@ -231,10 +234,42 @@ describe("healthCheckWebsite — error branches", () => {
       reports: [],
       detail: "No active Google connection for this website or its team.",
     });
-    expect(health).toEqual([]);
+    // A-GGL-11: the check no longer aborts on the first provider — every
+    // mapped provider gets its own not_connected health record.
+    expect(health).toEqual([
+      expect.objectContaining({ provider: "GA4", status: "not_connected" }),
+      expect.objectContaining({ provider: "SEARCH_CONSOLE", status: "not_connected" }),
+      expect.objectContaining({ provider: "ADSENSE", status: "not_connected" }),
+    ]);
   });
 
-  it("returns skipped with the providers checked so far on a token error", async () => {
+  it("returns partial and still checks the rest when one provider is unconnected (A-GGL-11)", async () => {
+    const { deps, health } = fakeDeps({
+      getAuthorizedClientForIntegration: vi.fn(async (_site: string, integration: { externalId: string }) => {
+        if (integration.externalId === "ga4") throw new Error("CONNECTION_REQUIRED");
+        return {
+          auth: {},
+          connection: { status: "connected", connectionId: "conn-1", level: "WEBSITE", googleAccountEmail: "o@x" },
+        };
+      }),
+      getPrimaryIntegration: vi.fn(async (_site: string, provider: string) => ({
+        externalId: provider === "GA4" ? "ga4" : provider === "SEARCH_CONSOLE" ? "sc" : "adsense",
+      })),
+    });
+    const r = await healthCheckWebsite("site-1", deps);
+    expect(r).toEqual({
+      status: "partial",
+      reports: ["SEARCH_CONSOLE", "ADSENSE"],
+      detail: "GA4: not_connected",
+    });
+    expect(health).toEqual([
+      expect.objectContaining({ provider: "GA4", status: "not_connected" }),
+      expect.objectContaining({ provider: "SEARCH_CONSOLE", status: "ok" }),
+      expect.objectContaining({ provider: "ADSENSE", status: "ok" }),
+    ]);
+  });
+
+  it("continues past a token error and returns partial with the failed provider in the detail (A-WRK-08)", async () => {
     const { deps, health } = fakeDeps({
       getAuthorizedClientForIntegration: vi.fn(async (_site: string, integration: { externalId: string }) => {
         if (integration.externalId === "sc") throw new Error("TOKEN_REFRESH_FAILED");
@@ -248,9 +283,20 @@ describe("healthCheckWebsite — error branches", () => {
       })),
     });
     const r = await healthCheckWebsite("site-1", deps);
-    expect(r).toEqual({ status: "skipped", reports: ["GA4"], detail: "TOKEN_REFRESH_FAILED" });
-    expect(health).toHaveLength(2);
-    expect(health[1]).toEqual(expect.objectContaining({ provider: "SEARCH_CONSOLE", status: "error" }));
+    // A-WRK-08: the revoked SC connection no longer aborts the check —
+    // GA4 and AdSense are still checked, and the aggregate is partial
+    // (not skipped) so the worker keeps the failure in the job row's
+    // lastError instead of erasing it with an "ok".
+    expect(r).toEqual({
+      status: "partial",
+      reports: ["GA4", "ADSENSE"],
+      detail: "SEARCH_CONSOLE: TOKEN_REFRESH_FAILED",
+    });
+    expect(health).toEqual([
+      expect.objectContaining({ provider: "GA4", status: "ok" }),
+      expect.objectContaining({ provider: "SEARCH_CONSOLE", status: "error" }),
+      expect.objectContaining({ provider: "ADSENSE", status: "ok" }),
+    ]);
   });
 
   it("throws on a non-token provider error after recording health", async () => {
@@ -260,7 +306,14 @@ describe("healthCheckWebsite — error branches", () => {
       }),
     });
     await expect(healthCheckWebsite("site-1", deps)).rejects.toThrow("quota exceeded");
-    expect(health).toEqual([expect.objectContaining({ provider: "GA4", status: "error" })]);
+    // A-WRK-08: the check still throws when no provider could be
+    // checked at all — but it records error health for every provider
+    // first, instead of aborting on the first one.
+    expect(health).toEqual([
+      expect.objectContaining({ provider: "GA4", status: "error" }),
+      expect.objectContaining({ provider: "SEARCH_CONSOLE", status: "error" }),
+      expect.objectContaining({ provider: "ADSENSE", status: "error" }),
+    ]);
   });
 
   it("includes AD_MANAGER when the feature is enabled", async () => {
@@ -404,12 +457,16 @@ describe("sync engine — remaining branches", () => {
     expect(health).toEqual([]);
   });
 
-  it("stringifies a non-Error thrown mid-fetch, records health, and rethrows", async () => {
-    const { deps, health } = fakeDeps();
+  it("stringifies a non-Error thrown mid-fetch, records health, and isolates it to that report (A-WRK-07)", async () => {
+    const { deps, cacheWrites, health } = fakeDeps();
     (deps.ga4 as unknown as Record<string, unknown>).runHistoricalReport = vi.fn(async () => {
       throw "ga4 string failure";
     });
-    await expect(syncWebsite("site-1", "ga4-historical", deps)).rejects.toBe("ga4 string failure");
+    const r = await syncWebsite("site-1", "ga4-historical", deps);
+    expect(r.status).toBe("partial");
+    expect(r.reports).toEqual(["traffic", "audience", "pages", "events"]);
+    expect(r.detail).toBe("overview: ga4 string failure");
+    expect(cacheWrites.map((w) => w.key.split(":")[5])).toEqual(["traffic", "audience", "pages", "events"]);
     expect(health).toEqual([
       expect.objectContaining({ provider: "GA4", status: "error", lastError: "ga4 string failure" }),
     ]);

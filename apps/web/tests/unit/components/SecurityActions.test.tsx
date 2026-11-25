@@ -84,6 +84,30 @@ describe("SessionActions", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/auth/revoke-other-sessions", expect.objectContaining({}));
   });
 
+  it("signs out everywhere and redirects to /login", async () => {
+    const fetchMock = mockFetch(null);
+    render(<SessionActions sessions={sessions} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sign out everywhere" }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/login"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/revoke-sessions", expect.objectContaining({}));
+    expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  it("renders the sign-out-everywhere button even with a single session", () => {
+    mockFetch(null);
+    render(<SessionActions sessions={sessions.slice(0, 1)} />);
+    expect(screen.getByRole("button", { name: "Sign out everywhere" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out all other devices" })).not.toBeInTheDocument();
+  });
+
+  it("shows an error and stays put when sign-out-everywhere fails", async () => {
+    mockFetch({ error: "revoke_failed" }, false, 500);
+    render(<SessionActions sessions={sessions} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sign out everywhere" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Couldn't sign out everywhere."));
+    expect(nav.push).not.toHaveBeenCalled();
+  });
+
   it("hides the sign-out-others button with a single session", () => {
     mockFetch(null);
     render(<SessionActions sessions={sessions.slice(0, 1)} />);
@@ -180,6 +204,24 @@ describe("gap closure: json parse failures and busy guards", () => {
     fireEvent.click(btn);
     await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("SessionActions: a double sign-out-everywhere only posts once (busy guard)", async () => {
+    const fetchMock = mockFetchDelayed(null);
+    render(<SessionActions sessions={sessions} />);
+    const btn = screen.getByRole("button", { name: "Sign out everywhere" });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/login"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("SessionActions: the sign-out-everywhere button is disabled while another revoke is in flight", async () => {
+    mockFetchDelayed(null);
+    render(<SessionActions sessions={sessions} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sign out all other devices" }));
+    expect(screen.getByRole("button", { name: "Sign out everywhere" })).toBeDisabled();
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
   });
 
   it("TwoFactorActions: an unparseable enable response still opens the setup form", async () => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isEncryptionKey } from "./crypto";
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().optional(),
@@ -7,7 +8,8 @@ const envSchema = z.object({
   // back to SESSION_SECRET when unset). Must also be >= 32 chars when set.
   BETTER_AUTH_SECRET: z.string().min(32, "BETTER_AUTH_SECRET must be at least 32 chars").optional(),
   // Transactional mail (email verification / password reset). Optional at
-  // schema level; production startup warns when unset (see instrumentation).
+  // schema level; production startup logs an ERROR when unset (see
+  // instrumentation) — mail is never sent silently (mailer logs "NOT sent").
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().optional(),
   SMTP_USER: z.string().optional(),
@@ -16,6 +18,10 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),
+  // Required in production (A-SEC-14): getEnv() throws at boot when it is
+  // missing or not base64 of 32 bytes (same rule as crypto.parseKey).
+  // Still optional outside production — local dev / tests run without
+  // Google token encryption.
   GOOGLE_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   // Previous token-encryption key, set only during a rotation window so
   // ciphertexts written under the old key still decrypt (OAUTH-7).
@@ -42,6 +48,18 @@ export function getEnv(): Env {
     throw new Error(
       "Invalid environment: " + parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
     );
+  }
+  // A-SEC-14: in production the token-encryption key must be present and
+  // valid at boot. Without it the app would serve traffic and fail only
+  // at the first Google connect (after the token exchange). The build
+  // phase is exempt: `next build` never encrypts a token, and a missing
+  // runtime-only secret must not fail the build.
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.NEXT_PHASE !== "phase-production-build" &&
+    !isEncryptionKey(parsed.data.GOOGLE_TOKEN_ENCRYPTION_KEY)
+  ) {
+    throw new Error("Invalid environment: GOOGLE_TOKEN_ENCRYPTION_KEY must be base64 of 32 bytes in production");
   }
   cached = parsed.data;
   return cached;

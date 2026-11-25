@@ -75,6 +75,13 @@ describe("requireApiKey (Phase 7.5)", () => {
     });
     const auth = await requireApiKey(req(`Bearer ${secret}`));
     expect("error" in auth && auth.error.status).toBe(401);
+    // A-API-11: the human-readable reason moved into `details` — it is
+    // preserved, not dropped, by the envelope enforcement.
+    if ("error" in auth)
+      expect(await auth.error.json()).toMatchObject({
+        error: "unauthorized",
+        details: { message: "API key has expired." },
+      });
     expect(mocks.update).not.toHaveBeenCalled();
   });
 

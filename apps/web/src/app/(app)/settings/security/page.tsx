@@ -33,7 +33,7 @@ export default async function SecurityPage() {
       </Card>
       <Card className="p-4">
         <h2 className="font-semibold">Active sessions</h2>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
           Every device signed in to your account. Revoke anything you don&apos;t recognize.
         </p>
         <div className="mt-3">

@@ -29,7 +29,13 @@ export function OrgAdminActions({ orgSlug }: { orgSlug: string }) {
     });
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
     setBusy(false);
-    if (!res.ok) return setError(data?.error ?? `request_failed_${res.status}`);
+    if (!res.ok)
+      return setError(
+        // A-SEC-19: deletion is refused until a completed export exists.
+        data?.error === "export_required"
+          ? "Export your organization data first — deletion requires a completed export."
+          : (data?.error ?? `request_failed_${res.status}`),
+      );
     router.push("/login");
     router.refresh();
   }
@@ -38,7 +44,7 @@ export function OrgAdminActions({ orgSlug }: { orgSlug: string }) {
     <div className="space-y-4">
       <div>
         <h3 className="text-sm font-semibold">Export organization data</h3>
-        <p className="mt-1 text-xs text-zinc-500">
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
           Downloads a JSON archive of teams, members, websites, mappings and transfer history. Credentials and Google
           tokens are never included.
         </p>
@@ -50,14 +56,17 @@ export function OrgAdminActions({ orgSlug }: { orgSlug: string }) {
         </a>
       </div>
       <div className="border-t border-zinc-100 pt-4 dark:border-zinc-800">
-        <h3 className="text-sm font-semibold text-red-700">Delete organization</h3>
-        <p className="mt-1 text-xs text-zinc-500">
+        <h3 className="text-sm font-semibold text-red-700 dark:text-red-400">Delete organization</h3>
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
           Permanently deletes this organization and everything in it, and revokes its Google grants. Export first if you
           need an archive. Type the organization slug <strong>{orgSlug}</strong> to confirm.
         </p>
         <div className="mt-2 flex flex-wrap items-end gap-2">
           <div>
-            <label htmlFor="org-confirm-slug" className="mb-1 block text-xs font-medium text-zinc-500">
+            <label
+              htmlFor="org-confirm-slug"
+              className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400"
+            >
               Organization slug
             </label>
             <Input
@@ -71,7 +80,7 @@ export function OrgAdminActions({ orgSlug }: { orgSlug: string }) {
             {busy ? "Deleting…" : "Delete organization"}
           </Button>
           {error && (
-            <span role="alert" className="text-xs text-red-700">
+            <span role="alert" className="text-xs text-red-700 dark:text-red-400">
               {error}
             </span>
           )}

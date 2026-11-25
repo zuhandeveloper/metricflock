@@ -73,16 +73,43 @@ export function buildReportEmail(input: ReportInput): { subject: string; text: s
   return { subject: `${input.orgName} weekly report — ${input.rangeLabel}`, text: body };
 }
 
+const SIX_DAYS_MS = 6 * 86_400_000;
+const SEVEN_DAYS_MS = 7 * 86_400_000;
+
+export type ReportDueKind = "window" | "catch-up";
+
+/** Why a weekly report is due right now (UTC), or null when it is not
+ * due. "window": the configured weekday/hour matches and the last send
+ * was at least 6 days ago (guards against double-sends inside the
+ * hour). "catch-up" (A-WRK-06): the last send was at least 7 days ago,
+ * regardless of the configured hour — a full weekly cycle passed with
+ * no send (worker down, Redis down, lock held, tick overran the hour),
+ * so the report goes out on the next tick instead of waiting for the
+ * same weekday/hour next week. A schedule that was never sent is NOT
+ * a catch-up: it waits for its first window instead of firing within
+ * a minute of being created. When both apply (stale send, and right
+ * now is the configured window) the window wins, so an on-time send
+ * is never counted as a missed one. */
+export function getReportDueKind(
+  schedule: { enabled: boolean; dayOfWeek: number; hourUtc: number; lastSentAt: Date | null },
+  now: Date,
+): ReportDueKind | null {
+  if (!schedule.enabled) return null;
+  const sinceLast = schedule.lastSentAt ? now.getTime() - schedule.lastSentAt.getTime() : Number.POSITIVE_INFINITY;
+  if (now.getUTCDay() === schedule.dayOfWeek && now.getUTCHours() === schedule.hourUtc && sinceLast >= SIX_DAYS_MS) {
+    return "window";
+  }
+  if (schedule.lastSentAt && sinceLast >= SEVEN_DAYS_MS) return "catch-up";
+  return null;
+}
+
 /** Is a weekly report due right now (UTC)? Due when enabled, the
  * weekday and hour match, and the last send was not within the past
- * 6 days (guards against double-sends inside the same hour). */
+ * 6 days (guards against double-sends inside the same hour) — or when
+ * the last send is over 7 days old, as a catch-up (A-WRK-06). */
 export function isReportDue(
   schedule: { enabled: boolean; dayOfWeek: number; hourUtc: number; lastSentAt: Date | null },
   now: Date,
 ): boolean {
-  if (!schedule.enabled) return false;
-  if (now.getUTCDay() !== schedule.dayOfWeek) return false;
-  if (now.getUTCHours() !== schedule.hourUtc) return false;
-  if (schedule.lastSentAt && now.getTime() - schedule.lastSentAt.getTime() < 6 * 86_400_000) return false;
-  return true;
+  return getReportDueKind(schedule, now) !== null;
 }

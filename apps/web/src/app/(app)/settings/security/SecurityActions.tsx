@@ -26,6 +26,7 @@ async function postJson(url: string, body: unknown) {
 export function SessionActions({ sessions }: { sessions: SessionRow[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
   async function revoke(token: string) {
     if (busy) return;
     setBusy(token);
@@ -40,6 +41,18 @@ export function SessionActions({ sessions }: { sessions: SessionRow[] }) {
     setBusy("");
     router.refresh();
   }
+  async function revokeAll() {
+    if (busy) return;
+    setError("");
+    setBusy("all");
+    const { ok } = await postJson("/api/auth/revoke-sessions", {});
+    setBusy("");
+    if (!ok) {
+      setError("Couldn't sign out everywhere. Try again.");
+      return;
+    }
+    router.push("/login");
+  }
   return (
     <div className="space-y-3">
       <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -50,8 +63,10 @@ export function SessionActions({ sessions }: { sessions: SessionRow[] }) {
                 {s.ipAddress ?? "unknown IP"}
                 {s.current && <span className="ml-2 text-xs text-green-700">this device</span>}
               </p>
-              <p className="max-w-md truncate text-xs text-zinc-500">{s.userAgent ?? "unknown browser"}</p>
-              <p className="text-xs text-zinc-500">
+              <p className="max-w-md truncate text-xs text-zinc-500 dark:text-zinc-400">
+                {s.userAgent ?? "unknown browser"}
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 Signed in {s.createdAt.slice(0, 16).replace("T", " ")} · expires {s.expiresAt.slice(0, 10)}
               </p>
             </div>
@@ -63,10 +78,23 @@ export function SessionActions({ sessions }: { sessions: SessionRow[] }) {
           </li>
         ))}
       </ul>
-      {sessions.length > 1 && (
-        <Button type="button" variant="outline" disabled={busy !== ""} onClick={revokeOthers}>
-          {busy === "others" ? "Revoking…" : "Sign out all other devices"}
+      <div className="flex flex-wrap gap-2">
+        {sessions.length > 1 && (
+          <Button type="button" variant="outline" disabled={busy !== ""} onClick={revokeOthers}>
+            {busy === "others" ? "Revoking…" : "Sign out all other devices"}
+          </Button>
+        )}
+        <Button type="button" variant="outline" disabled={busy !== ""} onClick={revokeAll}>
+          {busy === "all" ? "Signing out…" : "Sign out everywhere"}
         </Button>
+      </div>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        Sign out everywhere ends every session, including this device.
+      </p>
+      {error && (
+        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+          {error}
+        </p>
       )}
     </div>
   );
@@ -145,7 +173,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
           />
         </div>
         {error && (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-sm text-red-700 dark:text-red-400">
             {error}
           </p>
         )}
@@ -194,7 +222,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
           />
         </div>
         {error && (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-sm text-red-700 dark:text-red-400">
             {error}
           </p>
         )}
@@ -225,7 +253,7 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
         />
       </div>
       {error && (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
           {error}
         </p>
       )}

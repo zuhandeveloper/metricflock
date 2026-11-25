@@ -16,7 +16,11 @@ export function AddWebsiteForm({ teams }: { teams: TeamOption[] }) {
   const [error, setError] = useState("");
 
   if (teams.length === 0) {
-    return <p className="text-sm text-zinc-500">Create a team first (Teams page) — every website belongs to a team.</p>;
+    return (
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        Create a team first (Teams page) — every website belongs to a team.
+      </p>
+    );
   }
 
   async function submit(e: React.FormEvent) {
@@ -45,13 +49,13 @@ export function AddWebsiteForm({ teams }: { teams: TeamOption[] }) {
   return (
     <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
       <div>
-        <label htmlFor="site-name" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="site-name" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Website name
         </label>
         <Input id="site-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="My Blog" required />
       </div>
       <div>
-        <label htmlFor="site-domain" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="site-domain" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Domain
         </label>
         <Input
@@ -66,7 +70,7 @@ export function AddWebsiteForm({ teams }: { teams: TeamOption[] }) {
         />
       </div>
       <div>
-        <label htmlFor="site-url" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="site-url" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           URL
         </label>
         <Input
@@ -82,7 +86,7 @@ export function AddWebsiteForm({ teams }: { teams: TeamOption[] }) {
         />
       </div>
       <div>
-        <label htmlFor="site-team" className="mb-1 block text-xs font-medium text-zinc-500">
+        <label htmlFor="site-team" className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Team
         </label>
         <select
@@ -103,7 +107,7 @@ export function AddWebsiteForm({ teams }: { teams: TeamOption[] }) {
         {busy ? "Adding…" : "Add website"}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-700">
+        <span role="alert" className="text-xs text-red-700 dark:text-red-400">
           {error}
         </span>
       )}

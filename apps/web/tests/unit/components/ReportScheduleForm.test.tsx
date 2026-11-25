@@ -55,6 +55,15 @@ describe("ReportScheduleForm", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("invalid_recipients"));
   });
 
+  it("lists the invalid recipient addresses when the server names them (A-API-07)", async () => {
+    mockFetch({ error: "invalid_recipients", details: { invalidRecipients: ["bad", "also-bad@"] } }, false, 400);
+    render(<ReportScheduleForm initial={initial} />);
+    fireEvent.click(screen.getByRole("button", { name: "Save schedule" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Invalid recipient emails: bad, also-bad@"),
+    );
+  });
+
   it("sends a test report and shows who it went to", async () => {
     const fetchMock = mockFetch({ ok: true, to: "me@example.com" });
     render(<ReportScheduleForm initial={initial} />);

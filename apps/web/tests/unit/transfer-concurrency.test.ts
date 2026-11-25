@@ -100,7 +100,11 @@ describe("accept", () => {
     mocks.transferFindUnique.mockResolvedValue({ status: "CANCELLED" });
     const res = await accept(postReq(), ctx);
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "invalid_state", status: "CANCELLED", requestId: expect.any(String) });
+    expect(await res.json()).toEqual({
+      error: "invalid_state",
+      requestId: expect.any(String),
+      details: { status: "CANCELLED" },
+    });
     expect(mocks.writeAudit).not.toHaveBeenCalled();
   });
 
@@ -160,7 +164,11 @@ describe("complete", () => {
     mocks.transferFindUnique.mockResolvedValue({ status: "CANCELLED" });
     const res = await complete(postReq(), ctx);
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "invalid_state", status: "CANCELLED", requestId: expect.any(String) });
+    expect(await res.json()).toEqual({
+      error: "invalid_state",
+      requestId: expect.any(String),
+      details: { status: "CANCELLED" },
+    });
     expect(mocks.txWebsiteUpdate).not.toHaveBeenCalled();
     expect(mocks.txAssignDeleteMany).not.toHaveBeenCalled();
     expect(mocks.txIntegDeleteMany).not.toHaveBeenCalled();
@@ -201,7 +209,11 @@ describe("cancel", () => {
     mocks.transferFindUnique.mockResolvedValue({ status: "COMPLETED" });
     const res = await cancel(postReq(), ctx);
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "invalid_state", status: "COMPLETED", requestId: expect.any(String) });
+    expect(await res.json()).toEqual({
+      error: "invalid_state",
+      requestId: expect.any(String),
+      details: { status: "COMPLETED" },
+    });
   });
 });
 
@@ -232,8 +244,8 @@ describe("reject", () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({
       error: "invalid_state",
-      status: "PENDING_CONNECTION",
       requestId: expect.any(String),
+      details: { status: "PENDING_CONNECTION" },
     });
   });
 });

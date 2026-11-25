@@ -147,12 +147,16 @@ describe("transferStaleStateResponse", () => {
   it("maps EXPIRED to transfer_expired 409", async () => {
     const res = transferStaleStateResponse("EXPIRED");
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "transfer_expired" });
+    expect(await res.json()).toEqual({ error: "transfer_expired", requestId: expect.any(String) });
   });
   it("maps any other status to invalid_state 409 with the status", async () => {
     const res = transferStaleStateResponse("COMPLETED");
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "invalid_state", status: "COMPLETED" });
+    expect(await res.json()).toEqual({
+      error: "invalid_state",
+      requestId: expect.any(String),
+      details: { status: "COMPLETED" },
+    });
   });
 });
 
@@ -214,7 +218,7 @@ describe("POST /api/transfers/[id]/cancel", () => {
     mocks.transferFindFirst.mockResolvedValue(openTransfer({ status: "COMPLETED" }));
     const res = await cancelPost(req(), ctx);
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: "invalid_state", status: "COMPLETED" });
+    expect(await res.json()).toMatchObject({ error: "invalid_state", details: { status: "COMPLETED" } });
   });
 });
 
@@ -247,7 +251,7 @@ describe("POST /api/transfers/[id]/reject", () => {
     mocks.transferFindFirst.mockResolvedValue(openTransfer({ status: "PENDING_CONNECTION" }));
     const res = await rejectPost(req(), ctx);
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: "invalid_state", status: "PENDING_CONNECTION" });
+    expect(await res.json()).toMatchObject({ error: "invalid_state", details: { status: "PENDING_CONNECTION" } });
   });
 });
 
@@ -257,7 +261,7 @@ describe("guarded-update contract (row 2)", () => {
     mocks.transferFindUnique.mockResolvedValue({ status: "COMPLETED" });
     const res = await cancelPost(req(), ctx);
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: "invalid_state", status: "COMPLETED" });
+    expect(await res.json()).toMatchObject({ error: "invalid_state", details: { status: "COMPLETED" } });
     expect(mocks.transferUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "t1", status: { in: OPEN_TRANSFER_STATUSES } } }),
     );
@@ -267,7 +271,7 @@ describe("guarded-update contract (row 2)", () => {
     mocks.transferFindUnique.mockResolvedValue({ status: "PENDING_CONNECTION" });
     const res = await rejectPost(req(), ctx);
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: "invalid_state", status: "PENDING_CONNECTION" });
+    expect(await res.json()).toMatchObject({ error: "invalid_state", details: { status: "PENDING_CONNECTION" } });
   });
   it("cancel: audit-write failure must not mask the successful mutation", async () => {
     mocks.writeAudit.mockRejectedValue(new Error("audit down"));

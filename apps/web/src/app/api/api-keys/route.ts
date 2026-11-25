@@ -3,6 +3,7 @@ import { withApiErrors, apiError } from "@/lib/api-error";
 import { requireApiAuth, requireFreshSession } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { writeAudit } from "@metricflock/db/audit";
+import { parsePagination } from "@/lib/pagination";
 import {
   generateApiKey,
   apiKeyDisplayPrefix,
@@ -21,8 +22,13 @@ import {
 async function get(req: NextRequest) {
   const auth = await requireApiAuth("organization.manage", { req });
   if ("error" in auth) return auth.error;
+  // A-API-09: limit/offset are honoured via parsePagination; the old
+  // hard-coded take (100) is kept as the default. The response shape is
+  // unchanged ({ keys }) — no new fields are invented.
+  const { limit, offset } = parsePagination(req, { defaultLimit: 100 });
+  const where = { organizationId: auth.user.organizationId };
   const keys = await prisma.apiKey.findMany({
-    where: { organizationId: auth.user.organizationId },
+    where,
     select: {
       id: true,
       name: true,
@@ -34,7 +40,8 @@ async function get(req: NextRequest) {
       createdAt: true,
     },
     orderBy: { createdAt: "desc" },
-    take: 100,
+    take: limit,
+    skip: offset,
   });
   return NextResponse.json({ keys });
 }

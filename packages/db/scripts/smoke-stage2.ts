@@ -140,6 +140,112 @@ async function main() {
     }),
   );
 
+  // A-DB-07: the WebsiteIntegration property-FK CHECKs. Each invalid insert
+  // below must be rejected by Postgres itself with a CHECK violation — the
+  // assertion requires the violated constraint's name in the error, so a
+  // foreign-key or unique rejection cannot pass for the wrong reason. The
+  // two control inserts prove the CHECKs do not block the map route's
+  // shape (MAPPED + own FK + connection, primary or not; a PENDING row
+  // must still carry its provider's FK).
+  const propA = await prisma.googleProperty.findFirst({
+    where: { connectionId: connA.id, propertyId: "properties/123456789" },
+  });
+  const scPropA = await prisma.searchConsoleProperty.upsert({
+    where: { connectionId_siteUrl: { connectionId: connA.id, siteUrl: "https://smoke-a.example.com/" } },
+    update: {},
+    create: { connectionId: connA.id, siteUrl: "https://smoke-a.example.com/" },
+  });
+  if (!propA) throw new Error("Phase 4 checks need the team-a GA4 property.");
+  async function expectCheckFailure(label: string, constraint: string, fn: () => Promise<unknown>) {
+    try {
+      await fn();
+    } catch (e) {
+      if (String(e).includes(constraint)) return;
+      throw new Error(`A-DB-07 check failed: ${label} was rejected, but not by ${constraint}: ${String(e)}`);
+    }
+    throw new Error(`A-DB-07 check failed: ${label} was NOT rejected`);
+  }
+  const db07Base = { websiteId: anyWebsite.id, googleConnectionId: connA.id };
+  // (a) A SEARCH_CONSOLE row carrying a GA4 property FK.
+  await expectCheckFailure("SC row with GA4 FK", "WebsiteIntegration_provider_fk_check", () =>
+    prisma.websiteIntegration.create({
+      data: {
+        ...db07Base,
+        provider: "SEARCH_CONSOLE",
+        externalId: "db07-sc-with-ga4-fk",
+        googlePropertyId: propA.id,
+        mappingStatus: "MAPPED",
+      },
+    }),
+  );
+  // (b) Two property FKs at once.
+  await expectCheckFailure("two FKs at once", "WebsiteIntegration_provider_fk_check", () =>
+    prisma.websiteIntegration.create({
+      data: {
+        ...db07Base,
+        provider: "GA4",
+        externalId: "db07-two-fks",
+        googlePropertyId: propA.id,
+        searchConsolePropertyId: scPropA.id,
+        mappingStatus: "MAPPED",
+      },
+    }),
+  );
+  // (c) A property FK with no connection (MATCH SIMPLE would let the
+  // composite FK slide; the CHECK must catch it).
+  await expectCheckFailure("FK without connection", "WebsiteIntegration_connection_required_check", () =>
+    prisma.websiteIntegration.create({
+      data: {
+        websiteId: anyWebsite.id,
+        provider: "GA4",
+        externalId: "db07-fk-no-conn",
+        googlePropertyId: propA.id,
+        mappingStatus: "MAPPED",
+      },
+    }),
+  );
+  // (d) A MAPPED row with no property FK at all.
+  await expectCheckFailure("MAPPED with no FK", "WebsiteIntegration_provider_fk_check", () =>
+    prisma.websiteIntegration.create({
+      data: { ...db07Base, provider: "GA4", externalId: "db07-mapped-no-fk", mappingStatus: "MAPPED" },
+    }),
+  );
+  // (e) isPrimary with a non-MAPPED status (valid FK set, so only the
+  // primary rule can reject it).
+  await expectCheckFailure("primary + UNMAPPED", "WebsiteIntegration_primary_mapped_check", () =>
+    prisma.websiteIntegration.create({
+      data: {
+        ...db07Base,
+        provider: "GA4",
+        externalId: "db07-primary-unmapped",
+        googlePropertyId: propA.id,
+        mappingStatus: "UNMAPPED",
+        isPrimary: true,
+      },
+    }),
+  );
+  // Controls: both must succeed, then are deleted again.
+  const controlMapped = await prisma.websiteIntegration.create({
+    data: {
+      ...db07Base,
+      provider: "GA4",
+      externalId: "db07-control-mapped",
+      googlePropertyId: propA.id,
+      mappingStatus: "MAPPED",
+      isPrimary: true,
+    },
+  });
+  const controlPending = await prisma.websiteIntegration.create({
+    data: {
+      ...db07Base,
+      provider: "GA4",
+      externalId: "db07-control-pending",
+      googlePropertyId: propA.id,
+      mappingStatus: "PENDING",
+    },
+  });
+  await prisma.websiteIntegration.deleteMany({ where: { id: { in: [controlMapped.id, controlPending.id] } } });
+
   // (c)+(d) A user from another organization cannot join this org's
   // team or be assigned to this org's website.
   const org2 = await prisma.organization.upsert({
@@ -164,7 +270,7 @@ async function main() {
   );
   await prisma.organization.delete({ where: { id: org2.id } }).catch(() => undefined);
   console.log(
-    "smoke ok: phase4: DB constraints reject cross-connection mapping, ownerless connection, cross-org membership/assignment",
+    "smoke ok: phase4: DB constraints reject cross-connection mapping, ownerless connection, A-DB-07 integration FK mismatches, cross-org membership/assignment",
   );
 
   // Phase 4 (F-4.3): a throwaway organization + verified SUPER_ADMIN

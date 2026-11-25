@@ -47,6 +47,21 @@ type SyncJobData = { websiteId?: string; connectionId?: string; syncJobRowId?: s
 
 const log = createLogger("worker");
 
+// A-WRK-11: a stray rejection/exception (e.g. a floating Prisma/Redis
+// promise in a processor path) must not kill the process silently — log
+// it and exit non-zero so the host restarts cleanly. The handlers are
+// exported so tests can invoke them directly.
+export function handleUncaughtException(err: unknown): void {
+  log.error("uncaught exception — crashing", errMeta(err));
+  process.exit(1);
+}
+export function handleUnhandledRejection(reason: unknown): void {
+  log.error("unhandled rejection — crashing", errMeta(reason));
+  process.exit(1);
+}
+process.on("uncaughtException", handleUncaughtException);
+process.on("unhandledRejection", handleUnhandledRejection);
+
 async function alertSyncFailure(websiteId: string, queue: string, error: string): Promise<void> {
   const website = await prisma.website.findUnique({
     where: { id: websiteId },
@@ -180,10 +195,24 @@ async function runJob(name: QueueName, data: SyncJobData): Promise<SyncResult> {
       if (!connectionId)
         return { status: "not_connected", reports: [], detail: "No connection to discover properties for." };
       const counts = await discoverConnectionProperties(connectionId);
+      // A-GGL-13: per-provider failures are collected in `errors` instead
+      // of aborting the discovery — surface them in the detail string so
+      // the job row shows them (the job itself still SUCCEEDED: a disabled
+      // API cannot be fixed by retrying). `pruned` likewise, when present.
+      const errorDetail = counts.errors
+        ? `; errors: ${Object.entries(counts.errors)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(", ")}`
+        : "";
+      const prunedDetail = counts.pruned
+        ? `; pruned: ${Object.entries(counts.pruned)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(", ")}`
+        : "";
       return {
         status: "ok",
         reports: [],
-        detail: `discovered ga4=${counts.ga4} searchConsole=${counts.searchConsole} adsense=${counts.adsense} adManager=${counts.adManager}`,
+        detail: `discovered ga4=${counts.ga4} searchConsole=${counts.searchConsole} adsense=${counts.adsense} adManager=${counts.adManager}${errorDetail}${prunedDetail}`,
       };
     }
   }
@@ -332,6 +361,19 @@ const healthServer = createServer(async (req, res) => {
 });
 healthServer.listen(healthPort, () => log.info("health endpoint listening", { port: healthPort }));
 
+// A-WRK-11: bound the drain. Docker `stop` gives 10 s by default and
+// Railway's RAILWAY_DEPLOYMENT_DRAINING_SECONDS defaults to 0 — the
+// finding's suggested 25 s would be SIGKILLed before it ever fired on
+// either default, so the default is 8 s (2 s headroom for the
+// force-close + final disconnects). Raise WORKER_SHUTDOWN_TIMEOUT_MS
+// only together with the host's grace period (Railway: set
+// RAILWAY_DEPLOYMENT_DRAINING_SECONDS in the service settings, otherwise
+// the host SIGKILLs immediately and no in-process timeout can help).
+export const SHUTDOWN_TIMEOUT_MS = (() => {
+  const ms = Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS ?? 8_000);
+  return Number.isFinite(ms) && ms > 0 ? ms : 8_000;
+})();
+
 // OPS-5: graceful shutdown — stop taking jobs, let in-flight work finish,
 // close connections, then exit. Without this, SIGTERM mid-job means
 // stalled redelivery and duplicate side effects.
@@ -340,10 +382,33 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info("shutting down gracefully", { signal });
-  scheduler.stop();
-  healthServer.close();
-  await Promise.allSettled(workers.map((w) => w.close()));
+  // A-WRK-11: stop scheduling first and await any in-flight tick, so it
+  // cannot keep enqueueing while the workers close.
+  await scheduler.stop();
+  // Await the health-server close so the host stops routing readiness
+  // probes at a draining process.
+  await new Promise<void>((resolve) => healthServer.close(() => resolve()));
+  // Bound the worker drain: Worker.close() waits for in-flight jobs,
+  // and a slow Google call could hold it past the orchestrator's kill
+  // grace period. After SHUTDOWN_TIMEOUT_MS, force-close instead of
+  // being SIGKILLed mid-job.
+  const closeWorkers = Promise.allSettled(workers.map((w) => w.close()));
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = await Promise.race([
+    closeWorkers.then(() => false),
+    new Promise<boolean>((resolve) => {
+      timeout = setTimeout(() => resolve(true), SHUTDOWN_TIMEOUT_MS);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
+  if (timedOut) {
+    log.warn("shutdown timed out — force-closing workers", { timeoutMs: SHUTDOWN_TIMEOUT_MS });
+    await Promise.allSettled(workers.map((w) => w.close(true)));
+  }
   await prisma.$disconnect().catch(() => {});
+  // ioredis disconnect() is synchronous (it closes the socket
+  // immediately); it runs before exit so no Redis connection is left
+  // dangling.
   redisClient.disconnect();
   process.exit(0);
 }

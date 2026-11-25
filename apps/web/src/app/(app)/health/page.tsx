@@ -23,7 +23,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Integration health</h1>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Per-website provider status from scheduled syncs and health checks. “Stale” means no successful sync in 48
           hours.
         </p>
@@ -44,7 +44,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
           <>
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-zinc-500">
+                <tr className="text-left text-zinc-500 dark:text-zinc-400">
                   <th scope="col" className="py-1 font-medium">
                     Website
                   </th>
@@ -69,18 +69,28 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                 {rows.map((r) => (
                   <tr key={`${r.websiteId}-${r.provider}`} className="border-t border-zinc-200 dark:border-zinc-800">
                     <td className="py-1">
-                      <Link href={`/websites/${r.websiteId}`} className="text-blue-600 hover:underline">
+                      <Link
+                        href={`/websites/${r.websiteId}`}
+                        className="text-blue-600 hover:underline dark:text-blue-400"
+                      >
                         {r.websiteName}
                       </Link>{" "}
-                      <span className="text-zinc-500">{r.domain}</span>
+                      <span className="text-zinc-500 dark:text-zinc-400">{r.domain}</span>
                     </td>
                     <td className="py-1">{r.provider}</td>
                     <td className="py-1">
                       <Badge tone={tone(r.state)}>{r.state}</Badge>
                     </td>
-                    <td className="py-1 text-zinc-500">{r.lastSuccessAt?.slice(0, 16).replace("T", " ") ?? "—"}</td>
-                    <td className="py-1 text-zinc-500">{r.checkedAt.slice(0, 16).replace("T", " ")}</td>
-                    <td className="max-w-xs truncate py-1 text-zinc-500" title={r.lastError ?? undefined}>
+                    <td className="py-1 text-zinc-500 dark:text-zinc-400">
+                      {r.lastSuccessAt?.slice(0, 16).replace("T", " ") ?? "—"}
+                    </td>
+                    <td className="py-1 text-zinc-500 dark:text-zinc-400">
+                      {r.checkedAt.slice(0, 16).replace("T", " ")}
+                    </td>
+                    <td
+                      className="max-w-xs truncate py-1 text-zinc-500 dark:text-zinc-400"
+                      title={r.lastError ?? undefined}
+                    >
                       {r.lastError ?? "—"}
                     </td>
                   </tr>
@@ -90,15 +100,15 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
             {pageCount > 1 && (
               <div className="mt-4 flex items-center gap-3 text-sm">
                 {page > 1 && (
-                  <Link href={`/health?page=${page - 1}`} className="text-blue-600 hover:underline">
+                  <Link href={`/health?page=${page - 1}`} className="text-blue-600 hover:underline dark:text-blue-400">
                     Previous
                   </Link>
                 )}
-                <span className="text-zinc-500">
+                <span className="text-zinc-500 dark:text-zinc-400">
                   Page {page} of {pageCount}
                 </span>
                 {page < pageCount && (
-                  <Link href={`/health?page=${page + 1}`} className="text-blue-600 hover:underline">
+                  <Link href={`/health?page=${page + 1}`} className="text-blue-600 hover:underline dark:text-blue-400">
                     Next
                   </Link>
                 )}

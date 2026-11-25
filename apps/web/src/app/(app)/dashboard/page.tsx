@@ -126,7 +126,7 @@ export default async function DashboardPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">{user.role === "SUPER_ADMIN" ? "Super Admin Dashboard" : "Dashboard"}</h1>
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
             Signed in as {user.email} ({user.role}). Range: {range ?? "28d"} — live Google metrics load per website;
             unconnected sites are listed as unavailable, never as zero.
           </p>
@@ -138,19 +138,19 @@ export default async function DashboardPage({
           <h2 className="font-semibold">Get started</h2>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-600 dark:text-zinc-400">
             <li>
-              <Link href="/teams" className="text-blue-600 hover:underline">
+              <Link href="/teams" className="text-blue-600 hover:underline dark:text-blue-400">
                 Create a team
               </Link>{" "}
               — websites and Google connections attach to teams.
             </li>
             <li>
-              <Link href="/websites" className="text-blue-600 hover:underline">
+              <Link href="/websites" className="text-blue-600 hover:underline dark:text-blue-400">
                 Add a website
               </Link>{" "}
               to the team.
             </li>
             <li>
-              <Link href="/integrations" className="text-blue-600 hover:underline">
+              <Link href="/integrations" className="text-blue-600 hover:underline dark:text-blue-400">
                 Connect a Google account
               </Link>
               , discover its properties, and map them to the website.
@@ -174,7 +174,7 @@ export default async function DashboardPage({
       </div>
       <Card className="p-4">
         <h2 className="font-semibold">Portfolio totals ({range ?? "28d"})</h2>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
           Summed from per-website snapshots — websites without a snapshot yet are excluded, never counted as zero.
         </p>
         {pfGa4.websites.length === 0 && pfSc.websites.length === 0 && pfAds.websites.length === 0 ? (
@@ -202,7 +202,7 @@ export default async function DashboardPage({
             {topBySessions.length > 0 && (
               <table className="mt-4 w-full text-sm">
                 <thead>
-                  <tr className="text-left text-zinc-500">
+                  <tr className="text-left text-zinc-500 dark:text-zinc-400">
                     <th scope="col" className="py-1 font-medium">
                       Top websites by sessions
                     </th>
@@ -218,10 +218,13 @@ export default async function DashboardPage({
                   {topBySessions.map((w) => (
                     <tr key={w.websiteId} className="border-t border-zinc-200 dark:border-zinc-800">
                       <td className="py-1">
-                        <Link href={`/websites/${w.websiteId}`} className="text-blue-600 hover:underline">
+                        <Link
+                          href={`/websites/${w.websiteId}`}
+                          className="text-blue-600 hover:underline dark:text-blue-400"
+                        >
                           {w.name}
                         </Link>{" "}
-                        <span className="text-zinc-500">{w.domain}</span>
+                        <span className="text-zinc-500 dark:text-zinc-400">{w.domain}</span>
                         {w.stale && (
                           <Badge>
                             <span>stale</span>
@@ -229,7 +232,9 @@ export default async function DashboardPage({
                         )}
                       </td>
                       <td className="py-1 text-right">{fmtNum(w.sessions)}</td>
-                      <td className="py-1 text-right text-zinc-500">{w.snapshotUpdatedAt.slice(0, 10)}</td>
+                      <td className="py-1 text-right text-zinc-500 dark:text-zinc-400">
+                        {w.snapshotUpdatedAt.slice(0, 10)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -249,7 +254,7 @@ export default async function DashboardPage({
           <>
             <table className="mt-3 w-full text-sm">
               <thead>
-                <tr className="text-left text-zinc-500">
+                <tr className="text-left text-zinc-500 dark:text-zinc-400">
                   <th scope="col" className="py-2">
                     Website
                   </th>
@@ -266,7 +271,7 @@ export default async function DashboardPage({
                   <tr key={w.id} className="border-t border-zinc-100 dark:border-zinc-800">
                     <td className="py-2 font-medium">
                       {w.name}
-                      <span className="block text-xs text-zinc-500">{w.domain}</span>
+                      <span className="block text-xs text-zinc-500 dark:text-zinc-400">{w.domain}</span>
                     </td>
                     <td>{w.team?.name ?? "—"}</td>
                     <td>
@@ -274,13 +279,13 @@ export default async function DashboardPage({
                         {w.status}
                       </Badge>
                     </td>
-                    <td className="text-zinc-500">
+                    <td className="text-zinc-500 dark:text-zinc-400">
                       {lastSyncByWebsite.get(w.id)?.toISOString().slice(0, 16).replace("T", " ") ?? "never"}
                     </td>
                     <td className="text-right">
                       <Link
                         href={`/websites/${w.id}`}
-                        className="rounded text-blue-600 hover:underline focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                        className="rounded text-blue-600 hover:underline focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none dark:text-blue-400"
                       >
                         Open analytics →
                       </Link>
@@ -291,7 +296,7 @@ export default async function DashboardPage({
             </table>
             {totalPages > 1 && (
               <nav aria-label="Websites pagination" className="mt-3 flex items-center justify-between text-sm">
-                <span className="text-zinc-500">
+                <span className="text-zinc-500 dark:text-zinc-400">
                   Page {page} of {totalPages} · {totalWebsites} websites
                 </span>
                 <span className="flex gap-2">
@@ -330,16 +335,16 @@ export default async function DashboardPage({
               {connections.map((c) => (
                 <li key={c.id} className="flex justify-between gap-2">
                   <span>
-                    {c.googleAccountEmail} <span className="text-zinc-500">({c.ownerType})</span>
+                    {c.googleAccountEmail} <span className="text-zinc-500 dark:text-zinc-400">({c.ownerType})</span>
                   </span>
                   <Badge tone={c.status === "ACTIVE" ? "green" : "amber"}>{c.status}</Badge>
                 </li>
               ))}
             </ul>
             {connectionTotal > CONNECTIONS_SHOWN && (
-              <p className="mt-2 text-xs text-zinc-500">
+              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
                 Showing the {CONNECTIONS_SHOWN} most recent of {connectionTotal} connections — manage all of them from{" "}
-                <Link href="/integrations" className="text-blue-600 hover:underline">
+                <Link href="/integrations" className="text-blue-600 hover:underline dark:text-blue-400">
                   Integrations
                 </Link>
                 .

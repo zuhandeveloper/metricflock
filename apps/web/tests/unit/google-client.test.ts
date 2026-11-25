@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   websiteFindUnique: vi.fn(),
   connectionFindFirst: vi.fn(),
   integrationFindFirst: vi.fn(),
+  integrationFindMany: vi.fn(),
   getValidAccessToken: vi.fn(),
   setCredentials: vi.fn(),
 }));
@@ -15,7 +16,10 @@ vi.mock("@metricflock/db", () => ({
   prisma: {
     website: { findUnique: mocks.websiteFindUnique },
     googleConnection: { findFirst: mocks.connectionFindFirst },
-    websiteIntegration: { findFirst: mocks.integrationFindFirst },
+    websiteIntegration: {
+      findFirst: mocks.integrationFindFirst,
+      findMany: mocks.integrationFindMany,
+    },
   },
 }));
 vi.mock("@metricflock/google/tokens", () => ({
@@ -31,6 +35,7 @@ import {
   getAuthorizedClientForWebsite,
   getAuthorizedClientForIntegration,
   getPrimaryIntegration,
+  getPrimaryIntegrations,
   _google,
 } from "@metricflock/google/client";
 import { GA4_SCOPES } from "@metricflock/google/oauth";
@@ -193,12 +198,15 @@ describe("getAuthorizedClientForIntegration (DATA-5)", () => {
     expect(mocks.getValidAccessToken).toHaveBeenCalledWith("conn-9");
   });
 
-  it("falls back to website→team resolution for legacy mappings without a connection", async () => {
+  it("throws LEGACY_CONNECTION_MISSING for legacy mappings without a connection (A-DB-12)", async () => {
+    // A-DB-12: the website→team fallback is gone — a MAPPED integration
+    // with no connection must never be fetched under another connection's
+    // credentials, even when one exists.
     mocks.websiteFindUnique.mockResolvedValue({ ...WEBSITE });
     mocks.connectionFindFirst.mockResolvedValue(SITE_CONN);
-    const { connection } = await getAuthorizedClientForIntegration("site-1", {});
-    expect(connection.level).toBe("WEBSITE");
-    expect(mocks.getValidAccessToken).toHaveBeenCalledWith("conn-site");
+    await expect(getAuthorizedClientForIntegration("site-1", {})).rejects.toThrow("LEGACY_CONNECTION_MISSING");
+    expect(mocks.connectionFindFirst).not.toHaveBeenCalled();
+    expect(mocks.getValidAccessToken).not.toHaveBeenCalled();
   });
 });
 
@@ -216,5 +224,41 @@ describe("getPrimaryIntegration", () => {
   it("re-exports the googleapis namespace for callers that need it", () => {
     expect(_google).toBeDefined();
     expect(typeof _google.auth.OAuth2).toBe("function");
+  });
+});
+
+// A-DB-11: the batch lookup — one findMany for any number of websites
+// × providers, with the same primary-first selection as the single
+// lookup (rows arrive in the same order, so the first row per
+// (website, provider) pair wins).
+describe("getPrimaryIntegrations", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("issues one findMany and picks the primary per (website, provider)", async () => {
+    const primary = { id: "ga4-primary", websiteId: "w1", provider: "GA4", isPrimary: true };
+    const newerNonPrimary = { id: "ga4-new", websiteId: "w1", provider: "GA4", isPrimary: false };
+    const scNewest = { id: "sc-new", websiteId: "w1", provider: "SEARCH_CONSOLE", isPrimary: false };
+    const scOlder = { id: "sc-old", websiteId: "w1", provider: "SEARCH_CONSOLE", isPrimary: false };
+    const otherSite = { id: "ga4-w2", websiteId: "w2", provider: "GA4", isPrimary: false };
+    // Rows in the order Prisma returns them: primary first, then newest.
+    mocks.integrationFindMany.mockResolvedValue([primary, scNewest, newerNonPrimary, otherSite, scOlder]);
+    const out = await getPrimaryIntegrations(["w1", "w2"], ["GA4", "SEARCH_CONSOLE"]);
+    expect(mocks.integrationFindMany).toHaveBeenCalledTimes(1);
+    expect(mocks.integrationFindMany).toHaveBeenCalledWith({
+      where: { websiteId: { in: ["w1", "w2"] }, provider: { in: ["GA4", "SEARCH_CONSOLE"] }, mappingStatus: "MAPPED" },
+      orderBy: [{ isPrimary: "desc" }, { updatedAt: "desc" }],
+    });
+    expect(out.get("w1")?.get("GA4")).toBe(primary);
+    expect(out.get("w1")?.get("SEARCH_CONSOLE")).toBe(scNewest);
+    expect(out.get("w2")?.get("GA4")).toBe(otherSite);
+    expect(out.get("w2")?.has("SEARCH_CONSOLE")).toBe(false);
+  });
+
+  it("returns an empty map without querying for no ids or no providers", async () => {
+    await expect(getPrimaryIntegrations([], ["GA4"])).resolves.toEqual(new Map());
+    await expect(getPrimaryIntegrations(["w1"], [])).resolves.toEqual(new Map());
+    expect(mocks.integrationFindMany).not.toHaveBeenCalled();
   });
 });

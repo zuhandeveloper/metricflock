@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withApiErrors } from "@/lib/api-error";
+import { apiError, requestIdOf, withApiErrors } from "@/lib/api-error";
 import { canActForDestination, expireIfStale, loadTransferInOrg, transferStaleStateResponse } from "@/lib/transfers";
 import { requireApiAuth } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
@@ -21,7 +21,7 @@ async function post(req: NextRequest, ctx: { params: Promise<{ id: string }> }) 
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   if (transfer.status === "EXPIRED") return NextResponse.json({ error: "transfer_expired" }, { status: 409 });
   if (transfer.status !== "PENDING_ACCEPTANCE")
-    return NextResponse.json({ error: "invalid_state", status: transfer.status }, { status: 409 });
+    return apiError("invalid_state", 409, { status: transfer.status }, requestIdOf(req));
   const result = await prisma.websiteTransfer.updateMany({
     where: { id, status: "PENDING_ACCEPTANCE" },
     data: { status: "CANCELLED" },

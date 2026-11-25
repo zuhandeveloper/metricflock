@@ -83,6 +83,30 @@ describe("DiscoverButton", () => {
     expect(screen.getByText("AdSense: weird_code")).toBeInTheDocument();
   });
 
+  it("includes the Ad Manager count when the response carries it (A-GGL-10)", async () => {
+    mockFetch({ ga4: [], searchConsole: [], adsense: [], adManager: [{}, {}] });
+    render(<DiscoverButton connectionId="c1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Discover properties" }));
+    await waitFor(() =>
+      expect(screen.getByText("Found 0 GA4, 0 Search Console, 0 AdSense, 2 Ad Manager.")).toBeInTheDocument(),
+    );
+  });
+
+  it("labels Ad Manager provider errors (A-GGL-10)", async () => {
+    mockFetch({
+      ga4: [],
+      searchConsole: [],
+      adsense: [],
+      adManager: [],
+      errors: { adManager: "api_not_enabled" },
+    });
+    render(<DiscoverButton connectionId="c1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Discover properties" }));
+    await waitFor(() =>
+      expect(screen.getByText("Ad Manager: API not enabled in Google Cloud Console")).toBeInTheDocument(),
+    );
+  });
+
   it("shows the server error on failure", async () => {
     mockFetch({ error: "unauthorized" }, false, 401);
     render(<DiscoverButton connectionId="c1" />);

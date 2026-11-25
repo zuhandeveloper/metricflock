@@ -331,6 +331,10 @@ model WebsiteTransfer {
   acceptedAt    DateTime?
   expiresAt     DateTime?
   status        TransferStatus @default(INITIATED)
+  // A-DB-04: the website's status at initiation. `complete` restores
+  // this instead of hard-coding ACTIVE. Null for transfers initiated
+  // before this field existed — those fall back to ACTIVE at completion.
+  websiteStatusBefore WebsiteStatus?
   reason        String?
   connectionHealthChecked Boolean @default(false)
   initiatedAt   DateTime @default(now())
@@ -347,6 +351,10 @@ model GoogleConnection {
   // Legacy polymorphic owner (Stage 2, DB-1): kept during the transition
   // to typed FKs below; dropped in a later release once all reads/writes
   // use teamId/websiteId. New code must always write the typed columns.
+  // A-DB-08: the `GoogleConnection_legacy_owner_match_check` CHECK ties
+  // these columns to the typed FKs (ownerType='TEAM' ⇔ teamId=ownerId,
+  // ownerType='WEBSITE' ⇔ websiteId=ownerId), and no reader falls back
+  // to them — `assertConnectionScopeForWebsite` uses typed FKs only.
   ownerType            ConnectionOwnerType
   ownerId              String
   // Typed owner FKs (exactly one is set; enforced by a CHECK constraint
@@ -467,6 +475,11 @@ model WebsiteIntegration {
   // enforced by the database, not only by the map route. (Postgres
   // MATCH SIMPLE: the check applies whenever both columns are set,
   // which the map route always does.)
+  // A-DB-07: three more CHECKs in migration
+  // 20261124191149_website_integration_checks tie the property FKs to the
+  // provider (exactly the provider's FK set), require a connection
+  // whenever any FK is set, and require isPrimary => MAPPED. Prisma cannot
+  // express CHECKs, so they live in that migration only.
   googlePropertyId   String?
   googleProperty     GoogleProperty? @relation(fields: [googlePropertyId, googleConnectionId], references: [id, connectionId], onDelete: SetNull)
   searchConsolePropertyId String?

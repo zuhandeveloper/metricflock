@@ -128,8 +128,8 @@ describe("assertTeamManageAccess", () => {
 });
 
 describe("assertConnectionScopeForWebsite (pure)", () => {
-  const teamConn = { teamId: "t1", websiteId: null, ownerType: "TEAM", ownerId: "t1" };
-  const siteConn = { teamId: null, websiteId: "w1", ownerType: "WEBSITE", ownerId: "w1" };
+  const teamConn = { teamId: "t1", websiteId: null };
+  const siteConn = { teamId: null, websiteId: "w1" };
   it("team connection serves a website of the same team", () => {
     expect(() => assertConnectionScopeForWebsite(teamConn, { id: "w1", teamId: "t1" })).not.toThrow();
   });
@@ -146,25 +146,24 @@ describe("assertConnectionScopeForWebsite (pure)", () => {
   });
   it("an unscoped connection serves nothing", () => {
     expect(() =>
-      assertConnectionScopeForWebsite(
-        { teamId: null, websiteId: null, ownerType: "ORGANIZATION", ownerId: "org1" },
-        { id: "w1", teamId: "t1" },
-      ),
+      assertConnectionScopeForWebsite({ teamId: null, websiteId: null }, { id: "w1", teamId: "t1" }),
     ).toThrow("NOT_FOUND_OR_FORBIDDEN");
   });
-  it("legacy polymorphic columns are consulted when typed FKs are null", () => {
+  it("legacy polymorphic columns are ignored — typed FKs decide (A-DB-08)", () => {
+    // A connection with no typed FK serves nothing, even though the
+    // legacy columns (no longer passed in) used to name an owner — the
+    // old fallback read them. A drifted row is judged by its typed FKs
+    // only: the DB CHECK (`GoogleConnection_legacy_owner_match_check`)
+    // is the backstop that keeps legacy and typed in agreement.
     expect(() =>
-      assertConnectionScopeForWebsite(
-        { teamId: null, websiteId: null, ownerType: "TEAM", ownerId: "t1" },
-        { id: "w1", teamId: "t1" },
-      ),
+      assertConnectionScopeForWebsite({ teamId: null, websiteId: null }, { id: "w1", teamId: "t1" }),
+    ).toThrow("NOT_FOUND_OR_FORBIDDEN");
+    expect(() =>
+      assertConnectionScopeForWebsite({ teamId: "t1", websiteId: null }, { id: "w1", teamId: "t1" }),
     ).not.toThrow();
     expect(() =>
-      assertConnectionScopeForWebsite(
-        { teamId: null, websiteId: null, ownerType: "WEBSITE", ownerId: "w1" },
-        { id: "w1", teamId: null },
-      ),
-    ).not.toThrow();
+      assertConnectionScopeForWebsite({ teamId: "t1", websiteId: null }, { id: "w2", teamId: "t2" }),
+    ).toThrow("NOT_FOUND_OR_FORBIDDEN");
   });
 });
 

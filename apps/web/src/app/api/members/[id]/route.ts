@@ -41,16 +41,32 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
   // Never demote the last SUPER_ADMIN (same guard as the team members
   // route's last-admin rule). A-DB-02: the count + demote run inside one
   // transaction with the admin rows locked (see countSuperAdminsLocked).
+  // A-DB-09: the audit row is written inside that same transaction, so
+  // it commits or rolls back with the demote. An audit failure here
+  // therefore fails the demote (500, nothing committed) instead of
+  // reporting success for a demote whose record was lost — the plain
+  // role-change path below has no transaction, so it stays best-effort.
+  const auditOpts = {
+    organizationId: auth.user.organizationId,
+    actorId: auth.user.id,
+    ipAddress: clientIpFromHeaders(req.headers),
+    action: "member.role_changed",
+    entityType: "User",
+    entityId: id,
+    details: { email: target.email, from: target.role, to: body.data.role },
+  };
   let updated;
   if (target.role === "SUPER_ADMIN" && body.data.role !== "SUPER_ADMIN") {
     updated = await prisma.$transaction(async (tx) => {
       const admins = await countSuperAdminsLocked(tx, auth.user.organizationId);
       if (admins <= 1) return null;
-      return tx.user.update({
+      const u = await tx.user.update({
         where: { id },
         data: { role: body.data.role },
         select: { id: true, email: true, role: true },
       });
+      await writeAudit(auditOpts, tx);
+      return u;
     });
     if (!updated) return NextResponse.json({ error: "last_super_admin" }, { status: 409 });
   } else {
@@ -59,16 +75,8 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
       data: { role: body.data.role },
       select: { id: true, email: true, role: true },
     });
+    await writeAudit(auditOpts).catch(() => undefined); // A-DB-09: audit failure must not turn a committed role change into a 500.
   }
-  await writeAudit({
-    organizationId: auth.user.organizationId,
-    actorId: auth.user.id,
-    ipAddress: clientIpFromHeaders(req.headers),
-    action: "member.role_changed",
-    entityType: "User",
-    entityId: id,
-    details: { email: target.email, from: target.role, to: body.data.role },
-  }).catch(() => undefined); // A-DB-09: audit failure must not turn a committed role change into a 500.
   return NextResponse.json({ member: updated });
 }
 
@@ -112,24 +120,33 @@ async function del(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   // with the admin rows locked (see countSuperAdminsLocked), so two
   // concurrent deletes of the last two SUPER_ADMINs cannot both pass
   // the count and leave the org admin-less.
+  // A-DB-09: the audit row is written inside that same transaction, so
+  // it commits or rolls back with the delete. An audit failure here
+  // fails the delete (500, member still present, retryable) instead of
+  // the old behaviour — 200 with the audit record silently lost. (The
+  // P2003 that motivated the old `.catch` — actor deleted concurrently
+  // — now surfaces as a truthful 500 rather than a lost record.)
   const deleted = await prisma.$transaction(async (tx) => {
     if (target.role === "SUPER_ADMIN") {
       const admins = await countSuperAdminsLocked(tx, auth.user.organizationId);
       if (admins <= 1) return false;
     }
     await tx.user.delete({ where: { id } });
+    await writeAudit(
+      {
+        organizationId: auth.user.organizationId,
+        actorId: auth.user.id,
+        ipAddress: clientIpFromHeaders(req.headers),
+        action: "member.deleted",
+        entityType: "User",
+        entityId: id,
+        details: { email: target.email, role: target.role },
+      },
+      tx,
+    );
     return true;
   });
   if (!deleted) return NextResponse.json({ error: "last_super_admin" }, { status: 409 });
-  await writeAudit({
-    organizationId: auth.user.organizationId,
-    actorId: auth.user.id,
-    ipAddress: clientIpFromHeaders(req.headers),
-    action: "member.deleted",
-    entityType: "User",
-    entityId: id,
-    details: { email: target.email, role: target.role },
-  }).catch(() => undefined); // A-DB-09: a committed delete must stay a 200 even if the audit write fails (dynamic verification: the audit failed with P2003 when the actor was deleted concurrently, masking a successful delete as a 400).
   return NextResponse.json({ deleted: true });
 }
 

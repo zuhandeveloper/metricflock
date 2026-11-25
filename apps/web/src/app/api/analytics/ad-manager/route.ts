@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { apiError, requestIdOf } from "@/lib/api-error";
 import { handleAnalyticsRequest } from "@/lib/analytics-handler";
 import { runAdManagerReport, adManagerEnabled } from "@metricflock/google/ad-manager";
 // A-GGL-03: bound the route wall-clock (60s = Vercel Hobby max). Each
@@ -6,8 +7,12 @@ import { runAdManagerReport, adManagerEnabled } from "@metricflock/google/ad-man
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
-  if (!adManagerEnabled())
-    return NextResponse.json({ status: "disabled", error: "GOOGLE_AD_MANAGER_ENABLED is false" }, { status: 200 });
+  // A-API-10: a disabled provider is a 503 with the stable error code,
+  // not a 200 carrying an `error` field — every other analytics failure
+  // mode returns 4xx/5xx with `{ error }` (same precedent as
+  // `google_oauth_not_configured` → 503). Still before auth: the provider
+  // is off for every caller, so there is nothing to authorize.
+  if (!adManagerEnabled()) return apiError("ad_manager_disabled", 503, undefined, requestIdOf(req));
   return handleAnalyticsRequest(req, {
     permission: "ad_manager.view",
     provider: "AD_MANAGER",

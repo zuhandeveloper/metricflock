@@ -108,7 +108,7 @@ typecheck` — exit 0. Neither covers browser behaviour.
 - **Regression test:** e2e/unit test with a >100-site fixture asserting
   pagination controls appear and every site is reachable.
 
-### A-FE-03 — P2 — CONFIRMED — Integrations page loads everything unbounded (connections × properties × websites)
+### A-FE-03 — P2 — CONFIRMED — Integrations page loads everything unbounded (connections × properties × websites) · FIXED 2026-11-24
 
 - **Where:** `apps/web/src/app/(app)/integrations/page.tsx:19-45`.
 - **Evidence:** three unbounded `findMany`s — all connections with nested
@@ -127,8 +127,21 @@ typecheck` — exit 0. Neither covers browser behaviour.
   or lazy-load properties per connection behind an expand control.
 - **Regression test:** benchmark the page's query set at 1k sites (see
   Phase 5 doc A-WRK-12) with a time budget.
+- **Verification (2026-11-24):** paginated connections (20/page, count +
+  skip/take, pager preserving the search) and capped the team/website
+  option lists at 20, narrowed by a page-level search — the connect card
+  is now two GET forms with selects instead of one link per team/website,
+  and the map forms receive the same capped list (a native select is
+  keyboard-searchable; a search with no matches says so instead of
+  claiming no website exists). Owner names are fetched only for the
+  connections on the page (by id, bounded by the page size). Small orgs
+  behave as before: all connections on page 1, Discover/Disconnect and
+  the connect flow intact. Tests in
+  `pages-insights-integrations.test.tsx` (6 new; all 6 fail without the
+  fix). The 1k-site benchmark the finding asks for is pending the
+  A-WRK-12 real-DB run (owner approval).
 
-### A-FE-04 — P2 — CONFIRMED (static ratios) — Dark-mode text contrast fails 4.5:1 for links, muted text, and error/success/warning text
+### A-FE-04 — P2 — CONFIRMED (static ratios) — Dark-mode text contrast fails 4.5:1 for links, muted text, and error/success/warning text · FIXED 2026-11-24
 
 - **Where:** throughout — `text-blue-600` links (e.g.
   `dashboard/page.tsx`, `websites/page.tsx:111`,
@@ -164,8 +177,26 @@ typecheck` — exit 0. Neither covers browser behaviour.
   once in dark mode.
 - **Regression test:** Playwright axe run with the `dark` class forced on
   (or `colorScheme: dark`), asserting zero critical/serious violations.
+- **Verification (2026-11-24):** swept all five colours — 162 `dark:`
+  variants added across 37 files (`dark:text-blue-400`,
+  `dark:text-zinc-400`, `dark:text-red-400`, `dark:text-emerald-400`,
+  `dark:text-amber-400`). Ratios recomputed with the WCAG formula: the
+  replacements pass 4.5:1 on every dark background the app uses
+  (zinc-900: 6.97 / 6.91 / 6.40 / 9.22 / 10.61; zinc-950: 7.83 / 7.76 /
+  7.19 / 10.35 / 11.92; zinc-800 and amber-950 also pass). The `Badge`
+  tones already carried `dark:text-*-300` and were left alone. 22 uses in
+  the two A-FE-03 files (`integrations/page.tsx`, `ConnectionActions.tsx`)
+  could not be touched (A-FE-03 file freeze) and are allowlisted in the
+  regression test with a stale-allowlist guard. Regression test
+  `dark-mode-contrast.test.ts` (3 tests: replacement ratios, original
+  colours failing on zinc-900, and a source scan requiring a passing dark
+  variant for every use; fail-without-fix verified by stripping one
+  variant). The dark-mode axe run the finding asks for is still a CI
+  follow-up (e2e, not run locally).
 
-### A-FE-05 — P2 — CONFIRMED — Login collapses every failure into "Invalid email or password"
+### A-FE-05 — P2 — CONFIRMED — Login collapses every failure into "Invalid email or password" — FIXED 2026-11-24
+
+- **Verification (2026-11-24):** fixed in `LoginForm.tsx` — new `authErrorMessage` helper maps status + the API's error code: 429 or `too_many_requests`/`rate_limited` → "Too many attempts. Try again in a few minutes.", ≥500 or `internal_error`/`server_error` → "Something went wrong on our side. Try again in a moment.", 401 → the current "Invalid email or password." (the real login route returns `too_many_requests` on 429, `invalid_credentials` on 401). Same mapping on the 2FA verify path (fallback stays "That code didn't work…") and on `google()` via `socialErrorMessage` (better-auth error `status`/`code`; a status-less error keeps the existing "Google sign-in is not available right now…" message). Raw server error strings are never surfaced. The 2FA branch (`two_factor_required` → code form) is unchanged. No `Retry-After` handling — the login route sends no such header, so the message uses a fixed "few minutes" wording (route change needed first). Regression tests in `LoginForm.test.tsx` (6 new, all fail without the fix: 429/500 on login, `rate_limited` code with a 400 status, 429/500 on 2FA verify, 429 on Google sign-in). The A-FE-04 `dark:` variants in `LoginForm.tsx` are preserved byte-for-byte (5 variants intact, `dark-mode-contrast.test.ts` passes).
 
 - **Where:** `apps/web/src/app/login/LoginForm.tsx:38-49` (`submit`),
   also `google()` (line 27-33) and `submitCode`.
@@ -209,7 +240,9 @@ typecheck` — exit 0. Neither covers browser behaviour.
   `document.documentElement.scrollWidth <= innerWidth` on the table
   pages (extend `journeys.spec.ts` mobile test).
 
-### A-FE-07 — P2 — CONFIRMED — "Sync now" reports "Queued." even when nothing will run (see A-WRK-01) and shows no progress
+### A-FE-07 — P2 — CONFIRMED — "Sync now" reports "Queued." even when nothing will run (see A-WRK-01) and shows no progress · FIXED 2026-11-24
+
+- **Verification note (fixed 2026-11-24):** revalidated first — the dedup half was already covered by A-API-06 (route returns typed 200 `already_queued` / `already_completed` with `syncJobId`; the form shows "Already queued for this hour." / "Already synced this hour."). This fix adds the remaining parts: (1) the website detail page now shows the latest sync job — type label, status `Badge` (green SUCCEEDED, blue RUNNING, red FAILED, amber PENDING/RETRYING), updated time and `lastError` when present, or "No syncs yet." — from one bounded `findFirst` (`websiteId`, `updatedAt` desc) in the page's existing `Promise.all`, visible to all viewers (not just managers); a fresh queue calls `router.refresh()` so the new PENDING row appears. (2) `ga4-realtime-sync` and `analytics-cache-refresh` added to the API enum and the form's type list (7 types); the worker already handles both queues and `SYNC_TYPE_BY_QUEUE` maps them, so no worker change was needed. The A-API-06 hour-bucket dedup applies uniformly — the scheduler already refreshes realtime every ~5 min, so a second manual realtime click in the same hour honestly answers `already_queued` / `already_completed`. (3) No literal `deduped: true` flag added — the UI branches on the typed `status` + `syncJobId` A-API-06 already returns; the flag would be dead. A-API-06 behaviour preserved exactly (idempotency, `website.manage`, FAILED retry, P2002 race). Regression tests: 3 new page tests (FAILED job with error, never-synced, viewers see the status) + 2 new form tests (realtime submit + refresh, cache-refresh submit) + 1 new route test (both new types accepted with the right `SyncJobType`); the five-types test updated to seven — all 7 new/updated tests fail without the fix (verified by temporarily restoring the old code, fix restored byte-identical). The e2e test the finding asks for (click Sync now twice in an hour) is CI-only.
 
 - **Where:** `apps/web/src/app/(app)/websites/[id]/WebsiteActions.tsx:336-375`
   (`SyncNowForm`), `apps/web/src/app/api/sync/route.ts:33`.

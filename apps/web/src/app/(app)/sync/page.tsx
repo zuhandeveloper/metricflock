@@ -40,11 +40,11 @@ export default async function SyncJobsPage() {
       <Card className="p-4">
         <h2 className="font-semibold">Failed jobs (dead-letter)</h2>
         {failed.length === 0 ? (
-          <p className="mt-1 text-sm text-zinc-500">No failed jobs.</p>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">No failed jobs.</p>
         ) : (
           <table className="mt-2 w-full text-sm">
             <thead>
-              <tr className="text-left text-zinc-500">
+              <tr className="text-left text-zinc-500 dark:text-zinc-400">
                 <th scope="col" className="py-2">
                   Website
                 </th>
@@ -60,14 +60,14 @@ export default async function SyncJobsPage() {
                 <tr key={j.id} className="border-t border-zinc-100 dark:border-zinc-800">
                   <td className="py-2">
                     {j.website?.name ?? j.websiteId}
-                    <span className="block text-xs text-zinc-500">{j.website?.domain ?? ""}</span>
+                    <span className="block text-xs text-zinc-500 dark:text-zinc-400">{j.website?.domain ?? ""}</span>
                   </td>
                   <td>{j.type}</td>
                   <td>{j.attempts}</td>
-                  <td className="max-w-xs truncate text-xs text-red-700" title={j.lastError ?? ""}>
+                  <td className="max-w-xs truncate text-xs text-red-700 dark:text-red-400" title={j.lastError ?? ""}>
                     {j.lastError ?? "—"}
                   </td>
-                  <td className="text-xs text-zinc-500">{j.updatedAt.toISOString()}</td>
+                  <td className="text-xs text-zinc-500 dark:text-zinc-400">{j.updatedAt.toISOString()}</td>
                   <td className="text-right">
                     <RequeueButton jobId={j.id} />
                   </td>
@@ -80,13 +80,13 @@ export default async function SyncJobsPage() {
       <Card className="p-4">
         <h2 className="font-semibold">Recent jobs</h2>
         {recent.length === 0 ? (
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             No sync jobs yet. Jobs appear after the worker runs or a manual sync is queued.
           </p>
         ) : (
           <table className="mt-2 w-full text-sm">
             <thead>
-              <tr className="text-left text-zinc-500">
+              <tr className="text-left text-zinc-500 dark:text-zinc-400">
                 <th scope="col" className="py-2">
                   Website
                 </th>
@@ -100,7 +100,7 @@ export default async function SyncJobsPage() {
                 <tr key={j.id} className="border-t border-zinc-100 dark:border-zinc-800">
                   <td className="py-2">
                     {j.website?.name ?? j.websiteId}
-                    <span className="block text-xs text-zinc-500">{j.website?.domain ?? ""}</span>
+                    <span className="block text-xs text-zinc-500 dark:text-zinc-400">{j.website?.domain ?? ""}</span>
                   </td>
                   <td>{j.type}</td>
                   <td>
@@ -108,7 +108,7 @@ export default async function SyncJobsPage() {
                       {j.status}
                     </Badge>
                   </td>
-                  <td className="text-xs text-zinc-500">{j.updatedAt.toISOString()}</td>
+                  <td className="text-xs text-zinc-500 dark:text-zinc-400">{j.updatedAt.toISOString()}</td>
                 </tr>
               ))}
             </tbody>

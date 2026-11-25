@@ -11,13 +11,18 @@
 //   grant) RETURN a SyncResult with a non-"ok" status — retrying cannot fix
 //   them, so they must not burn BullMQ attempts.
 // - Real Google API errors (quota, 5xx, network) THROW — the worker records
-//   FAILED and BullMQ retries with exponential backoff.
+//   FAILED and BullMQ retries with exponential backoff. Exception (A-WRK-07):
+//   a provider that warmed at least one report returns "partial" with the
+//   failed reports in `detail` instead of throwing — the job SUCCEEDS and
+//   the retry does not refetch the reports that already warmed. Only when
+//   every report failed, or the failure is rate-limit/quota shaped, does
+//   the sync throw.
 // - Per-connection rate limiting throws SyncRateLimitError — the worker turns
 //   it into BullMQ's RateLimitError so the job is delayed, not failed.
 import { prisma } from "@metricflock/db";
 import { recordHealth } from "@metricflock/db/health";
 import { snapshotTtlSeconds } from "@metricflock/jobs";
-import { buildCacheKey, cacheSet, rateLimit, sanitizeProviderError } from "@metricflock/shared";
+import { buildCacheKey, cacheSet, createLogger, errMeta, rateLimit, sanitizeProviderError } from "@metricflock/shared";
 import { getAuthorizedClientForWebsite, getAuthorizedClientForIntegration, getPrimaryIntegration } from "./client";
 import {
   getGa4Client,
@@ -28,7 +33,7 @@ import {
   runPagesReport,
   runEventsReport,
 } from "./ga4";
-import { querySearchAnalytics } from "./search-console";
+import { querySearchAnalytics, clampSearchConsoleRange } from "./search-console";
 import { runAdSenseReport } from "./adsense";
 import { runAdManagerReport, adManagerEnabled, listAdManagerNetworks } from "./ad-manager";
 import { listGa4Properties, listSearchConsoleSites, listAdSenseAccounts } from "./discovery";
@@ -38,7 +43,7 @@ import type { OAuth2Client } from "./auth-types";
 
 export type SyncKind =
   "ga4-realtime" | "ga4-historical" | "search-console" | "adsense" | "ad-manager" | "health-check" | "cache-refresh";
-export type SyncStatus = "ok" | "skipped" | "not_connected" | "no_mapping" | "disabled";
+export type SyncStatus = "ok" | "skipped" | "not_connected" | "no_mapping" | "disabled" | "partial";
 export type SyncResult = { status: SyncStatus; reports: string[]; detail?: string };
 
 export class SyncRateLimitError extends Error {
@@ -187,6 +192,27 @@ function authErrorHealthStatus(msg: string): "error" | "needs_reauth" | null {
   return null;
 }
 
+/** Quota-shaped Google errors (parity with the web layer's
+ *  classifyAnalyticsError, plus the HTTP 429 status googleapis carries
+ *  as `code`/`status`): the API is telling us to back off. A report that
+ *  fails this way aborts the provider sync and throws (retry/delay)
+ *  instead of burning more quota on the remaining reports. */
+function isQuotaError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  const anyE = e as {
+    code?: number | string;
+    status?: number | string;
+    details?: string;
+    response?: { status?: number | string; data?: { error?: { message?: string; details?: { reason?: string }[] } } };
+  };
+  const data = anyE?.response?.data?.error;
+  const reasons = data?.details?.map((d) => d.reason ?? "") ?? [];
+  const full = `${msg} ${anyE?.details ?? ""} ${data?.message ?? ""} ${reasons.join(" ")}`;
+  if (/quota|rateLimitExceeded|RESOURCE_EXHAUSTED/i.test(full)) return true;
+  const codes = [anyE?.code, anyE?.status, anyE?.response?.status].map((c) => String(c));
+  return codes.includes("8") || codes.includes("429");
+}
+
 async function fetchReport(
   deps: SyncDeps,
   kind: string,
@@ -243,6 +269,15 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
         reports: [],
         detail: "No active Google connection for this website or its team.",
       };
+    // A-DB-12: a MAPPED integration with no connection is unmappable —
+    // never fetch it under another connection's credentials. Terminal:
+    // retrying cannot fix it, and the mapping stays for a re-map.
+    if (msg === "LEGACY_CONNECTION_MISSING")
+      return {
+        status: "no_mapping",
+        reports: [],
+        detail: "Mapping has no Google connection; re-map the property.",
+      };
     const authStatus = authErrorHealthStatus(msg);
     if (authStatus) {
       await deps.recordHealth({
@@ -260,10 +295,27 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
     throw new SyncRateLimitError(connectionId);
   }
   const organizationId = await deps.getWebsiteOrganizationId(websiteId);
-  const range = last28Days(deps.now());
+  // A-GGL-07: the worker warms exactly the cache keys the dashboards
+  // read, so the SC sync clamps the same way the web handler does —
+  // endDate 3 days ago, cache key and fetch both on the effective range.
+  // Every other provider keeps the unclamped 28-day window.
+  const rawRange = last28Days(deps.now());
+  const range =
+    kind === "search-console" ? clampSearchConsoleRange(rawRange.startDate, rawRange.endDate, deps.now()) : rawRange;
+  // A-WRK-07: per-report isolation — one report's failure must not abort
+  // the rest. A failure on report 3 used to leave reports 1–2 cached but
+  // fail the whole job, and the BullMQ retry refetched all 5, wasting
+  // Google quota. A failed report records error health and the loop
+  // continues; when at least one report warmed, the result is "partial"
+  // with the failed reports listed. Only when every report failed, or
+  // the failure is rate-limit/quota shaped, does the sync throw so
+  // BullMQ retries — a quota error aborts the loop immediately, because
+  // the API is telling us to back off, not to burn more quota on the
+  // remaining reports.
   const written: string[] = [];
-  try {
-    for (const { report, ttlSeconds } of spec.reports) {
+  const failures: { report: string; reason: string; error: Error }[] = [];
+  for (const { report, ttlSeconds } of spec.reports) {
+    try {
       const data = await fetchReport(deps, kind, report, client.auth, integration.externalId, range);
       const cacheKey = buildCacheKey({
         organizationId,
@@ -281,17 +333,40 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
         .writeSnapshot?.(cacheKey, websiteId, data, snapshotTtlSeconds(report, ttlSeconds))
         .catch(() => undefined);
       written.push(report);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      if (err instanceof SyncRateLimitError || isQuotaError(err)) {
+        await deps
+          .recordHealth({
+            websiteId,
+            connectionId,
+            provider: spec.provider,
+            status: "error",
+            lastError: sanitizeProviderError(err),
+          })
+          .catch(() => undefined);
+        throw err;
+      }
+      const reason = sanitizeProviderError(err);
+      // Best-effort: a failing health write must not abort the
+      // remaining reports — that is the isolation this loop provides.
+      await deps
+        .recordHealth({ websiteId, connectionId, provider: spec.provider, status: "error", lastError: reason })
+        .catch(() => undefined);
+      failures.push({ report, reason, error: err });
     }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    await deps.recordHealth({
-      websiteId,
-      connectionId,
-      provider: spec.provider,
-      status: "error",
-      lastError: sanitizeProviderError(e),
-    });
-    throw e; // real API error: worker records FAILED, BullMQ retries with backoff
+  }
+  if (failures.length && written.length === 0) {
+    // Every report failed: keep the old contract — the worker records
+    // FAILED and BullMQ retries with backoff.
+    throw failures[0].error;
+  }
+  if (failures.length) {
+    return {
+      status: "partial",
+      reports: written,
+      detail: failures.map((f) => `${f.report}: ${f.reason}`).join("; "),
+    };
   }
   await deps.recordHealth({ websiteId, connectionId, provider: spec.provider, status: "ok", success: true });
   return { status: "ok", reports: written };
@@ -305,33 +380,99 @@ export async function syncWebsite(
 ): Promise<SyncResult> {
   if (kind === "health-check") return healthCheckWebsite(websiteId, deps);
   if (kind === "cache-refresh") {
-    // Warm every provider cache the website is mapped for.
+    // A-GGL-12: warm every provider cache the website is mapped for,
+    // with per-provider isolation — one provider's outage (quota, 5xx)
+    // must not starve the other providers' caches. A genuine throw is
+    // caught, the provider's health is recorded, and the loop continues
+    // with the rest. Terminal results (disabled / no_mapping /
+    // not_connected / skipped) are expected states, not failures, so
+    // they never turn the aggregate into "partial" on their own — a
+    // site without Ad Manager refreshes "ok", as before.
     const kinds = ["ga4-historical", "search-console", "adsense", "ad-manager"] as const;
     const reports: string[] = [];
-    let last: SyncResult = { status: "skipped", reports: [], detail: "nothing to refresh" };
+    const failures: { provider: Provider; reason: string }[] = [];
+    const thrown: Error[] = [];
     for (const k of kinds) {
-      const r = await syncOneProvider(websiteId, k, deps);
-      reports.push(...r.reports);
-      if (r.status === "ok") last = r;
+      const provider = REPORTS_BY_KIND[k].provider;
+      try {
+        const r = await syncOneProvider(websiteId, k, deps);
+        reports.push(...r.reports);
+        // A-WRK-07: a provider that warmed some reports but not all
+        // returns "partial" — surface its failed reports in the
+        // aggregate detail instead of silently reporting "ok".
+        if (r.status === "partial" && r.detail) failures.push({ provider, reason: r.detail });
+      } catch (e) {
+        const reason = sanitizeProviderError(e);
+        // Rate limiting is transient throttling, not a provider health
+        // failure: the worker delays the job instead of failing it, and
+        // recording "error" health here would flip the dashboard red
+        // and fire a transition alert for a condition that clears in
+        // 60s. Every other throw is a real failure — record it. For
+        // fetch errors this duplicates the identical record
+        // syncOneProvider already wrote (recordHealth upserts by
+        // website+provider and no consumer reads the row's
+        // connectionId, so the duplicate is a no-op); for throws from
+        // client resolution / org lookup it is the only record. The
+        // write itself is best-effort: a failing health write must not
+        // abort the remaining providers — that is the isolation this
+        // branch exists to provide.
+        if (!(e instanceof SyncRateLimitError)) {
+          await deps.recordHealth({ websiteId, provider, status: "error", lastError: reason }).catch(() => undefined);
+        }
+        failures.push({ provider, reason });
+        thrown.push(e instanceof Error ? e : new Error(String(e)));
+      }
     }
-    return { status: reports.length ? "ok" : last.status, reports, detail: last.detail };
+    if (reports.length) {
+      if (!failures.length) return { status: "ok", reports };
+      return {
+        status: "partial",
+        reports,
+        detail: failures.map((f) => `${f.provider}: ${f.reason}`).join("; "),
+      };
+    }
+    // Nothing was warmed at all: keep the old contract and let the job
+    // FAIL so BullMQ retries with backoff (and a rate-limited run is
+    // delayed, not failed, by the worker) — a "partial" success here
+    // would also block a manual retry for the hour, since a SUCCEEDED
+    // row answers `already_completed` (A-API-06).
+    if (thrown.length) throw thrown[0];
+    return { status: "skipped", reports: [], detail: "nothing to refresh" };
   }
   return syncOneProvider(websiteId, kind, deps);
 }
 
 /** Verify each mapped provider's connection by obtaining a valid access token
- *  (which refreshes it when needed). Records health per provider. */
+ *  (which refreshes it when needed). Records health per provider. A provider
+ *  whose connection is missing is recorded as `not_connected` and the check
+ *  continues with the remaining providers (A-GGL-11) — it must not abort
+ *  the whole check, or healthy providers would lose their `lastSuccessAt`
+ *  updates and the site would look entirely unconnected. The same holds
+ *  for every other per-provider failure (A-WRK-08): a token error or a
+ *  provider API error is recorded as error health and the loop continues,
+ *  so a revoked GA4 connection cannot mask a simultaneously-failing
+ *  AdSense connection. The aggregate status is `ok` when every checked
+ *  provider is healthy, `partial` when some checked ok and others failed
+ *  (the failures are listed in `detail`), `not_connected` when none is
+ *  connected, `skipped` when nothing checked ok and every failure is a
+ *  permanent auth failure, and `no_mapping` when nothing is mapped at
+ *  all. Only when no provider could be checked at all because of a
+ *  generic (non-auth) error does the check throw, so BullMQ retries it. */
 export async function healthCheckWebsite(websiteId: string, deps: SyncDeps = defaultSyncDeps): Promise<SyncResult> {
   const providers: Provider[] = ["GA4", "SEARCH_CONSOLE", "ADSENSE", "AD_MANAGER"];
   const checked: string[] = [];
-  let anyConnected = false;
+  const notConnected: string[] = [];
+  // A-WRK-08: per-provider failures are collected, never an early
+  // return — every mapped provider gets a fresh health row (with its
+  // recovered/alert_error transitions) on every run.
+  const failed: string[] = [];
+  let firstGenericError: unknown;
   for (const provider of providers) {
     const integration = await deps.getPrimaryIntegration(websiteId, provider);
     if (!integration) continue;
     if (provider === "AD_MANAGER" && !deps.adManager.adManagerEnabled()) continue;
     try {
       const client = await deps.getAuthorizedClientForIntegration(websiteId, integration);
-      anyConnected = true;
       await deps.recordHealth({
         websiteId,
         connectionId: client.connection.connectionId,
@@ -342,26 +483,73 @@ export async function healthCheckWebsite(websiteId: string, deps: SyncDeps = def
       checked.push(provider);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "CONNECTION_REQUIRED")
-        return {
+      // A-GGL-11: a missing connection is a per-provider state, not a
+      // reason to abort the check — record it (the health dashboard
+      // derives "error" from any non-"ok" status and alerts once per
+      // transition) and keep checking the remaining providers.
+      if (msg === "CONNECTION_REQUIRED") {
+        await deps.recordHealth({
+          websiteId,
+          provider,
           status: "not_connected",
-          reports: [],
-          detail: "No active Google connection for this website or its team.",
-        };
+          lastError: "No active Google connection for this website or its team.",
+        });
+        notConnected.push(provider);
+        continue;
+      }
+      // A-DB-12: a legacy mapping with no connection is unmappable, not
+      // a failed check — record it as an error (the dashboard surfaces
+      // the re-map prompt) and keep checking the other providers instead
+      // of throwing and retrying the whole health-check job. It stays
+      // untracked in the aggregate (A-DB-12's `no_mapping` contract):
+      // a legacy mapping is "unmappable", not a provider failure.
+      if (msg === "LEGACY_CONNECTION_MISSING") {
+        await deps.recordHealth({
+          websiteId,
+          provider,
+          status: "error",
+          lastError: "Mapping has no Google connection; re-map the property.",
+        });
+        continue;
+      }
       const authStatus = authErrorHealthStatus(msg);
+      const sanitized = sanitizeProviderError(e);
       await deps.recordHealth({
         websiteId,
         provider,
         status: authStatus ?? "error",
-        lastError: sanitizeProviderError(e),
+        lastError: sanitized,
       });
-      if (authStatus) return { status: "skipped", reports: checked, detail: msg };
-      throw e;
+      failed.push(`${provider}: ${sanitized}`);
+      // A token error is permanent (only a re-connect fixes it), so it
+      // is recorded and the check continues. A generic error may be a
+      // transient infrastructure failure, so it is remembered: if no
+      // provider could be checked at all, the job throws and BullMQ
+      // retries instead of reporting a success.
+      if (!authStatus && firstGenericError === undefined) firstGenericError = e;
     }
   }
-  if (!checked.length && !anyConnected)
+  if (!checked.length && !notConnected.length && !failed.length)
     return { status: "no_mapping", reports: [], detail: "No mapped integrations to check." };
-  return { status: "ok", reports: checked };
+  if (checked.length) {
+    if (!notConnected.length && !failed.length) return { status: "ok", reports: checked };
+    const failures = [...notConnected.map((p) => `${p}: not_connected`), ...failed];
+    return { status: "partial", reports: checked, detail: failures.join("; ") };
+  }
+  // Nothing checked ok: a generic failure anywhere means the check
+  // itself could not run (throw so BullMQ retries); purely auth
+  // failures are permanent, so the job succeeds as skipped with the
+  // failures in the detail instead of burning retries.
+  if (firstGenericError !== undefined) throw firstGenericError;
+  if (failed.length) {
+    const failures = [...notConnected.map((p) => `${p}: not_connected`), ...failed];
+    return { status: "skipped", reports: [], detail: failures.join("; ") };
+  }
+  return {
+    status: "not_connected",
+    reports: [],
+    detail: "No active Google connection for this website or its team.",
+  };
 }
 
 /** Refresh a connection's access token if it is expired or near expiry.
@@ -377,75 +565,247 @@ export async function refreshConnection(connectionId: string, deps: SyncDeps = d
   }
 }
 
+/** Counts returned by `discoverConnectionProperties`. `errors` and `pruned`
+ *  are present only when non-empty, so existing exact-equality assertions
+ *  on the four counts keep passing. */
+export type DiscoveryCounts = {
+  ga4: number;
+  searchConsole: number;
+  adsense: number;
+  adManager: number;
+  /** Per-provider listing/upsert failures, keyed like the web route's
+   *  `errors` map (A-GGL-10). A provider that failed still lets the other
+   *  providers report their stored counts. */
+  errors?: Record<string, string>;
+  /** Stale discovered rows pruned per provider (A-GGL-10 guards). */
+  pruned?: Record<string, number>;
+};
+
 /** Discover the Google properties a connection can access and upsert them.
- *  Returns counts per provider. Mapping them to websites stays a user action. */
+ *  Returns counts per provider. Mapping them to websites stays a user action.
+ *  A-GGL-13: each provider is isolated — a listing/upsert failure in one
+ *  provider is collected in `errors` and never aborts the others — and only
+ *  successful upserts are counted. Stale discovered rows are pruned per
+ *  provider, with the same guards as the web route (A-GGL-10). */
 export async function discoverConnectionProperties(
   connectionId: string,
   deps: SyncDeps = defaultSyncDeps,
-): Promise<{ ga4: number; searchConsole: number; adsense: number; adManager: number }> {
+): Promise<DiscoveryCounts> {
   const auth = await deps.getConnectionAuth(connectionId);
+  const log = createLogger("discovery");
   const counts = { ga4: 0, searchConsole: 0, adsense: 0, adManager: 0 };
+  const errors: Record<string, string> = {};
+  const pruned: Record<string, number> = {};
   // DB-11: upserts run in bounded parallel chunks instead of one sequential
   // round trip per property (a large account can discover hundreds).
   const CHUNK = 10;
-  const ga4Props = (await deps.discovery.listGa4Properties(auth)).items.filter((p) => p.propertyId);
-  for (let i = 0; i < ga4Props.length; i += CHUNK) {
-    await Promise.all(
-      ga4Props.slice(i, i + CHUNK).map((p) =>
-        deps.prisma.googleProperty.upsert({
-          where: { connectionId_propertyId: { connectionId, propertyId: p.propertyId! } },
-          update: { displayName: p.displayName ?? null, accountId: p.accountId ?? null },
-          create: {
+
+  // Upsert one provider's items in bounded chunks. allSettled (not
+  // Promise.all) so one bad row neither aborts the chunk nor inflates the
+  // count: only successful upserts are counted (A-GGL-13).
+  async function upsertChunked<T>(
+    items: T[],
+    upsert: (item: T) => Promise<unknown>,
+  ): Promise<{ succeeded: number; firstError?: unknown }> {
+    let succeeded = 0;
+    let firstError: unknown;
+    for (let i = 0; i < items.length; i += CHUNK) {
+      const results = await Promise.allSettled(items.slice(i, i + CHUNK).map(upsert));
+      for (const r of results) {
+        if (r.status === "fulfilled") succeeded++;
+        else if (firstError === undefined) firstError = r.reason;
+      }
+    }
+    return { succeeded, firstError };
+  }
+
+  // Delete discovered rows for this connection that no longer appear in the
+  // fresh listing — same guards as the web route (A-GGL-10): only when the
+  // listing completed, and never a row still referenced by a
+  // WebsiteIntegration (any status). Best-effort: a prune failure is logged
+  // and never fails a discovery whose counts are already stored (and
+  // minimal test doubles that only stub `upsert` keep working).
+  type DiscoveredRow = { id: string; key: string };
+  async function pruneStale(
+    provider: string,
+    listExisting: () => Promise<DiscoveredRow[]>,
+    listReferencedIds: (staleIds: string[]) => Promise<string[]>,
+    deleteIds: (ids: string[]) => Promise<number>,
+    freshKeys: Set<string>,
+  ): Promise<number> {
+    try {
+      const existing = await listExisting();
+      const stale = existing.filter((r) => !freshKeys.has(r.key));
+      if (stale.length === 0) return 0;
+      const referenced = new Set(await listReferencedIds(stale.map((r) => r.id)));
+      const deletable = stale.filter((r) => !referenced.has(r.id)).map((r) => r.id);
+      if (deletable.length === 0) {
+        if (referenced.size > 0)
+          log.info("stale discovered rows kept: still referenced by integrations", {
             connectionId,
-            propertyId: p.propertyId!,
-            displayName: p.displayName ?? null,
-            accountId: p.accountId ?? null,
-          },
-        }),
-      ),
-    );
-    counts.ga4 += Math.min(CHUNK, ga4Props.length - i);
-  }
-  const scSites = (await deps.discovery.listSearchConsoleSites(auth)).items.filter((s) => s.siteUrl);
-  for (let i = 0; i < scSites.length; i += CHUNK) {
-    await Promise.all(
-      scSites.slice(i, i + CHUNK).map((s) =>
-        deps.prisma.searchConsoleProperty.upsert({
-          where: { connectionId_siteUrl: { connectionId, siteUrl: s.siteUrl! } },
-          update: { permissionLevel: s.permissionLevel ?? null },
-          create: { connectionId, siteUrl: s.siteUrl!, permissionLevel: s.permissionLevel ?? null },
-        }),
-      ),
-    );
-    counts.searchConsole += Math.min(CHUNK, scSites.length - i);
-  }
-  const adsAccounts = (await deps.discovery.listAdSenseAccounts(auth)).items.filter((a) => a.accountId);
-  for (let i = 0; i < adsAccounts.length; i += CHUNK) {
-    await Promise.all(
-      adsAccounts.slice(i, i + CHUNK).map((a) =>
-        deps.prisma.adSenseAccount.upsert({
-          where: { connectionId_accountId: { connectionId, accountId: a.accountId! } },
-          update: { displayName: a.displayName ?? null },
-          create: { connectionId, accountId: a.accountId!, displayName: a.displayName ?? null },
-        }),
-      ),
-    );
-    counts.adsense += Math.min(CHUNK, adsAccounts.length - i);
-  }
-  if (deps.adManager.adManagerEnabled()) {
-    const networks = (await deps.adManager.listAdManagerNetworks(auth)).filter((n) => n.networkCode);
-    for (let i = 0; i < networks.length; i += CHUNK) {
-      await Promise.all(
-        networks.slice(i, i + CHUNK).map((n) =>
-          deps.prisma.adManagerNetwork.upsert({
-            where: { connectionId_networkCode: { connectionId, networkCode: n.networkCode! } },
-            update: { displayName: n.displayName ?? null },
-            create: { connectionId, networkCode: n.networkCode!, displayName: n.displayName ?? null },
-          }),
-        ),
-      );
-      counts.adManager += Math.min(CHUNK, networks.length - i);
+            provider,
+            kept: referenced.size,
+          });
+        return 0;
+      }
+      const deleted = await deleteIds(deletable);
+      log.info("pruned stale discovered rows", { connectionId, provider, pruned: deleted });
+      return deleted;
+    } catch (e) {
+      log.warn("stale discovered rows prune failed", { connectionId, provider, ...errMeta(e) });
+      return 0;
     }
   }
-  return counts;
+
+  // GA4 — per-account isolation already lives in listGa4Properties (failed
+  // accounts land in `errors`). A partial listing must not prune: the failed
+  // accounts' properties are absent from the fresh set, so pruning would
+  // delete rows that still exist at Google. (The web route does not apply
+  // this guard — its partialErrors do not block pruning — the worker path
+  // is stricter here.)
+  try {
+    const res = await deps.discovery.listGa4Properties(auth);
+    const items = res.items.filter((p) => p.propertyId);
+    const { succeeded, firstError } = await upsertChunked(items, (p) =>
+      deps.prisma.googleProperty.upsert({
+        where: { connectionId_propertyId: { connectionId, propertyId: p.propertyId! } },
+        update: { displayName: p.displayName ?? null, accountId: p.accountId ?? null },
+        create: {
+          connectionId,
+          propertyId: p.propertyId!,
+          displayName: p.displayName ?? null,
+          accountId: p.accountId ?? null,
+        },
+      }),
+    );
+    counts.ga4 = succeeded;
+    if (firstError !== undefined) errors.ga4 = sanitizeProviderError(firstError);
+    if (res.errors.length > 0) log.warn("GA4 discovery partially failed", { connectionId, accounts: res.errors });
+    if (!res.truncated && res.errors.length === 0) {
+      const deleted = await pruneStale(
+        "GA4",
+        () =>
+          deps.prisma.googleProperty
+            .findMany({ where: { connectionId }, select: { id: true, propertyId: true } })
+            .then((rows) => rows.map((r) => ({ id: r.id, key: r.propertyId }))),
+        (ids) =>
+          deps.prisma.websiteIntegration
+            .findMany({ where: { googlePropertyId: { in: ids } }, select: { googlePropertyId: true } })
+            .then((rows) => rows.map((r) => r.googlePropertyId).filter((x): x is string => x !== null)),
+        (ids) => deps.prisma.googleProperty.deleteMany({ where: { id: { in: ids } } }).then((r) => r.count),
+        new Set(items.map((p) => p.propertyId!)),
+      );
+      if (deleted) pruned.ga4 = deleted;
+    }
+  } catch (e) {
+    errors.ga4 = sanitizeProviderError(e);
+    log.error("provider discovery failed", { connectionId, provider: "GA4", ...errMeta(e) });
+  }
+
+  try {
+    const res = await deps.discovery.listSearchConsoleSites(auth);
+    const items = res.items.filter((s) => s.siteUrl);
+    const { succeeded, firstError } = await upsertChunked(items, (s) =>
+      deps.prisma.searchConsoleProperty.upsert({
+        where: { connectionId_siteUrl: { connectionId, siteUrl: s.siteUrl! } },
+        update: { permissionLevel: s.permissionLevel ?? null },
+        create: { connectionId, siteUrl: s.siteUrl!, permissionLevel: s.permissionLevel ?? null },
+      }),
+    );
+    counts.searchConsole = succeeded;
+    if (firstError !== undefined) errors.searchConsole = sanitizeProviderError(firstError);
+    if (!res.truncated) {
+      const deleted = await pruneStale(
+        "SEARCH_CONSOLE",
+        () =>
+          deps.prisma.searchConsoleProperty
+            .findMany({ where: { connectionId }, select: { id: true, siteUrl: true } })
+            .then((rows) => rows.map((r) => ({ id: r.id, key: r.siteUrl }))),
+        (ids) =>
+          deps.prisma.websiteIntegration
+            .findMany({ where: { searchConsolePropertyId: { in: ids } }, select: { searchConsolePropertyId: true } })
+            .then((rows) => rows.map((r) => r.searchConsolePropertyId).filter((x): x is string => x !== null)),
+        (ids) => deps.prisma.searchConsoleProperty.deleteMany({ where: { id: { in: ids } } }).then((r) => r.count),
+        new Set(items.map((s) => s.siteUrl!)),
+      );
+      if (deleted) pruned.searchConsole = deleted;
+    }
+  } catch (e) {
+    errors.searchConsole = sanitizeProviderError(e);
+    log.error("provider discovery failed", { connectionId, provider: "SEARCH_CONSOLE", ...errMeta(e) });
+  }
+
+  try {
+    const res = await deps.discovery.listAdSenseAccounts(auth);
+    const items = res.items.filter((a) => a.accountId);
+    const { succeeded, firstError } = await upsertChunked(items, (a) =>
+      deps.prisma.adSenseAccount.upsert({
+        where: { connectionId_accountId: { connectionId, accountId: a.accountId! } },
+        update: { displayName: a.displayName ?? null },
+        create: { connectionId, accountId: a.accountId!, displayName: a.displayName ?? null },
+      }),
+    );
+    counts.adsense = succeeded;
+    if (firstError !== undefined) errors.adsense = sanitizeProviderError(firstError);
+    if (!res.truncated) {
+      const deleted = await pruneStale(
+        "ADSENSE",
+        () =>
+          deps.prisma.adSenseAccount
+            .findMany({ where: { connectionId }, select: { id: true, accountId: true } })
+            .then((rows) => rows.map((r) => ({ id: r.id, key: r.accountId }))),
+        (ids) =>
+          deps.prisma.websiteIntegration
+            .findMany({ where: { adsenseAccountId: { in: ids } }, select: { adsenseAccountId: true } })
+            .then((rows) => rows.map((r) => r.adsenseAccountId).filter((x): x is string => x !== null)),
+        (ids) => deps.prisma.adSenseAccount.deleteMany({ where: { id: { in: ids } } }).then((r) => r.count),
+        new Set(items.map((a) => a.accountId!)),
+      );
+      if (deleted) pruned.adsense = deleted;
+    }
+  } catch (e) {
+    errors.adsense = sanitizeProviderError(e);
+    log.error("provider discovery failed", { connectionId, provider: "ADSENSE", ...errMeta(e) });
+  }
+
+  // Ad Manager (only when enabled — a disabled setup is not an error).
+  // listAdManagerNetworks returns a plain array (no DiscoveryResult), so a
+  // completed call is a complete listing.
+  if (deps.adManager.adManagerEnabled()) {
+    try {
+      const networks = (await deps.adManager.listAdManagerNetworks(auth)).filter((n) => n.networkCode);
+      const { succeeded, firstError } = await upsertChunked(networks, (n) =>
+        deps.prisma.adManagerNetwork.upsert({
+          where: { connectionId_networkCode: { connectionId, networkCode: n.networkCode! } },
+          update: { displayName: n.displayName ?? null },
+          create: { connectionId, networkCode: n.networkCode!, displayName: n.displayName ?? null },
+        }),
+      );
+      counts.adManager = succeeded;
+      if (firstError !== undefined) errors.adManager = sanitizeProviderError(firstError);
+      const deleted = await pruneStale(
+        "AD_MANAGER",
+        () =>
+          deps.prisma.adManagerNetwork
+            .findMany({ where: { connectionId }, select: { id: true, networkCode: true } })
+            .then((rows) => rows.map((r) => ({ id: r.id, key: r.networkCode }))),
+        (ids) =>
+          deps.prisma.websiteIntegration
+            .findMany({ where: { adManagerNetworkId: { in: ids } }, select: { adManagerNetworkId: true } })
+            .then((rows) => rows.map((r) => r.adManagerNetworkId).filter((x): x is string => x !== null)),
+        (ids) => deps.prisma.adManagerNetwork.deleteMany({ where: { id: { in: ids } } }).then((r) => r.count),
+        new Set(networks.map((n) => n.networkCode!)),
+      );
+      if (deleted) pruned.adManager = deleted;
+    } catch (e) {
+      errors.adManager = sanitizeProviderError(e);
+      log.error("provider discovery failed", { connectionId, provider: "AD_MANAGER", ...errMeta(e) });
+    }
+  }
+
+  return {
+    ...counts,
+    ...(Object.keys(errors).length ? { errors } : {}),
+    ...(Object.keys(pruned).length ? { pruned } : {}),
+  };
 }

@@ -26,7 +26,7 @@ export default async function MyTeamPage() {
         memberships.map((m) => (
           <Card key={m.id} className="p-4">
             <h2 className="font-semibold">{m.team.name}</h2>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
               {m.team.members.length} members · {m.team.websites.length} websites
             </p>
             <ul className="mt-2 space-y-1 text-sm">

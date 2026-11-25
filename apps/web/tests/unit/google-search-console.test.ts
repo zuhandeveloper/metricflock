@@ -26,6 +26,8 @@ import {
   inspectUrl,
   parseGscRows,
   GSC_DATA_DELAY_NOTE,
+  GSC_DATA_DELAY_DAYS,
+  clampSearchConsoleRange,
 } from "@metricflock/google/search-console";
 
 const auth = {} as never;
@@ -162,5 +164,56 @@ describe("parseGscRows defaults", () => {
       { keys: [], clicks: 0, impressions: 0, ctr: 0, position: 0 },
       { keys: ["q"], clicks: 0, impressions: 0, ctr: 0, position: 0 },
     ]);
+  });
+});
+
+describe("clampSearchConsoleRange (A-GGL-07)", () => {
+  // Pinned "today" (same as the sync-engine tests): 2026-11-19.
+  const NOW = new Date("2026-11-19T12:00:00Z");
+
+  it("clamps a 28d window ending today to 3 days ago, start unchanged", () => {
+    expect(clampSearchConsoleRange("2026-10-23", "2026-11-19", NOW)).toEqual({
+      startDate: "2026-10-23",
+      endDate: "2026-11-16",
+    });
+  });
+
+  it("collapses range 'today' to a single day, 3 days ago", () => {
+    expect(clampSearchConsoleRange("2026-11-19", "2026-11-19", NOW)).toEqual({
+      startDate: "2026-11-16",
+      endDate: "2026-11-16",
+    });
+  });
+
+  it("collapses range 'yesterday' to a single day, 3 days ago", () => {
+    expect(clampSearchConsoleRange("2026-11-18", "2026-11-18", NOW)).toEqual({
+      startDate: "2026-11-16",
+      endDate: "2026-11-16",
+    });
+  });
+
+  it("leaves a historical range untouched", () => {
+    expect(clampSearchConsoleRange("2026-11-01", "2026-11-02", NOW)).toEqual({
+      startDate: "2026-11-01",
+      endDate: "2026-11-02",
+    });
+  });
+
+  it("leaves an endDate exactly 3 days ago untouched", () => {
+    expect(clampSearchConsoleRange("2026-10-20", "2026-11-16", NOW)).toEqual({
+      startDate: "2026-10-20",
+      endDate: "2026-11-16",
+    });
+  });
+
+  it("clamps a custom range ending today, keeping its start", () => {
+    expect(clampSearchConsoleRange("2026-11-01", "2026-11-19", NOW)).toEqual({
+      startDate: "2026-11-01",
+      endDate: "2026-11-16",
+    });
+  });
+
+  it("declares the 3-day delay", () => {
+    expect(GSC_DATA_DELAY_DAYS).toBe(3);
   });
 });

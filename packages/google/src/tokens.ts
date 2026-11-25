@@ -134,13 +134,34 @@ function isInvalidGrant(err: unknown): boolean {
 
 // Refresh an access token; handles rotation (new refresh token replaces old) and
 // missing refresh token (existing authorizations may not return one) + revoked grants.
+//
+// A-GGL-14: a corrupt cached access token must not brick the connection.
+// Decrypt failures (truncated ciphertext, unknown key id after a rotation
+// where the previous key was dropped, AAD mismatch after an owner change)
+// fall back to the refresh flow instead of propagating — the refresh token
+// is usually intact and yields a fresh access token. Returns null on
+// decrypt failure; the caller then proceeds to refresh.
+function decryptCachedAccessToken(ciphertext: string, aad: string, connectionId: string): string | null {
+  try {
+    return decryptToken(ciphertext, aad);
+  } catch (err) {
+    incr("token_refresh.access_token_decrypt_failed");
+    log.warn("Cached access token failed to decrypt — falling back to refresh", {
+      connectionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 export async function getValidAccessToken(connectionId: string): Promise<string> {
   const conn = await prisma.googleConnection.findUnique({ where: { id: connectionId } });
   if (!conn) throw new Error("CONNECTION_NOT_FOUND");
   if (conn.status === "REVOKED" || conn.status === "DISCONNECTED") throw new Error("CONNECTION_REVOKED");
   const aad = connectionAad(conn);
   if (conn.encryptedAccessToken && conn.tokenExpiresAt && conn.tokenExpiresAt.getTime() > Date.now() + 60_000) {
-    return decryptToken(conn.encryptedAccessToken, aad);
+    const cached = decryptCachedAccessToken(conn.encryptedAccessToken, aad, connectionId);
+    if (cached !== null) return cached;
   }
   return withRefreshLock(connectionId, async (lockHeld) => {
     // Double-check under the lock: another caller may have just refreshed.
@@ -148,10 +169,25 @@ export async function getValidAccessToken(connectionId: string): Promise<string>
     if (!fresh) throw new Error("CONNECTION_NOT_FOUND");
     if (fresh.status === "REVOKED" || fresh.status === "DISCONNECTED") throw new Error("CONNECTION_REVOKED");
     if (fresh.encryptedAccessToken && fresh.tokenExpiresAt && fresh.tokenExpiresAt.getTime() > Date.now() + 60_000) {
-      return decryptToken(fresh.encryptedAccessToken, aad);
+      const cached = decryptCachedAccessToken(fresh.encryptedAccessToken, aad, connectionId);
+      if (cached !== null) return cached;
     }
     if (!fresh.encryptedRefreshToken) throw new Error("MISSING_REFRESH_TOKEN");
-    const refreshToken = decryptToken(fresh.encryptedRefreshToken, aad);
+    let refreshToken: string;
+    try {
+      refreshToken = decryptToken(fresh.encryptedRefreshToken, aad);
+    } catch (err) {
+      // A corrupt refresh token is a refresh failure, not a raw decrypt
+      // error — surface it as TOKEN_REFRESH_FAILED so the sync engine
+      // classifies it as a token error (health "error", job skipped)
+      // instead of retrying it as a generic failure.
+      incr("token_refresh.refresh_token_decrypt_failed");
+      log.warn("Stored refresh token failed to decrypt — refresh cannot proceed", {
+        connectionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw new Error("TOKEN_REFRESH_FAILED");
+    }
     const client = getOAuthClient();
     client.setCredentials({ refresh_token: refreshToken });
     try {
@@ -225,27 +261,74 @@ export async function getValidAccessToken(connectionId: string): Promise<string>
     }
   });
 }
-export async function revokeConnection(connectionId: string): Promise<void> {
+// A-GGL-06: disconnect must not leave MAPPED integrations pointing at a
+// dead connection. The unmap lives here (not in the disconnect route)
+// because this is the single choke point for disconnect — the only
+// caller is the disconnect route; the organisation delete path uses
+// `revokeConnectionToken` directly and never reaches this, which is
+// correct (its integrations cascade away with the org). The connection
+// update and the unmap run in one $transaction so a failure cannot
+// leave the connection DISCONNECTED with its mappings still MAPPED.
+// The Google-side revoke stays outside the transaction (network call,
+// best-effort as before).
+//
+// Only MAPPED rows flip: a row in any other status is not a live
+// mapping and keeps its status. `isPrimary` is cleared with the status
+// — the A-DB-07 CHECK requires primary ⇒ MAPPED. The property FKs,
+// `externalId` and `googleConnectionId` are kept: the A-DB-07 CHECKs
+// require the provider's FK set (and a connection whenever a FK is
+// set), and keeping them preserves what was mapped, so the website
+// page — which already lists UNMAPPED rows with their externalId —
+// surfaces the row for re-mapping. Returns the number of integrations
+// unmapped (audited by the disconnect route).
+export async function revokeConnection(connectionId: string): Promise<number> {
   const conn = await prisma.googleConnection.findUnique({ where: { id: connectionId } });
-  if (!conn) return;
+  if (!conn) return 0;
+  await revokeConnectionToken(conn);
+  const [, unmapped] = await prisma.$transaction([
+    prisma.googleConnection.update({
+      where: { id: connectionId },
+      data: {
+        status: "DISCONNECTED",
+        encryptedAccessToken: null,
+        // Empty string = no usable token (column is NOT NULL). Never store
+        // sentinel words that could be mistaken for ciphertext (OAUTH-12).
+        encryptedRefreshToken: "",
+        tokenExpiresAt: null,
+      },
+    }),
+    prisma.websiteIntegration.updateMany({
+      where: { googleConnectionId: connectionId, mappingStatus: "MAPPED" },
+      data: { mappingStatus: "UNMAPPED", isPrimary: false },
+    }),
+  ]);
+  return unmapped.count;
+}
+
+// A-DB-06: revoke a Google grant from preloaded connection material,
+// without touching the database row. The organisation delete route
+// captures the material before its delete transaction (the connection
+// rows cascade away with the org, so `revokeConnection` would find
+// nothing afterwards) and revokes after the transaction commits —
+// that way a failed delete leaves every token untouched. Best-effort:
+// returns false when the grant could not be revoked (decrypt failure,
+// Google error, timeout); the caller logs the outcome.
+export async function revokeConnectionToken(conn: {
+  id: string;
+  encryptedRefreshToken: string;
+  organizationId: string;
+  ownerType: string;
+  ownerId: string;
+  googleAccountEmail: string;
+}): Promise<boolean> {
   try {
     const client = getOAuthClient();
     const refreshToken = decryptToken(conn.encryptedRefreshToken, connectionAad(conn));
     // A-GGL-03: bounded like the refresh exchange; revoke is best-effort.
     await withGoogleTimeout(client.revokeToken(refreshToken), "oauth.revokeToken");
+    return true;
   } catch {
-    /* revoke is best-effort; still clear local tokens */
+    return false;
   }
-  await prisma.googleConnection.update({
-    where: { id: connectionId },
-    data: {
-      status: "DISCONNECTED",
-      encryptedAccessToken: null,
-      // Empty string = no usable token (column is NOT NULL). Never store
-      // sentinel words that could be mistaken for ciphertext (OAUTH-12).
-      encryptedRefreshToken: "",
-      tokenExpiresAt: null,
-    },
-  });
 }
 export const _google = google;

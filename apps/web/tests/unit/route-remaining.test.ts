@@ -11,12 +11,17 @@ const mocks = vi.hoisted(() => ({
   writeAudit: vi.fn(),
   apiKeyFindUnique: vi.fn(),
   apiKeyUpdate: vi.fn(),
+  apiKeyCount: vi.fn(),
   rateLimit: vi.fn(),
   inviteFindFirst: vi.fn(),
   inviteUpdate: vi.fn(),
+  inviteCount: vi.fn(),
   orgDelete: vi.fn(),
+  orgDeleteMany: vi.fn(),
   orgFindUnique: vi.fn(),
   tx: vi.fn(),
+  txQueryRaw: vi.fn(),
+  txUserUpdate: vi.fn(),
   userCount: vi.fn(),
   teamCount: vi.fn(),
   websiteCount: vi.fn(),
@@ -32,11 +37,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@metricflock/db", () => ({
   prisma: {
-    apiKey: { findUnique: mocks.apiKeyFindUnique, update: mocks.apiKeyUpdate },
-    organizationInvite: { findFirst: mocks.inviteFindFirst, update: mocks.inviteUpdate },
-    organization: { findUnique: mocks.orgFindUnique, delete: mocks.orgDelete },
+    apiKey: { findUnique: mocks.apiKeyFindUnique, update: mocks.apiKeyUpdate, count: mocks.apiKeyCount },
+    organizationInvite: { findFirst: mocks.inviteFindFirst, update: mocks.inviteUpdate, count: mocks.inviteCount },
+    organization: { findUnique: mocks.orgFindUnique, delete: mocks.orgDelete, deleteMany: mocks.orgDeleteMany },
     website: { findFirst: mocks.websiteFindFirst, count: mocks.websiteCount },
-    user: { count: mocks.userCount },
+    user: { count: mocks.userCount, update: mocks.txUserUpdate },
     team: { count: mocks.teamCount },
     googleConnection: { count: mocks.connectionCount },
     $transaction: mocks.tx,
@@ -137,6 +142,161 @@ describe("POST /api/invites/accept (already-member branch)", () => {
       data: { acceptedAt: expect.any(Date) },
     });
     expect(mocks.tx).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/invites/accept (shell-org move, A-DB-05)", () => {
+  // The route runs the move in an interactive transaction; drive the
+  // callback with a fake tx client whose counts share the route mocks
+  // (so mockResolvedValueOnce sequencing covers pre-check then re-check).
+  const fakeTx = {
+    $queryRaw: mocks.txQueryRaw,
+    user: { count: mocks.userCount, update: mocks.txUserUpdate },
+    team: { count: mocks.teamCount },
+    website: { count: mocks.websiteCount },
+    googleConnection: { count: mocks.connectionCount },
+    apiKey: { count: mocks.apiKeyCount },
+    organizationInvite: { count: mocks.inviteCount, update: mocks.inviteUpdate },
+  };
+  const shellGuard = {
+    id: "org1",
+    users: { none: {} },
+    teams: { none: {} },
+    websites: { none: {} },
+    connections: { none: {} },
+    apiKeys: { none: { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }] } },
+    invites: { none: { acceptedAt: null, expiresAt: { gt: expect.any(Date) } } },
+  };
+
+  beforeEach(() => {
+    mocks.tx.mockImplementation(async (arg: unknown) => (typeof arg === "function" ? arg(fakeTx) : []));
+    mocks.inviteFindFirst.mockResolvedValue({
+      id: "inv1",
+      email: "admin@example.com",
+      organizationId: "org2",
+      role: "TEAM_MEMBER",
+    });
+    mocks.inviteUpdate.mockResolvedValue({});
+    mocks.txUserUpdate.mockResolvedValue({});
+    mocks.txQueryRaw.mockResolvedValue([]);
+    mocks.orgDeleteMany.mockResolvedValue({ count: 1 });
+    // Shell-org counts (sole member, nothing else) for both the fast
+    // path and the in-transaction re-check; individual tests override
+    // with mockResolvedValueOnce sequencing where the race matters.
+    mocks.userCount.mockReset();
+    mocks.userCount.mockResolvedValue(1);
+    mocks.teamCount.mockReset();
+    mocks.teamCount.mockResolvedValue(0);
+    mocks.websiteCount.mockReset();
+    mocks.websiteCount.mockResolvedValue(0);
+    mocks.connectionCount.mockReset();
+    mocks.connectionCount.mockResolvedValue(0);
+    mocks.apiKeyCount.mockReset();
+    mocks.apiKeyCount.mockResolvedValue(0);
+    mocks.inviteCount.mockReset();
+    mocks.inviteCount.mockResolvedValue(0);
+  });
+
+  it("empty shell → moves the user, marks the invite, deletes the shell org with the guard", async () => {
+    const res = await inviteAcceptPost(jsonReq("http://localhost/api/invites/accept", { token: "tok" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "ok" });
+    // The org + user rows are locked before the in-tx re-count.
+    expect(mocks.txQueryRaw).toHaveBeenCalledTimes(2);
+    expect(mocks.txUserUpdate).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      data: { organizationId: "org2", role: "TEAM_MEMBER" },
+    });
+    expect(mocks.inviteUpdate).toHaveBeenCalledWith({
+      where: { id: "inv1" },
+      data: { acceptedAt: expect.any(Date) },
+    });
+    expect(mocks.orgDeleteMany).toHaveBeenCalledWith({ where: shellGuard });
+  });
+
+  it("concurrent member creation in the shell org → 409 already_in_organization, nothing moves", async () => {
+    // Fast path still sees the empty shell; the in-transaction re-check
+    // sees the second member and the move is refused.
+    mocks.userCount.mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    const res = await inviteAcceptPost(jsonReq("http://localhost/api/invites/accept", { token: "tok" }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "already_in_organization" });
+    expect(mocks.txUserUpdate).not.toHaveBeenCalled();
+    expect(mocks.inviteUpdate).not.toHaveBeenCalled();
+    expect(mocks.orgDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it("shell org no longer empty at delete time → accept still succeeds, org survives", async () => {
+    mocks.orgDeleteMany.mockResolvedValue({ count: 0 });
+    const res = await inviteAcceptPost(jsonReq("http://localhost/api/invites/accept", { token: "tok" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "ok" });
+    expect(mocks.txUserUpdate).toHaveBeenCalled();
+    expect(mocks.orgDeleteMany).toHaveBeenCalledWith({ where: shellGuard });
+  });
+
+  it("shell-org delete failure is surfaced, not swallowed → accept still succeeds", async () => {
+    mocks.orgDeleteMany.mockRejectedValueOnce(new Error("P2003"));
+    const res = await inviteAcceptPost(jsonReq("http://localhost/api/invites/accept", { token: "tok" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "ok" });
+    expect(mocks.txUserUpdate).toHaveBeenCalled();
+    expect(mocks.orgDeleteMany).toHaveBeenCalledWith({ where: shellGuard });
+  });
+
+  // A-SEC-20: the shell check now also considers live API keys and
+  // outstanding sent invites — both are Cascade relations, so a shell-org
+  // delete would silently destroy them. The user can unblock by revoking
+  // the key (DELETE /api/api-keys/[id]) or the invite
+  // (DELETE /api/members/invite/[id]).
+  it("live API key in the shell org → 409 already_in_organization, nothing moves", async () => {
+    mocks.apiKeyCount.mockResolvedValueOnce(1);
+    const res = await inviteAcceptPost(jsonReq("http://localhost/api/invites/accept", { token: "tok" }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "already_in_organization" });
+    expect(mocks.tx).not.toHaveBeenCalled();
+    expect(mocks.txUserUpdate).not.toHaveBeenCalled();
+    expect(mocks.orgDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it("outstanding sent invite in the shell org → 409 already_in_organization, nothing moves", async () => {
+    mocks.inviteCount.mockResolvedValueOnce(1);
+    const res = await inviteAcceptPost(jsonReq("http://localhost/api/invites/accept", { token: "tok" }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "already_in_organization" });
+    expect(mocks.tx).not.toHaveBeenCalled();
+    expect(mocks.txUserUpdate).not.toHaveBeenCalled();
+    expect(mocks.orgDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it("live API key created concurrently → in-transaction re-check refuses the move", async () => {
+    // Fast path still sees no live key; the in-transaction re-check sees it.
+    mocks.apiKeyCount.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+    const res = await inviteAcceptPost(jsonReq("http://localhost/api/invites/accept", { token: "tok" }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "already_in_organization" });
+    expect(mocks.txUserUpdate).not.toHaveBeenCalled();
+    expect(mocks.inviteUpdate).not.toHaveBeenCalled();
+    expect(mocks.orgDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it("shell check counts only live API keys and outstanding invites", async () => {
+    const res = await inviteAcceptPost(jsonReq("http://localhost/api/invites/accept", { token: "tok" }));
+    expect(res.status).toBe(200);
+    // Live key = not revoked and not expired (api-key-auth.ts rejects
+    // both); revoked/expired keys must not block the move.
+    expect(mocks.apiKeyCount).toHaveBeenCalledWith({
+      where: {
+        organizationId: "org1",
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
+      },
+    });
+    // Outstanding invite = not accepted and not expired (same predicate
+    // the A-DB-05 scheduler sweep uses); dead invites must not block.
+    expect(mocks.inviteCount).toHaveBeenCalledWith({
+      where: { organizationId: "org1", acceptedAt: null, expiresAt: { gt: expect.any(Date) } },
+    });
   });
 });
 

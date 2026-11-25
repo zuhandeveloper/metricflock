@@ -12,11 +12,15 @@ import crypto from "node:crypto";
 // between connection rows.
 //
 // Keys: base64 of exactly 32 bytes. Never log keys or tokens.
+/** True when `raw` is base64 of exactly 32 bytes — the token-encryption key rule (shared by getEnv's production boot check, A-SEC-14). */
+export function isEncryptionKey(raw: string | undefined): boolean {
+  if (!raw) return false;
+  return Buffer.from(raw, "base64").length === 32;
+}
 function parseKey(raw: string | undefined, envName: string): Buffer {
   if (!raw) throw new Error(`${envName} is not configured`);
-  const key = Buffer.from(raw, "base64");
-  if (key.length !== 32) throw new Error(`${envName} must be base64 of 32 bytes`);
-  return key;
+  if (!isEncryptionKey(raw)) throw new Error(`${envName} must be base64 of 32 bytes`);
+  return Buffer.from(raw, "base64");
 }
 export function getEncryptionKey(): Buffer {
   return parseKey(process.env.GOOGLE_TOKEN_ENCRYPTION_KEY, "GOOGLE_TOKEN_ENCRYPTION_KEY");

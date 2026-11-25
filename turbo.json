@@ -7,6 +7,17 @@
   "globalPassThroughEnv": ["DATABASE_URL"],
   "tasks": {
     "build": { "dependsOn": ["^build"], "outputs": [".next/**", "dist/**"] },
+    // A-BASE-03: db#build is `prisma generate`, and the generated client
+    // cannot be declared as an output: Prisma 7 writes it into the pnpm
+    // store at ../../node_modules/.pnpm/@prisma+client@<peer-dep hash>/
+    // node_modules/@prisma/client — outside this package, and the hash
+    // segment changes whenever the dependency graph changes, so no stable
+    // in-package path exists to declare. An empty outputs list is the
+    // deliberate choice: the task is a side-effect-only generator, and
+    // the store is never wiped without the local turbo cache (which
+    // lives in node_modules) going with it, so a cache hit can never
+    // skip a generate the client actually needs.
+    "@metricflock/db#build": { "outputs": [] },
     "dev": { "cache": false, "persistent": true },
     "lint": {},
     "test": { "dependsOn": ["^build"] },

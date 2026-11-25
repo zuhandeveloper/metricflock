@@ -32,13 +32,17 @@ export async function assertTeamManageAccess(user: User, teamId: string) {
 // one team's Google credentials can never be bound to another team's
 // website, even by an org admin. Throws NOT_FOUND_OR_FORBIDDEN.
 export function assertConnectionScopeForWebsite(
-  conn: { teamId: string | null; websiteId: string | null; ownerType: string; ownerId: string },
+  conn: { teamId: string | null; websiteId: string | null },
   website: { id: string; teamId: string | null },
 ) {
-  // Typed FKs are authoritative; the legacy polymorphic columns are only
-  // consulted for rows written before the Stage 2 backfill.
-  const connTeamId = conn.teamId ?? (conn.ownerType === "TEAM" ? conn.ownerId : null);
-  const connWebsiteId = conn.websiteId ?? (conn.ownerType === "WEBSITE" ? conn.ownerId : null);
+  // A-DB-08: typed FKs are the only authority. The legacy polymorphic
+  // columns are deliberately NOT consulted — a row whose legacy owner
+  // disagrees with its typed FKs must not be interpretable by either
+  // value, and the `GoogleConnection_legacy_owner_match_check` CHECK
+  // guarantees they agree in the database. A connection with neither
+  // typed FK set serves nothing.
+  const connTeamId = conn.teamId;
+  const connWebsiteId = conn.websiteId;
   if (connTeamId) {
     if (website.teamId === connTeamId) return;
     throw new Error("NOT_FOUND_OR_FORBIDDEN");

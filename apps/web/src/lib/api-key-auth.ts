@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiError, requestIdOf } from "./api-error";
 import { prisma } from "@metricflock/db";
 import { hashToken, isApiKeyFormat, rateLimit, type ApiKeyScope } from "@metricflock/shared";
 
@@ -31,7 +32,10 @@ export async function requireApiKey(
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token || !isApiKeyFormat(token))
     return {
-      error: NextResponse.json({ error: "unauthorized", message: "Missing or malformed API key." }, { status: 401 }),
+      // A-API-11: the human-readable reason lives in `details`, not as a
+      // top-level `message` — the error envelope is `{ error, requestId }`
+      // plus `details` only.
+      error: apiError("unauthorized", 401, { message: "Missing or malformed API key." }, requestIdOf(req)),
     };
 
   const key = await prisma.apiKey.findUnique({
@@ -40,27 +44,31 @@ export async function requireApiKey(
   });
   if (!key || key.revokedAt)
     return {
-      error: NextResponse.json({ error: "unauthorized", message: "Invalid or revoked API key." }, { status: 401 }),
+      error: apiError("unauthorized", 401, { message: "Invalid or revoked API key." }, requestIdOf(req)),
     };
   if (key.expiresAt && key.expiresAt.getTime() <= Date.now())
     return {
-      error: NextResponse.json({ error: "unauthorized", message: "API key has expired." }, { status: 401 }),
+      error: apiError("unauthorized", 401, { message: "API key has expired." }, requestIdOf(req)),
     };
   const scopes = (key.scopes ?? []) as ApiKeyScope[];
   if (requiredScope && scopes.length > 0 && !scopes.includes(requiredScope))
     return {
-      error: NextResponse.json(
-        { error: "insufficient_scope", message: `API key lacks the ${requiredScope} scope.` },
-        { status: 403 },
+      error: apiError(
+        "insufficient_scope",
+        403,
+        { message: `API key lacks the ${requiredScope} scope.` },
+        requestIdOf(req),
       ),
     };
 
   const limit = await rateLimit(`apikey:${key.id}`, API_RATE_LIMIT, 60_000);
   if (!limit.allowed)
     return {
-      error: NextResponse.json(
-        { error: "rate_limited", message: `API key limit is ${API_RATE_LIMIT} requests/minute.` },
-        { status: 429 },
+      error: apiError(
+        "rate_limited",
+        429,
+        { message: `API key limit is ${API_RATE_LIMIT} requests/minute.` },
+        requestIdOf(req),
       ),
     };
 
