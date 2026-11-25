@@ -31,5 +31,11 @@ export default defineConfig({
     url: `http://localhost:${PORT}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // better-auth validates the Origin header against its baseURL
+    // (NEXT_PUBLIC_APP_URL) for cookie-bearing POSTs. CI sets that env
+    // to http://localhost:3000 while this server listens on PORT, so
+    // signed-in auth POSTs (e.g. two-factor/enable) were rejected with
+    // "Invalid origin". Point the app URL at this server's own origin.
+    env: { NEXT_PUBLIC_APP_URL: `http://localhost:${PORT}` },
   },
 });
