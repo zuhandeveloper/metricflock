@@ -19,6 +19,7 @@ import {
   counterSnapshot,
   sanitizeProviderError,
   healthTransition,
+  rateLimit,
 } from "@metricflock/shared";
 import { prisma } from "@metricflock/db";
 import { recordHealth } from "@metricflock/db/health";
@@ -62,12 +63,43 @@ export function handleUnhandledRejection(reason: unknown): void {
 process.on("uncaughtException", handleUncaughtException);
 process.on("unhandledRejection", handleUnhandledRejection);
 
+// A-WRK-16: failure alerts are capped per organization so a provider
+// outage cannot email every SUPER_ADMIN once per (website, queue) —
+// 100 failing websites used to mean 100+ sequential emails inside job
+// handlers. At most one failure alert (per admin) leaves per org per
+// window; further failure alerts in the window are counted
+// (alerts.suppressed on /metrics) and logged instead of emailed. The
+// first failure in a window still alerts immediately, so an isolated
+// failure is never delayed or silenced. The gate is the shared
+// Redis-backed rate limiter, so the cap is fleet-wide; if Redis is
+// unreachable it degrades to the limiter's per-process fallback (the
+// cap multiplies per instance, but alerts never go fully silent) —
+// deliberately NOT failClosed, unlike the sensitive-endpoint policy:
+// alerting must not go dark because Redis hiccuped. Recovery emails
+// are not gated (bounded by the health-transition dedup, and they are
+// the all-clear signal).
+export const ALERT_WINDOW_MS = 15 * 60_000;
+
+async function claimAlertSlot(organizationId: string): Promise<boolean> {
+  const { allowed } = await rateLimit(`alert:${organizationId}`, 1, ALERT_WINDOW_MS);
+  incr(allowed ? "alerts.sent" : "alerts.suppressed");
+  return allowed;
+}
+
 async function alertSyncFailure(websiteId: string, queue: string, error: string): Promise<void> {
   const website = await prisma.website.findUnique({
     where: { id: websiteId },
     select: { name: true, domain: true, organizationId: true },
   });
   if (!website) return;
+  if (!(await claimAlertSlot(website.organizationId))) {
+    log.warn("sync failure alert suppressed by per-org alert cap", {
+      websiteId,
+      queue,
+      organizationId: website.organizationId,
+    });
+    return;
+  }
   const admins = await prisma.user.findMany({
     where: { organizationId: website.organizationId, role: "SUPER_ADMIN" },
     select: { email: true },
@@ -100,6 +132,16 @@ async function alertHealthTransition(
     select: { name: true, domain: true, organizationId: true },
   });
   if (!website) return;
+  // A-WRK-16: failure alerts share the per-org budget with terminal
+  // sync failures; recoveries always send.
+  if (kind === "alert_error" && !(await claimAlertSlot(website.organizationId))) {
+    log.warn("health failure alert suppressed by per-org alert cap", {
+      websiteId,
+      provider,
+      organizationId: website.organizationId,
+    });
+    return;
+  }
   const admins = await prisma.user.findMany({
     where: { organizationId: website.organizationId, role: "SUPER_ADMIN" },
     select: { email: true },

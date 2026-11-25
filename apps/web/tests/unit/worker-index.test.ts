@@ -40,6 +40,12 @@ const mocks = vi.hoisted(() => ({
   discoverConnectionProperties: vi.fn(),
   resolveConnection: vi.fn(),
   sendMail: vi.fn(),
+  // A-WRK-16: the per-org alert cap goes through the shared rate
+  // limiter; the mock below is a faithful fixed-window implementation
+  // (same semantics as the Redis Lua: INCR + expire-on-first-hit,
+  // allowed = count <= limit) backed by this map, cleared per test.
+  rateLimit: vi.fn(),
+  alertBuckets: new Map<string, { count: number; resetAt: number }>(),
 }));
 
 // BullMQ is a dependency of @metricflock/worker, not of the web app:
@@ -93,6 +99,7 @@ vi.mock("@metricflock/shared", async (importOriginal) => {
     createLogger: () => logger,
     incr: mocks.incr,
     counterSnapshot: mocks.counterSnapshot,
+    rateLimit: mocks.rateLimit,
   };
 });
 
@@ -167,6 +174,20 @@ function setDefaults() {
   mocks.recordHealth.mockResolvedValue({ id: "h1" });
   mocks.counterSnapshot.mockReturnValue({ "jobs.succeeded.ga4-realtime-sync": 3 });
   mocks.sendMail.mockResolvedValue(undefined);
+  // A-WRK-16: faithful fixed-window limiter (mirrors the Redis Lua in
+  // rate-limit.ts: INCR on every hit, window anchored at first hit,
+  // allowed = count <= limit). Buckets reset per test for isolation.
+  mocks.alertBuckets.clear();
+  mocks.rateLimit.mockImplementation(async (key: string, limit: number, windowMs: number) => {
+    const now = Date.now();
+    let bucket = mocks.alertBuckets.get(key);
+    if (!bucket || bucket.resetAt <= now) {
+      bucket = { count: 0, resetAt: now + windowMs };
+      mocks.alertBuckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    return { allowed: bucket.count <= limit, remaining: Math.max(0, limit - bucket.count) };
+  });
 }
 
 async function waitFor(check: () => boolean, timeoutMs = 5000): Promise<void> {
@@ -679,6 +700,89 @@ describe("worker index (queue wiring and job routing)", () => {
     await deps.recordHealth({ websiteId: "site-1", provider: "GA4", status: "error", lastError: "boom" });
     const alert = mocks.sendMail.mock.calls[0][0] as { text: string };
     expect(alert.text).toContain("Open the Health page in the dashboard to investigate.");
+  });
+
+  // A-WRK-16: a provider outage must not email per website per queue —
+  // failure alerts are capped at one per org per window (15 min), the
+  // rest are counted + logged. The first failure still alerts at once.
+  const ALERT_WINDOW_MS = 15 * 60_000;
+  const failTerminally = async (queue: string, websiteId: string) => {
+    try {
+      await runJob(queue, { websiteId }, { attemptsMade: 4 });
+    } catch {
+      // expected: the processor rethrows the job error
+    }
+  };
+  const suppressedCount = () => mocks.incr.mock.calls.filter(([k]) => k === "alerts.suppressed").length;
+
+  it("A-WRK-16: caps failure alerts at one email per org per window across websites and queues", async () => {
+    mocks.syncWebsite.mockRejectedValue(new Error("Google 500"));
+    mocks.websiteFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({
+      name: `Site ${where.id}`,
+      domain: `${where.id}.example.com`,
+      organizationId: "org-1",
+    }));
+    await failTerminally("ga4-realtime-sync", "site-1");
+    await failTerminally("search-console-sync", "site-2");
+    await failTerminally("adsense-sync", "site-3");
+    // One alert email for the whole org in the window, not one per site.
+    expect(mocks.sendMail).toHaveBeenCalledTimes(1);
+    expect((mocks.sendMail.mock.calls[0][0] as { subject: string }).subject).toBe(
+      "MetricFlock: sync failed for site-1.example.com",
+    );
+    expect(suppressedCount()).toBe(2);
+    expect(mocks.incr).toHaveBeenCalledWith("alerts.sent");
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "sync failure alert suppressed by per-org alert cap",
+      expect.objectContaining({ organizationId: "org-1" }),
+    );
+    expect(mocks.rateLimit).toHaveBeenCalledTimes(3);
+    expect(mocks.rateLimit).toHaveBeenCalledWith("alert:org-1", 1, ALERT_WINDOW_MS);
+  });
+
+  it("A-WRK-16: the alert cap is per org — a failure in another org still alerts", async () => {
+    mocks.syncWebsite.mockRejectedValue(new Error("Google 500"));
+    mocks.websiteFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({
+      name: `Site ${where.id}`,
+      domain: `${where.id}.example.com`,
+      organizationId: where.id === "site-9" ? "org-2" : "org-1",
+    }));
+    await failTerminally("ga4-realtime-sync", "site-1");
+    await failTerminally("ga4-realtime-sync", "site-9");
+    expect(mocks.sendMail).toHaveBeenCalledTimes(2);
+    expect(suppressedCount()).toBe(0);
+  });
+
+  it("A-WRK-16: health failure alerts share the per-org budget; recoveries are not gated", async () => {
+    const deps = await getWorkerDeps();
+    mocks.syncWebsite.mockRejectedValue(new Error("Google 500"));
+    await failTerminally("ga4-realtime-sync", "site-1"); // consumes org-1's window
+    expect(mocks.sendMail).toHaveBeenCalledTimes(1);
+
+    // A health error transition for another site in the same org is
+    // suppressed by the same budget (no second email in the window).
+    await deps.recordHealth({ websiteId: "site-2", provider: "GA4", status: "error", lastError: "boom" });
+    expect(mocks.sendMail).toHaveBeenCalledTimes(1);
+    expect(suppressedCount()).toBe(1);
+
+    // The recovery email is not gated — it is the all-clear signal.
+    mocks.healthFindUnique.mockResolvedValue({ status: "error" });
+    await deps.recordHealth({ websiteId: "site-2", provider: "GA4", status: "ok", success: true });
+    expect(mocks.sendMail).toHaveBeenCalledTimes(2);
+    expect((mocks.sendMail.mock.calls[1][0] as { subject: string }).subject).toBe(
+      "MetricFlock: GA4 integration recovered for example.com",
+    );
+  });
+
+  it("A-WRK-16: the next window lets a failure alert again", async () => {
+    mocks.syncWebsite.mockRejectedValue(new Error("Google 500"));
+    await failTerminally("ga4-realtime-sync", "site-1");
+    await failTerminally("ga4-realtime-sync", "site-1");
+    expect(mocks.sendMail).toHaveBeenCalledTimes(1);
+    // Expire the fixed window: the next failure claims a fresh slot.
+    mocks.alertBuckets.get("alert:org-1")!.resetAt = 0;
+    await failTerminally("ga4-realtime-sync", "site-1");
+    expect(mocks.sendMail).toHaveBeenCalledTimes(2);
   });
 
   it("worker completed/failed events update the job counters", () => {

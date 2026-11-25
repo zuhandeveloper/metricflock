@@ -564,7 +564,7 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   returns counts + `errors` rather than throwing — the correction's
   criterion is listing-based.
 
-### A-WRK-16 — P3 — CONFIRMED — Failure alerts have no aggregation; a provider outage emails per website per queue
+### A-WRK-16 — P3 — CONFIRMED — Failure alerts have no aggregation; a provider outage emails per website per queue · FIXED 2026-11-25
 
 - **Where:** `apps/worker/src/index.ts:40-62` (`alertSyncFailure`),
   `index.ts:64-96` (`alertHealthTransition`), `index.ts:107-127`
@@ -585,6 +585,7 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   cap alert emails per org per hour with a counter.
 - **Regression test:** test with N failing websites asserting at most one
   email per org per window.
+- **Verification (2026-11-25):** failure alerts are now capped per organization at one per 15-minute window (`ALERT_WINDOW_MS` in `apps/worker/src/index.ts`, via the shared Redis-backed `rateLimit` with key `alert:<orgId>`, limit 1). The gate covers terminal sync failures (`alertSyncFailure`) and health `alert_error` transitions (`alertHealthTransition`); suppressed alerts increment `alerts.suppressed` (/metrics) and are warn-logged instead of emailed. The first failure in a window still alerts immediately, so an isolated failure is never delayed; recovery emails are not gated. The limiter is deliberately not `failClosed`: on a Redis error it degrades to the per-process fallback (cap multiplies per instance, alerts never go fully silent). Regression tests in `worker-index.test.ts`: 3 terminal failures across websites/queues in one org → 1 email (3 fail without the fix); another org still alerts; health errors share the budget while recoveries send; the next window alerts again.
 
 ### A-WRK-17 — P3 — CONFIRMED — Scheduler silently drops enqueues when Redis is unavailable
 
