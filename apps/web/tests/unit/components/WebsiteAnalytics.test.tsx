@@ -147,6 +147,46 @@ describe("WebsiteAnalytics", () => {
     renderAnalytics();
     await waitFor(() => expect(screen.getAllByText("Last synced: never").length).toBeGreaterThan(0));
   });
+
+  // A-FE-16: realtime metrics must go through formatMetric so a payload
+  // missing activeUsers/eventCount renders "—" instead of blank.
+  it("renders dashes when the realtime payload is missing activeUsers and eventCount", async () => {
+    mockFetchRoutes({
+      ...okRoutes,
+      "/api/analytics/realtime": { body: { status: "ok", data: { byCountry: [] } } },
+    });
+    renderAnalytics();
+    await waitFor(() => expect(screen.getByText("Active users")).toBeInTheDocument());
+    expect(screen.getByText("Events")).toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(2);
+  });
+
+  // A-FE-16: the top-pages bar chart needs a text alternative — a
+  // visually-hidden table carrying the same rows for assistive tech.
+  it("exposes the top-pages chart data in a visually-hidden table", async () => {
+    mockFetchRoutes({
+      ...okRoutes,
+      "/api/analytics/pages": {
+        body: {
+          status: "ok",
+          data: {
+            rows: [
+              { dimension0: "/home", screenPageViews: 100 },
+              { dimension0: "/pricing", screenPageViews: 42 },
+            ],
+          },
+        },
+      },
+    });
+    renderAnalytics();
+    await waitFor(() => expect(screen.getByRole("img", { name: /Bar chart of top pages/ })).toBeInTheDocument());
+    const table = screen.getByRole("table");
+    expect(table).toHaveClass("sr-only");
+    expect(screen.getByRole("cell", { name: "/home" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "100" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "/pricing" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "42" })).toBeInTheDocument();
+  });
 });
 
 describe("gap closure: unparseable bodies, metric formatting, all retries", () => {

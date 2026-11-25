@@ -538,7 +538,7 @@ aria-label="Date range"`.
     — bounded by org size in practice, same shape as the assign select
     if an org grows large teams.
 
-### A-FE-16 — P3 — POTENTIAL — Top-pages chart has no text alternative; realtime values can render blank
+### A-FE-16 — P3 — POTENTIAL — Top-pages chart has no text alternative; realtime values can render blank · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/components/WebsiteAnalytics.tsx:211-236`
   (bar chart, `<XAxis dataKey="page" hide />`, no table fallback),
@@ -558,6 +558,14 @@ aria-label="Date range"`.
   pages; render realtime metrics through `formatMetric`.
 - **Regression test:** axe + unit test with a realtime payload missing
   `activeUsers` asserting "—" renders.
+- **Verification (2026-11-25):** the top-pages bar chart now has a
+  visually-hidden (`sr-only`) table with the same rows (full page paths;
+  the chart keeps its `role="img"` + aria-label and its 24-char truncated
+  labels), wrapped in `overflow-x-auto` per the A-FE-06 guard; the realtime
+  card renders `activeUsers`/`eventCount` through `formatMetric`, so a
+  payload missing those fields shows "—" instead of blank. Regression
+  guards: two new tests in `WebsiteAnalytics.test.tsx` (both fail without
+  the fix).
 
 ### A-FE-17 — P3 — CONFIRMED — Forgot-password always shows success, even on network/server failure
 

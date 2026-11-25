@@ -138,6 +138,14 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
     users: r.activeUsers ?? r.totalUsers ?? 0,
     views: r.screenPageViews ?? 0,
   }));
+  // A-FE-16: full page paths for the sr-only table (the chart truncates
+  // its labels to 24 chars; the table is the text alternative).
+  const pageRows: { page: string; views: string | number }[] = (pages.data?.data?.rows ?? [])
+    .slice(0, 8)
+    .map((r: Record<string, string | number>) => ({
+      page: String(r.dimension0),
+      views: r.screenPageViews ?? 0,
+    }));
   return (
     <div className="space-y-4">
       <Card className="p-4">
@@ -151,11 +159,11 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
             <StatusNote data={rt.data} />
             <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
               <div>
-                <p className="text-2xl font-bold">{rt.data.data.activeUsers}</p>
+                <p className="text-2xl font-bold">{formatMetric("activeUsers", rt.data.data.activeUsers)}</p>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">Active users</p>
               </div>
               <div>
-                <p className="text-2xl font-bold">{rt.data.data.eventCount}</p>
+                <p className="text-2xl font-bold">{formatMetric("eventCount", rt.data.data.eventCount)}</p>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">Events</p>
               </div>
               <div className="col-span-2">
@@ -228,21 +236,39 @@ export default function WebsiteAnalytics({ websiteId, range }: { websiteId: stri
           ) : pages.isError ? (
             <ErrorNote error={pages.error} onRetry={() => pages.refetch()} />
           ) : pages.data?.status === "ok" ? (
-            <div className="mt-2 h-56" role="img" aria-label="Bar chart of top pages by views">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={(pages.data.data.rows ?? []).slice(0, 8).map((r: Record<string, string | number>) => ({
-                    page: String(r.dimension0).slice(0, 24),
-                    views: r.screenPageViews ?? 0,
-                  }))}
-                >
-                  <XAxis dataKey="page" hide />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="views" fill="#2563eb" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <>
+              <div className="mt-2 h-56" role="img" aria-label="Bar chart of top pages by views">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={pageRows.map((r) => ({ page: r.page.slice(0, 24), views: r.views }))}>
+                    <XAxis dataKey="page" hide />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="views" fill="#2563eb" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              {/* A-FE-16: text alternative for the chart — the X axis is
+                  hidden, so the same rows are exposed as a table. */}
+              <div className="overflow-x-auto">
+                <table className="sr-only">
+                  <caption>Top pages by views</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Page</th>
+                      <th scope="col">Views</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pageRows.map((r) => (
+                      <tr key={r.page}>
+                        <td>{r.page}</td>
+                        <td>{r.views}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           ) : (
             <StatusNote data={pages.data} />
           )}
