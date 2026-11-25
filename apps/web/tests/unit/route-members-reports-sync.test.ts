@@ -775,7 +775,7 @@ describe("GET /api/organization/export", () => {
         action: "organization.exported",
         entityType: "Organization",
         entityId: "org1",
-        details: { members: 1, websites: 0 },
+        details: { members: 1, websites: 0, truncated: false },
       }),
     );
   });
