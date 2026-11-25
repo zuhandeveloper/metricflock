@@ -754,7 +754,7 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   are untouched. Full suite: 122 files, 1,333 tests, coverage
   95.96/90.77/90.51/97.69, gate green.
 
-### A-COV-11 — P3 — CONFIRMED — Weak-assertion inventory (config-shape and pure-function tests)
+### A-COV-11 — P3 — CONFIRMED — Weak-assertion inventory (config-shape and pure-function tests) · FIXED 2026-11-25
 
 - **Location:** `auth-config.test.ts` (hooks only `typeof === "function"`),
   `permissions.test.ts`, `tenant-isolation.test.ts`, `audit-retention.test.ts`
@@ -774,6 +774,32 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   add pagination edge tests (limit 0 / negative / >max / offset beyond total).
 - **Regression-test requirement:** hook-invocation tests; `withApiErrors`
   throw-path test; pagination boundary tests.
+- **Verification (2026-11-25):** the better-auth database hooks are now
+  invoked with fixtures in `auth-config.test.ts` (invite hit/miss
+  org+role assignment, slug derivation, client-supplied org/role
+  discarded, invite consumption + audit on create.after,
+  update.before rejection, sign-in audit) — previously only
+  `typeof === "function"` was asserted. The `withApiErrors`
+  unhandled branch now asserts the `api.internal_error` counter
+  (exactly once per unhandled error; ApiError/Prisma-mapped paths do
+  not count) plus the two passthrough branches (malformed-JSON body,
+  plain Response); removing the `incr` line fails exactly the new
+  counter test. Pagination boundaries pinned (negative limit, exact
+  max, fractional floor, empty/Infinity input, under-cap offset
+  passthrough, defaultLimit clamps). Full role×permission matrix +
+  `extra` grants + unknown role pinned in `permissions.test.ts`;
+  cache-key defaults and the org:website prefix order in
+  `cache-keys.test.ts`, website/property scoping in
+  `tenant-isolation.test.ts`; retention parsing boundaries in
+  `audit-retention.test.ts`; all 9 reports + degenerate TTLs in
+  `snapshot-ttl.test.ts`. The previously uncovered `health.ts` /
+  `insights.ts` statements were already covered by later fixes; the
+  remaining branches (non-finite page, missing name/domain, both
+  batch-failure catches) are now asserted. **Bug found, not fixed
+  here:** `AUDIT_RETENTION_DAYS=0.5` floors to 0 days, so the worker
+  cutoff becomes "now" (delete-everything) — contradicting the
+  fallback contract; pinned as a skipped test in
+  `audit-retention.test.ts` pending a production fix.
 
 ### A-COV-12 — P3 — POTENTIAL — Flakiness and suite-speed risks
 

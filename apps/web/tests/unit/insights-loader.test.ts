@@ -186,4 +186,28 @@ describe("loadInsights (Phase 7.4)", () => {
     const out = await loadInsights(user);
     expect(out.truncated).toBe(false);
   });
+
+  // A-COV-11: the two degrade-gracefully catches — a failed batched
+  // lookup must behave exactly like "no snapshots anywhere" (every
+  // website unavailable, summary nulls), never throw.
+  it("degrades to all-unavailable when the primaries batch fails", async () => {
+    mocks.getPrimaryIntegrations.mockRejectedValue(new Error("db down"));
+    const out = await loadInsights(user);
+    expect(out.websites).toEqual([]);
+    expect(out.unavailableCount).toBe(2);
+    expect(out.summary.totalEarnings).toBeNull();
+    expect(out.summary.blendedPageRpm).toBeNull();
+    expect(out.summary.earningsPerThousandSessions).toBeNull();
+    expect(out.summary.strikingDistanceQueries).toBe(0);
+    expect(out.summary.lowCtrQueries).toBe(0);
+  });
+
+  it("degrades to all-unavailable when the snapshot batch fails", async () => {
+    mocks.readSnapshots.mockRejectedValue(new Error("cache down"));
+    const out = await loadInsights(user);
+    expect(out.websites).toEqual([]);
+    expect(out.unavailableCount).toBe(2);
+    expect(out.summary.totalEarnings).toBeNull();
+    expect(out.truncated).toBe(false);
+  });
 });

@@ -23,4 +23,25 @@ describe("snapshotTtlSeconds", () => {
   it("falls back to the cache TTL for unknown reports", () => {
     expect(snapshotTtlSeconds("no-such-report", 123)).toBe(123);
   });
+
+  // A-COV-11: every report in SYNC_TYPE_BY_REPORT resolves to its
+  // queue's interval, and degenerate cache TTLs never shorten the
+  // freshness window below the sync interval.
+  it("resolves the remaining GA4 historical reports to the 45-minute interval", () => {
+    expect(snapshotTtlSeconds("audience", 300)).toBe(2700);
+    expect(snapshotTtlSeconds("pages", 300)).toBe(2700);
+    expect(snapshotTtlSeconds("events", 300)).toBe(2700);
+  });
+  it("never lets a zero or negative cache TTL shorten the window", () => {
+    expect(snapshotTtlSeconds("overview", 0)).toBe(2700);
+    expect(snapshotTtlSeconds("overview", -60)).toBe(2700);
+    expect(snapshotTtlSeconds("realtime", 0)).toBe(300);
+  });
+  it("returns the shared value when cache TTL equals the sync interval", () => {
+    expect(snapshotTtlSeconds("overview", 2700)).toBe(2700);
+    expect(snapshotTtlSeconds("search-console", 28_800)).toBe(28_800);
+  });
+  it("returns a zero cache TTL unchanged for unknown reports", () => {
+    expect(snapshotTtlSeconds("no-such-report", 0)).toBe(0);
+  });
 });

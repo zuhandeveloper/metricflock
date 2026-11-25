@@ -112,6 +112,32 @@ describe("loadHealthOverview", () => {
     expect(result.page).toBe(2);
     expect(mocks.healthFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 50, take: 50 }));
   });
+
+  // A-COV-11: the two branch fallbacks the suite never exercised —
+  // a non-finite page (e.g. NaN from a malformed query param) falls
+  // back to page 1, and a website row missing name/domain maps to
+  // empty strings instead of crashing the overview.
+  it("falls back to page 1 for a non-finite page", async () => {
+    const result = await loadHealthOverview(user, Number.NaN);
+    expect(result.page).toBe(1);
+    expect(mocks.healthFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 50 }));
+  });
+
+  it("maps a website without name/domain to empty strings", async () => {
+    mocks.healthFindMany.mockResolvedValue([
+      {
+        websiteId: "w9",
+        provider: "GA4",
+        status: "ok",
+        lastSuccessAt: new Date(),
+        lastError: null,
+        checkedAt: new Date(),
+        website: {},
+      },
+    ]);
+    const result = await loadHealthOverview(user, 1);
+    expect(result.rows[0]).toMatchObject({ websiteId: "w9", websiteName: "", domain: "", state: "healthy" });
+  });
 });
 
 // A-LIVE-01 (Stage 1, row 18 — code-side part only): the readiness logic

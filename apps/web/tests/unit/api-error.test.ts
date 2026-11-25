@@ -1,8 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextResponse } from "next/server";
+import { counterSnapshot, resetCounters } from "@metricflock/shared";
 import { prismaErrorResponse, withApiErrors, apiError, ApiError } from "@/lib/api-error";
 
 describe("API error contract (API-9)", () => {
+  beforeEach(() => {
+    resetCounters();
+  });
   it("maps Prisma codes to stable errors", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const cases: [string, number, string][] = [
@@ -73,5 +77,74 @@ describe("API error contract (API-9)", () => {
     const stampedRes = await stamped();
     expect(await stampedRes.json()).toEqual({ error: "gone", requestId: "req-1" });
     expect(stampedRes.headers.get("x-request-id")).toBe("req-1");
+  });
+
+  // A-COV-11: the unhandled-error branch is the fallback for every
+  // route — assert its observability contract (the api.internal_error
+  // counter), not just the 500 body, and that the mapped/client-error
+  // paths do NOT count as internal errors.
+  it("withApiErrors increments api.internal_error exactly once per unhandled error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const handler = withApiErrors("test", async () => {
+      throw new Error("boom");
+    });
+    const res = await handler();
+    expect(res.status).toBe(500);
+    expect(counterSnapshot()["api.internal_error"]).toBe(1);
+    await handler();
+    expect(counterSnapshot()["api.internal_error"]).toBe(2);
+  });
+
+  it("withApiErrors does not count ApiError or Prisma-mapped errors as internal errors", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const clientError = withApiErrors("test", async () => {
+      throw new ApiError("invalid_range", 400);
+    });
+    expect((await clientError()).status).toBe(400);
+    const prismaError = withApiErrors("test", async () => {
+      throw Object.assign(new Error("unique"), { code: "P2002" });
+    });
+    expect((await prismaError()).status).toBe(409);
+    expect(counterSnapshot()["api.internal_error"]).toBeUndefined();
+    expect(counterSnapshot()["api.prisma_error"]).toBe(1);
+  });
+
+  it("withApiErrors does not count successful responses as internal errors", async () => {
+    const handler = withApiErrors("test", async () => NextResponse.json({ ok: true }));
+    expect((await handler()).status).toBe(200);
+    expect(counterSnapshot()).toEqual({});
+  });
+
+  // A-COV-11: the two passthrough branches of the enrichment path —
+  // a malformed-JSON error body and a plain (non-NextResponse)
+  // Response both pass through untouched (the better-auth mount
+  // depends on the latter).
+  it("withApiErrors passes a malformed-JSON error body through untouched", async () => {
+    const handler = withApiErrors(
+      "test",
+      async () => new NextResponse("not json", { status: 500, headers: { "content-type": "application/json" } }),
+    );
+    const res = await handler();
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe("not json");
+    expect(res.headers.get("x-request-id")).toBeNull();
+  });
+
+  it("withApiErrors passes plain Responses through untouched", async () => {
+    const plain = new Response("plain-ok", { status: 200 });
+    const handler = withApiErrors("test", async () => plain);
+    const res = await handler();
+    expect(res).toBe(plain);
+    expect(await res.text()).toBe("plain-ok");
+  });
+
+  it("withApiErrors passes a non-object JSON error body through untouched", async () => {
+    // Only object bodies carrying a string `error` get the requestId
+    // injected; an array body is not the error contract shape.
+    const handler = withApiErrors("test", async () => NextResponse.json(["not", "an", "object"], { status: 500 }));
+    const res = await handler();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual(["not", "an", "object"]);
+    expect(res.headers.get("x-request-id")).toBeNull();
   });
 });

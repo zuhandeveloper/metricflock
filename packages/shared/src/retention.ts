@@ -3,9 +3,9 @@
 // tests read the same parsing rule.
 
 /** Audit-log retention window in days (AUDIT_RETENTION_DAYS env).
- * Defaults to 365; invalid or non-positive values fall back to 365 —
- * never to "delete everything". */
+ * Defaults to 365; invalid, non-positive, or sub-day values fall back
+ * to 365 — never to "delete everything". */
 export function auditRetentionDays(): number {
   const raw = Number(process.env.AUDIT_RETENTION_DAYS ?? 365);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 365;
+  return Number.isFinite(raw) && Math.floor(raw) >= 1 ? Math.floor(raw) : 365;
 }
