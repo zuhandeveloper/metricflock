@@ -843,7 +843,7 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   demonstrated failing on a temporary bare `setTimeout` and passing after
   its removal.
 
-### A-COV-13 — P3 — CONFIRMED — UI and e2e journey coverage is thin
+### A-COV-13 — P3 — CONFIRMED — UI and e2e journey coverage is thin · FIXED 2026-11-25
 
 - **Location:** `apps/web/tests/e2e/journeys.spec.ts` (5 tests),
   `apps/web/src/app/**/*.tsx` (20 pages, ~15 client components, 0 component
@@ -861,6 +861,34 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   for the form components once a test renderer is added.
 - **Regression-test requirement:** journey tests asserting the resulting
   server state (e.g. transfer status after UI accept), not just visible text.
+- **Verification (2026-11-25):** revalidation found the component-test
+  half already closed by later fixes — every client form component now
+  has component tests (transfers: `TransferActions.test.tsx` +
+  `WebsiteActions.test.tsx` transfer form; members/invites:
+  `MemberForms.test.tsx` + `AcceptInviteButton` clicks in
+  `AuthForms.test.tsx`; sync: `RequeueButton` clicks in
+  `AuthForms.test.tsx`; integrations/discovery:
+  `ConnectionActions.test.tsx`; health/insights/audit:
+  `pages-ops.test.tsx` / `pages-insights-integrations.test.tsx`;
+  settings/security: `SecurityActions.test.tsx` + the 2FA-QR and
+  session-revoke e2e specs). The remaining gaps were exactly the three
+  named e2e journeys, now added to `journeys.spec.ts`, each asserting
+  server state via the API: transfer accept + complete from
+  `/transfers` (website team unchanged after accept, flipped to the
+  destination after complete; both transitions audited), invite
+  accept for an existing account from `/invite/<token>` (invitee's
+  session shows the inviting org + `TEAM_MEMBER` role; accept
+  audited), and dead-letter requeue from `/sync` (job leaves
+  `/api/sync/failed`; requeue audited). Preconditions the public API
+  cannot create (a verified invitee, a terminally FAILED job) use the
+  repo's own CI fixture scripts (`smoke-verify-user.ts`,
+  `smoke-failed-job.ts`), as `smoke-test.sh` does; transfer completion
+  relies on the smoke stage-2 fixture's ACTIVE connection on team-b.
+  The axe gate in both accessibility specs now blocks on all four
+  impact levels (moderate/minor no longer ignored). The new journeys
+  and the tightened gate are CI-only verification (no DB/Redis
+  locally); integrations/discovery e2e remains impossible without a
+  real Google account and stays component-covered.
 
 ### A-COV-14 — P3 — CONFIRMED — DB write paths untested in unit
 

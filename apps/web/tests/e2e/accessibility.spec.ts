@@ -2,16 +2,20 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 // Accessibility gate (FE-3 / Stage 6 deferred item): the signed-out
-// auth pages must have zero critical/serious axe violations, and the
-// security headers (CI-2) must be present on real browser responses —
-// the HTML-level smoke assertions can't see either.
+// auth pages must have zero axe violations at ANY impact level
+// (A-COV-13 tightened this from critical/serious-only — moderate and
+// minor violations no longer pass silently), and the security
+// headers (CI-2) must be present on real browser responses — the
+// HTML-level smoke assertions can't see either.
 const PAGES = ["/login", "/forgot-password"];
 
 for (const path of PAGES) {
-  test(`${path} has no critical/serious accessibility violations`, async ({ page }) => {
+  test(`${path} has no accessibility violations`, async ({ page }) => {
     await page.goto(path);
     const results = await new AxeBuilder({ page }).analyze();
-    const blocking = results.violations.filter((v) => v.impact === "critical" || v.impact === "serious");
+    const blocking = results.violations.filter(
+      (v) => v.impact === "critical" || v.impact === "serious" || v.impact === "moderate" || v.impact === "minor",
+    );
     expect(
       blocking,
       JSON.stringify(

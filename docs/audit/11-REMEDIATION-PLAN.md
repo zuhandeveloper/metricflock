@@ -144,7 +144,16 @@ UPDATE` pattern (demote + remove paths) and 2 concurrency regression
 tests, pushed to main @0f0430a0, CI #214 SUCCESS — A-SEC-18 is fully
 closed; see its checklist row and the doc 01 verification note. A-COV-13 is only partially
 covered — 275 component tests exist, but no new e2e journeys were
-added and the axe gate still ignores moderate/minor violations. A-BASE-01 is fixed — `hookTimeout: 30_000` is now explicit in `apps/web/vitest.config.ts` (aliases untouched); the flake did not reproduce in revalidation (baseline + two post-fix full-suite passes, 123 files / 1,349 tests, coverage 95.96/90.77/90.51/97.69), so the timeout is hardening against the original 2026-11-23 failure rather than a refutation of it. A-BASE-03 is fixed — `turbo.json` now carries a package-scoped `"@metricflock/db#build": { "outputs": [] }` with a comment: the literal correction (declare the generated-client path) is not safely possible, because Prisma 7 writes the client into the pnpm store outside the package and the path carries a peer-dep hash that changes with the dependency graph. Forced db rebuild and full `turbo run build` run with no WARNING; a second full build is a full cache hit (2 cached / 2 total) with the client still on disk and typecheck green, so the empty outputs list never skips a needed generate.
+added and the axe gate still ignores moderate/minor violations. Update
+2026-11-25: A-COV-13 is fixed — revalidation confirmed every client
+form component already had component tests, and the three missing e2e
+journeys are now in `journeys.spec.ts` with server-state assertions
+(transfer accept/complete via `/transfers`, invite accept via
+`/invite/<token>`, dead-letter requeue via `/sync`; preconditions the
+API cannot create use the repo's smoke fixture scripts, as
+`smoke-test.sh` does), and both axe specs now block on all four
+impact levels. The journeys and the tightened gate are CI-only
+verification. A-BASE-01 is fixed — `hookTimeout: 30_000` is now explicit in `apps/web/vitest.config.ts` (aliases untouched); the flake did not reproduce in revalidation (baseline + two post-fix full-suite passes, 123 files / 1,349 tests, coverage 95.96/90.77/90.51/97.69), so the timeout is hardening against the original 2026-11-23 failure rather than a refutation of it. A-BASE-03 is fixed — `turbo.json` now carries a package-scoped `"@metricflock/db#build": { "outputs": [] }` with a comment: the literal correction (declare the generated-client path) is not safely possible, because Prisma 7 writes the client into the pnpm store outside the package and the path carries a peer-dep hash that changes with the dependency graph. Forced db rebuild and full `turbo run build` run with no WARNING; a second full build is a full cache hit (2 cached / 2 total) with the client still on disk and typecheck green, so the empty outputs list never skips a needed generate.
 
 ## 11.2 Verification gates (re-audit criteria)
 
