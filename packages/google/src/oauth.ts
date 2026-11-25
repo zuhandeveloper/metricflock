@@ -148,7 +148,17 @@ export async function getGoogleAccountProfile(
     oauth2.userinfo.get(undefined, { timeout: GOOGLE_API_TIMEOUT_MS }),
     "oauth.userinfo.get",
   );
-  return { email: me.data.email ?? "unknown@google", id: me.data.id ?? null };
+  const email = me.data.email;
+  if (!email) {
+    // A-GGL-18: never invent an address. The callback upserts connections
+    // on (organizationId, ownerType, ownerId, googleAccountEmail), so a
+    // shared fake email would make two different Google accounts collide
+    // on one row and silently overwrite each other's tokens. Failing here
+    // makes the callback redirect with oauth=profile_failed (A-GGL-17)
+    // and store nothing.
+    throw new Error("GOOGLE_PROFILE_EMAIL_MISSING");
+  }
+  return { email, id: me.data.id ?? null };
 }
 export async function buildAuthUrl(
   user: { id: string; organizationId: string },

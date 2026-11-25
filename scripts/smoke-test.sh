@@ -298,7 +298,7 @@ CONNECT_URL="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_
 STATE2="$(echo "$CONNECT_URL" | node -e 'const u=new URL(require("fs").readFileSync(0,"utf8").trim());console.log(u.searchParams.get("state"))')"
 [ -n "$STATE2" ] || fail "second connect returned no state"
 loc="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/callback?code=fake-code&state=$STATE2")"
-case "$loc" in *oauth=failed*) ;; *) fail "first callback redirect was $loc (expected failed: fake code)" ;; esac
+case "$loc" in *oauth=token_exchange_failed*) ;; *) fail "first callback redirect was $loc (expected token_exchange_failed: fake code)" ;; esac
 loc="$(curl -s -o /dev/null -w "%{redirect_url}" -b "$ADMIN_JAR" "$BASE_URL/api/google/oauth/callback?code=fake-code&state=$STATE2")"
 case "$loc" in *oauth=bad_state*) ;; *) fail "replay redirect was $loc (expected bad_state)" ;; esac
 ok "PKCE present; state single-use; replay rejected"

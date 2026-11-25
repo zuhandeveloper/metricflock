@@ -219,12 +219,12 @@ describe("getGoogleAccountProfile", () => {
     expect(mocks.userinfoGet).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to unknown@google / null when the profile is empty", async () => {
-    mocks.userinfoGet.mockResolvedValue({ data: {} });
-    await expect(getGoogleAccountProfile({} as never)).resolves.toEqual({
-      email: "unknown@google",
-      id: null,
-    });
+  it("throws GOOGLE_PROFILE_EMAIL_MISSING when userinfo returns no email (A-GGL-18)", async () => {
+    // The old unknown@google fallback could collide two different
+    // Google accounts on one connection row (the callback upserts on
+    // googleAccountEmail) and silently overwrite each other's tokens.
+    mocks.userinfoGet.mockResolvedValue({ data: { id: "google-123" } });
+    await expect(getGoogleAccountProfile({} as never)).rejects.toThrow("GOOGLE_PROFILE_EMAIL_MISSING");
   });
 });
 
