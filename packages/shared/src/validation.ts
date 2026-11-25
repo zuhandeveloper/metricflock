@@ -29,8 +29,9 @@ export function isValidCalendarDate(d: string): boolean {
 
 // A-GGL-08: field-level refine (not an object-level one) so dateRangeSchema
 // stays a plain ZodObject and analyticsQuerySchema's `.extend` keeps
-// working. The startDate <= endDate check lives in resolveRange, which
-// every HTTP path calls after parsing.
+// working. The cross-field startDate <= endDate check is attached to
+// analyticsQuerySchema itself (A-GGL-22); resolveRange repeats it as
+// defense-in-depth for callers that pass a raw range string.
 const strictDateString = z.string().refine(isValidCalendarDate, {
   message: "must be a real calendar date (YYYY-MM-DD)",
 });
@@ -74,10 +75,25 @@ export const mapPropertySchema = z.object({
   resourceName: z.string().optional(),
   isPrimary: z.boolean().optional(),
 });
-export const analyticsQuerySchema = dateRangeSchema.extend({
-  websiteId: z.string().optional(),
-  format: z.enum(["json", "csv"]).optional(),
-});
+export const analyticsQuerySchema = dateRangeSchema
+  .extend({
+    websiteId: z.string().optional(),
+    format: z.enum(["json", "csv"]).optional(),
+  })
+  // A-GGL-22: cross-field order check at the schema level. dateRangeSchema
+  // stays a plain ZodObject (A-GGL-08: `.extend` must keep working), so the
+  // startDate <= endDate check is attached here, on the extended schema
+  // every HTTP analytics path parses. resolveRange keeps its own check as
+  // defense-in-depth for callers that pass a raw range string.
+  .superRefine((val, ctx) => {
+    if (val.startDate && val.endDate && val.startDate > val.endDate) {
+      ctx.addIssue({
+        code: "custom",
+        message: "startDate must be on or before endDate",
+        path: ["startDate"],
+      });
+    }
+  });
 export const inviteCreateSchema = z.object({
   email: z.string().email().max(320),
   // SUPER_ADMIN is never granted by invite — it is promoted afterwards

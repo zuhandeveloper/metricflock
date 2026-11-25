@@ -199,12 +199,13 @@ Status: **CONFIRMED** = traced in current source; **POTENTIAL** = reachable but 
 - **Regression test:** the test itself, run under parallel load, passes reliably.
 - **Verification (2026-11-25):** the "acquires after the holder releases mid-wait" test now passes `{ ...opts, deadlineMs: 500 }` — 3 polls need ~10 ms nominal, so the 500 ms wall-clock deadline gives ~50x headroom against `setTimeout` overshoot under parallel load; the other three tests keep the shared 60 ms opts (immediate OK / immediate throw / guaranteed timeout — all load-insensitive). No production change: `acquireRefreshLock` uses `Date.now()` directly (no injectable clock) and its defaults (15,000/250) already have headroom; a fake-clock rewrite was rejected as more invasive than the margin fix the finding named first. Reliability: 10/10 isolated runs and 3/3 parallel 13-file batch runs pass post-fix; the old 60 ms margins did not reproduce the flake today (1 isolation run + 3 parallel batches + 1 full-suite run all passed pre-fix) — the mechanism is confirmed from the code (wall-clock deadline vs `setTimeout` minimums), and the audit's 2026-11-23 observation stands as the flake evidence.
 
-### A-GGL-22 — Custom date ranges accept impossible dates · P3 · CONFIRMED
+### A-GGL-22 — Custom date ranges accept impossible dates · P3 · CONFIRMED · FIXED 2026-11-25
 
 - **Evidence:** `dateRangeSchema` (`packages/shared/src/validation.ts:2-12`) regex-checks `^\d{4}-\d{2}-\d{2}$` only — `2026-02-30` and `2026-13-45` pass. `resolveRange` (`apps/web/src/lib/analytics-response.ts:62-76`) returns custom ranges verbatim with no `start ≤ end` check. Only Ad Manager validates strictly (A-GGL-08).
 - **Impact:** impossible ranges reach GA4/SC/AdSense and fail as provider `INVALID_ARGUMENT` (502 `invalid_request`) instead of a clean 400.
 - **Correction:** shared strict date validation (as in A-GGL-08) applied once in `resolveRange`/the schema.
 - **Regression test:** `analyticsQuerySchema` with `startDate: "2026-02-30"` or `startDate > endDate` → validation failure, no provider call.
+- **Verification (2026-11-25):** the impossible-date half was already closed by A-GGL-08 (`dateRangeSchema`'s field-level `strictDateString` refine via `isValidCalendarDate`, and `resolveRange`'s custom-range validity + order checks). The remaining gap was the schema-level order check: `analyticsQuerySchema` now carries a `.superRefine()` cross-field check (attached post-`.extend` so `dateRangeSchema` stays a plain ZodObject) that rejects `startDate > endDate` with an issue on `startDate` — the handler returns 400 `invalid_input` before any provider call. `resolveRange` keeps its own check as defense-in-depth for callers that pass a raw range string. Regression test in `validation.test.ts` (reversed dates fail, equal dates pass; fails without the fix).
 
 ## 3. Aggregation math — recomputed from code (not comments)
 

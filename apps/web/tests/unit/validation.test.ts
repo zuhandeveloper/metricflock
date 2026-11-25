@@ -198,6 +198,23 @@ describe("analyticsQuerySchema (A-COV-08)", () => {
       expect(issuePaths(result)).toContain(path);
     }
   });
+
+  // A-GGL-22: the cross-field order check lives on the schema too, so a
+  // reversed range fails validation (400 invalid_input) before any
+  // provider call — resolveRange keeps its own check as defense-in-depth.
+  it("rejects startDate after endDate, naming startDate; equal dates pass", () => {
+    for (const input of [
+      { range: "custom", startDate: "2026-02-10", endDate: "2026-02-01" },
+      { startDate: "2026-02-10", endDate: "2026-02-01" },
+    ]) {
+      const result = analyticsQuerySchema.safeParse(input);
+      expect(result.success).toBe(false);
+      expect(issuePaths(result)).toContain("startDate");
+    }
+    expect(
+      analyticsQuerySchema.safeParse({ range: "custom", startDate: "2026-02-01", endDate: "2026-02-01" }).success,
+    ).toBe(true);
+  });
 });
 
 describe("inviteCreateSchema (A-COV-08)", () => {
