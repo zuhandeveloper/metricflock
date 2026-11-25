@@ -151,6 +151,11 @@ model ReportSchedule {
   organizationId String       @unique
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   enabled        Boolean      @default(false)
+  // A-DB-17: the `ReportSchedule_day_hour_range_check` CHECK (dayOfWeek
+  // BETWEEN 0 AND 6 AND hourUtc BETWEEN 0 AND 23) lives in migration
+  // 20261125090200_db17_report_schedule_range_check — Prisma cannot express
+  // CHECKs, so the ranges are enforced by the database, not only by the
+  // reports/schedule route's zod schema.
   dayOfWeek      Int          @default(1) // 0=Sunday .. 6=Saturday (UTC)
   hourUtc        Int          @default(8)
   recipients     Json         @default("[]") // string[] of email addresses
@@ -561,7 +566,6 @@ model TwoFactor {
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
   @@index([userId])
-  @@index([secret])
 }
 
 model AuditLog {
