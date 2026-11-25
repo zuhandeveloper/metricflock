@@ -43,10 +43,21 @@ afterEach(() => {
 });
 
 describe("ResetPasswordForm", () => {
+  it("blocks submission with an error when the passwords do not match", () => {
+    const fetchMock = mockFetch(null);
+    render(<ResetPasswordForm token="tok1" />);
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "a-very-long-password" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "a-different-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Passwords do not match.");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects passwords shorter than 12 characters without calling the API", () => {
     const fetchMock = mockFetch(null);
     render(<ResetPasswordForm token="tok1" />);
     fireEvent.change(screen.getByLabelText("New password"), { target: { value: "short" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "short" } });
     fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Password must be at least 12 characters.");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -56,6 +67,7 @@ describe("ResetPasswordForm", () => {
     const fetchMock = mockFetch(null);
     render(<ResetPasswordForm token="tok1" />);
     fireEvent.change(screen.getByLabelText("New password"), { target: { value: "a-very-long-password" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "a-very-long-password" } });
     fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
     await waitFor(() => expect(screen.getByText(/Your password has been reset/)).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledWith(
@@ -71,6 +83,7 @@ describe("ResetPasswordForm", () => {
     mockFetch({ error: "invalid" }, false, 400);
     render(<ResetPasswordForm token="tok1" />);
     fireEvent.change(screen.getByLabelText("New password"), { target: { value: "a-very-long-password" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "a-very-long-password" } });
     fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("This reset link is invalid or expired."));
   });
@@ -172,6 +185,7 @@ describe("gap closure: json parse failures and busy guards", () => {
     const fetchMock = mockFetchDelayed(null);
     render(<ResetPasswordForm token="tok1" />);
     fireEvent.change(screen.getByLabelText("New password"), { target: { value: "a-very-long-password" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "a-very-long-password" } });
     const form = screen.getByLabelText("New password").closest("form")!;
     fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
     fireEvent.submit(form);

@@ -447,7 +447,7 @@ aria-label="Date range"`.
   finding's e2e test `theme-toggle.spec.ts` (toggle dark, reload, class
   persists; CI-only).
 
-### A-FE-13 — P3 — CONFIRMED — Reset-password form has no confirm-password field
+### A-FE-13 — P3 — CONFIRMED — Reset-password form has no confirm-password field · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/app/reset-password/[token]/ResetPasswordForm.tsx:17-40`.
 - **Evidence:** a single password input with a client-side minimum of 12
@@ -459,6 +459,15 @@ aria-label="Date range"`.
   error before submitting.
 - **Regression test:** e2e test asserting mismatched passwords block
   submission with an error.
+- **Verification 2026-11-25:** the form now has a "Confirm new password"
+  field (same label/autoComplete="new-password" pattern); when the two
+  fields differ, submit shows a role="alert" "Passwords do not match."
+  error and never calls the API — the 12-character minimum and the
+  success state are unchanged. Regression guards: one new unit test in
+  `AuthForms.test.tsx` (fails without the fix — pre-fix there was no
+  confirm field to mismatch against) + a new CI-only e2e spec
+  `reset-password.spec.ts` (signed-out project, dummy token) asserting
+  the alert shows and no POST reaches `/api/auth/reset-password`.
 
 ### A-FE-14 — P3 — CONFIRMED — Transfers page: dead INITIATED branch + stale "via POST API" hint
 

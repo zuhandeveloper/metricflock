@@ -71,6 +71,7 @@ describe("ResetPasswordPage", () => {
     render(el);
     expect(screen.getByRole("heading", { name: "Choose a new password" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("New password"), { target: { value: "a-very-long-password" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "a-very-long-password" } });
     fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
     await screen.findByText(/Your password has been reset/);
     expect(fetch).toHaveBeenCalledWith(
@@ -178,7 +179,7 @@ describe("AppLayout", () => {
     render(el);
     expect(screen.getByText("child content")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Skip to main content" })).toHaveAttribute("href", "#main-content");
-    expect(screen.getByRole("button", { name: "Toggle dark mode" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dark / Light" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 });

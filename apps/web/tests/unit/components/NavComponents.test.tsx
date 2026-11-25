@@ -199,7 +199,7 @@ describe("ThemeToggle", () => {
 
   it("toggles the dark class on the document element", () => {
     render(<ThemeToggle />);
-    const btn = screen.getByRole("button", { name: "Toggle dark mode" });
+    const btn = screen.getByRole("button", { name: "Dark / Light" });
     expect(document.documentElement.classList.contains("dark")).toBe(false);
     fireEvent.click(btn);
     expect(document.documentElement.classList.contains("dark")).toBe(true);
@@ -209,7 +209,7 @@ describe("ThemeToggle", () => {
 
   it("exposes pressed state (A-FE-12)", () => {
     render(<ThemeToggle />);
-    const btn = screen.getByRole("button", { name: "Toggle dark mode" });
+    const btn = screen.getByRole("button", { name: "Dark / Light" });
     expect(btn).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(btn);
     expect(btn).toHaveAttribute("aria-pressed", "true");
@@ -219,7 +219,7 @@ describe("ThemeToggle", () => {
 
   it("persists the choice in a cookie (A-FE-12)", () => {
     render(<ThemeToggle />);
-    const btn = screen.getByRole("button", { name: "Toggle dark mode" });
+    const btn = screen.getByRole("button", { name: "Dark / Light" });
     fireEvent.click(btn);
     expect(document.cookie).toContain("theme=dark");
     fireEvent.click(btn);
@@ -230,7 +230,7 @@ describe("ThemeToggle", () => {
     document.cookie = "theme=dark; path=/";
     render(<ThemeToggle />);
     expect(document.documentElement.classList.contains("dark")).toBe(true);
-    expect(screen.getByRole("button", { name: "Toggle dark mode" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Dark / Light" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("follows prefers-color-scheme on first visit (A-FE-12)", () => {

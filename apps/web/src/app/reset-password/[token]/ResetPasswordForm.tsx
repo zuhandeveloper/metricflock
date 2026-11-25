@@ -5,6 +5,7 @@ import { Card, Input, Button } from "@/components/ui";
 
 export default function ResetPasswordForm({ token }: { token: string }) {
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -13,6 +14,10 @@ export default function ResetPasswordForm({ token }: { token: string }) {
     setError("");
     if (password.length < 12) {
       setError("Password must be at least 12 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Passwords do not match.");
       return;
     }
     if (busy) return;
@@ -55,6 +60,20 @@ export default function ResetPasswordForm({ token }: { token: string }) {
               autoComplete="new-password"
             />
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">At least 12 characters.</p>
+          </div>
+          <div>
+            <label htmlFor="reset-password-confirm" className="mb-1 block text-sm font-medium">
+              Confirm new password
+            </label>
+            <Input
+              id="reset-password-confirm"
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="Confirm new password"
+              required
+              autoComplete="new-password"
+            />
           </div>
           {error && (
             <p role="alert" className="text-sm text-red-700 dark:text-red-400">

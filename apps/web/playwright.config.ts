@@ -19,7 +19,7 @@ export default defineConfig({
   use: { baseURL: `http://localhost:${PORT}` },
   projects: [
     { name: "setup", testMatch: /auth\.setup\.ts/ },
-    { name: "signed-out", testMatch: /(^|\/)accessibility\.spec\.ts$/ },
+    { name: "signed-out", testMatch: /(^|\/)(accessibility|reset-password)\.spec\.ts$/ },
     {
       name: "app",
       testMatch: /(app-accessibility|journeys|website-status|session-revoke|theme-toggle)\.spec\.ts/,

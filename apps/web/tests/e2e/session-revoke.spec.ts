@@ -14,10 +14,21 @@ const OTHER_UA = "E2E-Other-Device";
 
 test("a failed session revoke shows an error and keeps the session row", async ({ page, baseURL }) => {
   const other = await apiRequest.newContext({ baseURL: baseURL ?? undefined, userAgent: OTHER_UA });
-  const signIn = await other.post("/api/auth/sign-in/email", {
-    data: { email: DEMO_EMAIL, password: DEMO_PASSWORD },
-  });
-  expect(signIn.ok()).toBeTruthy();
+  const signInOnce = () =>
+    other.post("/api/auth/sign-in/email", {
+      data: { email: DEMO_EMAIL, password: DEMO_PASSWORD },
+    });
+  let signIn = await signInOnce();
+  // better-auth rate-limits /sign-in/email (3 per 10s per IP); the setup
+  // project signed in moments earlier, so this second sign-in can land in
+  // the same window. Wait out a 429 using its Retry-After; any other
+  // failure is real and is reported with its status/body below.
+  for (let attempt = 0; signIn.status() === 429 && attempt < 3; attempt++) {
+    const retryAfter = Number(signIn.headers()["retry-after"] ?? 10);
+    await new Promise((resolve) => setTimeout(resolve, (retryAfter + 1) * 1000));
+    signIn = await signInOnce();
+  }
+  expect(signIn.ok(), `sign-in failed: ${signIn.status()} ${await signIn.text()}`).toBeTruthy();
   await other.dispose();
 
   await page.goto("/settings/security");

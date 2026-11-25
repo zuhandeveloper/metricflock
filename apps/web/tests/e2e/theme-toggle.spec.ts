@@ -8,7 +8,7 @@ test.use({ storageState: STORAGE_STATE });
 // the `theme` cookie), and the button exposes its pressed state.
 test("theme toggle persists across reload", async ({ page }) => {
   await page.goto("/dashboard");
-  const toggle = page.getByRole("button", { name: "Toggle dark mode" });
+  const toggle = page.getByRole("button", { name: "Dark / Light" });
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator("html")).not.toHaveClass(/dark/);
 
@@ -18,5 +18,5 @@ test("theme toggle persists across reload", async ({ page }) => {
 
   await page.reload();
   await expect(page.locator("html")).toHaveClass(/dark/);
-  await expect(page.getByRole("button", { name: "Toggle dark mode" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Dark / Light" })).toHaveAttribute("aria-pressed", "true");
 });

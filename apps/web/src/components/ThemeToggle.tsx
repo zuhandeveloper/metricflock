@@ -40,7 +40,6 @@ export default function ThemeToggle() {
     <button
       onClick={toggle}
       aria-pressed={dark}
-      aria-label="Toggle dark mode"
       className="rounded-lg border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
     >
       Dark / Light
