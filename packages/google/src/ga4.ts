@@ -82,18 +82,23 @@ export async function runRealtimeReport(client: Ga4Client, propertyId: string) {
   // fails fast with GOOGLE_API_TIMEOUT instead of hanging the request.
   const timed = <T>(p: Promise<T>, op: string) => withGoogleTimeout(p, `ga4.${op}`);
   const opts = { timeout: GOOGLE_API_TIMEOUT_MS };
-  const [totalsRes, ...breakdownRes] = await Promise.all([
-    timed(
-      client.properties.runRealtimeReport(
-        {
-          property,
-          requestBody: { metrics: [{ name: "activeUsers" }, { name: "eventCount" }] },
-        },
-        opts,
-      ),
-      "runRealtimeReport.totals",
+  // A-GGL-16: the totals query is the panel's core, so it stays a hard
+  // dependency (its failure still fails the report). Breakdowns are
+  // isolated per query via allSettled — one INVALID_ARGUMENT or transient
+  // 5xx on a single dimension must not lose the totals and the other
+  // breakdowns (the discovery per-account isolation pattern).
+  const totalsRes = await timed(
+    client.properties.runRealtimeReport(
+      {
+        property,
+        requestBody: { metrics: [{ name: "activeUsers" }, { name: "eventCount" }] },
+      },
+      opts,
     ),
-    ...REALTIME_BREAKDOWN_DIMENSIONS.map((name) =>
+    "runRealtimeReport.totals",
+  );
+  const breakdownSettled = await Promise.allSettled(
+    REALTIME_BREAKDOWN_DIMENSIONS.map((name) =>
       timed(
         client.properties.runRealtimeReport(
           {
@@ -105,10 +110,19 @@ export async function runRealtimeReport(client: Ga4Client, propertyId: string) {
         `runRealtimeReport.${name}`,
       ),
     ),
-  ]);
+  );
+  const failedDimensions: string[] = [];
+  const by = (i: number) => {
+    const settled = breakdownSettled[i];
+    if (!settled || settled.status === "rejected") {
+      const name = REALTIME_BREAKDOWN_DIMENSIONS[i];
+      if (name) failedDimensions.push(name);
+      return [];
+    }
+    return parseRealtimeBreakdown((settled.value.data.rows ?? []) as RowLike[]);
+  };
   const totals = totalsRes.data;
   const { activeUsers, eventCount } = parseRealtimeTotals((totals.rows ?? []) as RowLike[]);
-  const by = (i: number) => parseRealtimeBreakdown((breakdownRes[i]?.data.rows ?? []) as RowLike[]);
   return {
     propertyId,
     activeUsers,
@@ -121,6 +135,9 @@ export async function runRealtimeReport(client: Ga4Client, propertyId: string) {
     rowCount: totals.rowCount ? Number(totals.rowCount) : (totals.rows ?? []).length,
     // GA4 realtime is a sampled near-real-time window, not an exact live-session census.
     reportingWindow: "Last 30 minutes (GA4 realtime, approximate)",
+    // A-GGL-16: present only when at least one breakdown query failed;
+    // lists the dimensions whose breakdown is missing (empty array above).
+    ...(failedDimensions.length > 0 ? { partial: failedDimensions } : {}),
   };
 }
 /** A GA4 metric: a base metric name, or a derived metric defined by an

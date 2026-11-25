@@ -249,5 +249,36 @@ describe("Google API field names (live-discovered 2026-11-24)", () => {
     expect(out).toHaveProperty("byPage");
     expect(out).not.toHaveProperty("byBrowser");
     expect(out).not.toHaveProperty("byOperatingSystem");
+    // A-GGL-16: all queries succeeded, so no partial flag.
+    expect(out).not.toHaveProperty("partial");
+  });
+
+  it("one failing breakdown does not lose the totals or the other breakdowns (A-GGL-16)", async () => {
+    mocks.runRealtimeReport.mockImplementation((req: { requestBody?: { dimensions?: { name: string }[] } }) => {
+      const dim = req.requestBody?.dimensions?.[0]?.name;
+      if (dim === "city") {
+        // e.g. a dimension Google rejects for this property.
+        return Promise.reject(new Error("INVALID_ARGUMENT: city is not valid for this property"));
+      }
+      if (!dim) {
+        // Dimension-less totals query.
+        return Promise.resolve({ data: { rows: [{ metricValues: [{ value: "7" }, { value: "11" }] }], rowCount: 1 } });
+      }
+      return Promise.resolve({
+        data: { rows: [{ dimensionValues: [{ value: `${dim}-value` }], metricValues: [{ value: "3" }] }], rowCount: 1 },
+      });
+    });
+    const out = await runRealtimeReport(getGa4Client(auth), "123");
+    // Totals survive.
+    expect(out.activeUsers).toBe(7);
+    expect(out.eventCount).toBe(11);
+    // The other breakdowns survive with their rows.
+    expect(out.byCountry).toEqual([{ name: "country-value", activeUsers: 3 }]);
+    expect(out.byDevice).toEqual([{ name: "deviceCategory-value", activeUsers: 3 }]);
+    expect(out.byPlatform).toEqual([{ name: "platform-value", activeUsers: 3 }]);
+    expect(out.byPage).toEqual([{ name: "unifiedScreenName-value", activeUsers: 3 }]);
+    // The failed breakdown is empty and named in the partial flag.
+    expect(out.byCity).toEqual([]);
+    expect(out.partial).toEqual(["city"]);
   });
 });

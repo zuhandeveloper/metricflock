@@ -151,12 +151,13 @@ Status: **CONFIRMED** = traced in current source; **POTENTIAL** = reachable but 
 - **Correction:** route the authorisation catch through `classifyAnalyticsError` and return the same stable codes/statuses as the fetch catch (e.g. `scope_missing` → 403/422 per the API's convention, `temporarily_unavailable` → 429/503).
 - **Regression test:** handler with a scope-deficient stubbed connection; assert the response error code is `scope_missing`, not the raw `SCOPE_MISSING` string at 502.
 
-### A-GGL-16 — GA4 realtime fails entirely if any one breakdown query fails · P3 · CONFIRMED
+### A-GGL-16 — GA4 realtime fails entirely if any one breakdown query fails · P3 · CONFIRMED · FIXED 2026-11-25
 
 - **Evidence:** `runRealtimeReport` (`packages/google/src/ga4.ts:109-132`): `Promise.all([totals, ...7 breakdowns])` with no per-query isolation. One `INVALID_ARGUMENT` (e.g. a dimension Google rejects for this property) or one transient 5xx rejects the whole `Promise.all`, so the dashboard gets no realtime data at all — not even the totals.
 - **Impact:** total loss of the realtime panel for a partial provider failure; contrasts with discovery, which isolates per-account failures (`discovery.ts:55-67`).
 - **Correction:** `Promise.allSettled` per breakdown; return totals + whichever breakdowns succeeded, with a `partial` flag listing failed dimensions.
 - **Regression test:** stub one breakdown dimension to throw; assert totals + other breakdowns are still returned.
+- **Verification 2026-11-25:** `runRealtimeReport` (`packages/google/src/ga4.ts`) now awaits the dimension-less totals query as a hard dependency and runs the breakdown queries via `Promise.allSettled`. A failed breakdown yields an empty array for that dimension and its name is listed in a new `partial` field (present only when at least one breakdown failed, so the all-succeed return shape is unchanged for existing consumers — the sync engine and the realtime route pass the object through wholesale). New regression test in `google-field-names.test.ts` stubs the `city` breakdown to reject with INVALID_ARGUMENT and asserts totals + the other four breakdowns are still returned with `partial: ["city"]`; it fails against the old `Promise.all` code (whole call rejects) and passes with the fix. The all-succeed test also asserts `partial` is absent.
 
 ### A-GGL-17 — OAuth callback swallows all errors silently; an empty granted-scope list creates an ACTIVE scope-less connection · P3 · CONFIRMED
 
