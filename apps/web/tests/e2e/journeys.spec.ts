@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { STORAGE_STATE } from "./constants";
+import { DEMO_PASSWORD, STORAGE_STATE } from "./constants";
 
 // Core user journeys through the real UI (Phase 8). Names are unique
 // per run so the suite is re-runnable against the same database.
@@ -54,6 +54,17 @@ test("save a weekly report schedule", async ({ page }) => {
   await page.getByLabel(/day \(utc\)/i).selectOption("3"); // Wednesday
   await page.getByRole("button", { name: /save schedule/i }).click();
   await expect(page.getByText(/schedule saved/i)).toBeVisible();
+});
+
+// A-FE-08: starting 2FA setup must show a scannable QR code for the
+// totpURI alongside the manual setup key. The setup is left unverified
+// on purpose (verifying would turn 2FA on for the demo user).
+test("2FA setup shows a QR code to scan", async ({ page }) => {
+  await page.goto("/settings/security");
+  await page.getByLabel("Password").fill(DEMO_PASSWORD);
+  await page.getByRole("button", { name: /enable two-factor/i }).click();
+  await expect(page.getByRole("img", { name: /qr code/i })).toBeVisible();
+  await expect(page.getByText(/setup key/i)).toBeVisible();
 });
 
 test("mobile navigation opens, navigates, and closes", async ({ page }) => {

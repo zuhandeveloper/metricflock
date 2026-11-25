@@ -1,7 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui";
+import { qrSvgPath } from "@/lib/qr";
 
 type SessionRow = {
   id: string;
@@ -107,6 +108,17 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
   const [setup, setSetup] = useState<{ totpURI: string; backupCodes: string[] } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // A-FE-08: scannable QR code for the totpURI, shown next to the manual
+  // setup key. Null when there is no setup in progress or the URI cannot
+  // be encoded — the manual key below remains the fallback.
+  const qr = useMemo(() => {
+    if (!setup?.totpURI) return null;
+    try {
+      return qrSvgPath(setup.totpURI);
+    } catch {
+      return null;
+    }
+  }, [setup?.totpURI]);
 
   async function enable(e: React.FormEvent) {
     e.preventDefault();
@@ -192,6 +204,21 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
           Add this account to your authenticator app (Google Authenticator, Authy, 1Password…), then enter the 6-digit
           code to finish.
         </p>
+        {qr && (
+          <div>
+            <p className="text-sm font-medium">Scan with your authenticator app</p>
+            <svg
+              role="img"
+              aria-label="QR code for two-factor setup"
+              viewBox={`0 0 ${qr.size} ${qr.size}`}
+              className="mt-1 h-44 w-44 rounded-lg border border-zinc-200 dark:border-zinc-700"
+              shapeRendering="crispEdges"
+            >
+              <rect width={qr.size} height={qr.size} fill="#ffffff" />
+              <path d={qr.path} fill="#000000" />
+            </svg>
+          </div>
+        )}
         <div>
           <p className="text-sm font-medium">Setup key</p>
           <p className="mt-1 rounded-lg bg-zinc-100 px-3 py-2 font-mono text-sm break-all dark:bg-zinc-800">

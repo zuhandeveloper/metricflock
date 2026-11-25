@@ -126,6 +126,25 @@ describe("TwoFactorActions", () => {
     expect(screen.getByText("1111-2222 3333-4444")).toBeInTheDocument();
   });
 
+  // A-FE-08: the setup view must show a scannable QR code for the totpURI
+  // alongside the manual key, so users don't have to type the secret.
+  it("shows a QR code for the totpURI in the setup view (A-FE-08)", async () => {
+    mockFetch({
+      totpURI:
+        "otpauth://totp/MetricFlock:demo%40example.com?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=MetricFlock&digits=6&period=30",
+      backupCodes: ["1111-2222"],
+    });
+    render(<TwoFactorActions enabled={false} />);
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
+    const qr = await screen.findByRole("img", { name: /qr code/i });
+    expect(qr).toBeInTheDocument();
+    // The SVG must actually draw modules (non-empty path data), and the
+    // manual setup key stays available next to it.
+    expect(qr.querySelector("path")?.getAttribute("d")?.length).toBeGreaterThan(0);
+    expect(screen.getByText("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")).toBeInTheDocument();
+  });
+
   it("falls back to the full totpURI when no secret can be parsed", async () => {
     mockFetch({ totpURI: "otpauth://totp/x?issuer=MF" });
     render(<TwoFactorActions enabled={false} />);

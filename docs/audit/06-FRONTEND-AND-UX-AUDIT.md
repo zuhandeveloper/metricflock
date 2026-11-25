@@ -280,7 +280,7 @@ typecheck` — exit 0. Neither covers browser behaviour.
 - **Regression test:** e2e test clicking Sync now twice in an hour
   asserting the second click reports "already queued", not "Queued."
 
-### A-FE-08 — P3 — CONFIRMED — 2FA setup shows the secret as text only; no QR code
+### A-FE-08 — P3 — CONFIRMED — 2FA setup shows the secret as text only; no QR code · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/app/(app)/settings/security/SecurityActions.tsx:142-163`
   (setup view).
@@ -296,6 +296,26 @@ typecheck` — exit 0. Neither covers browser behaviour.
   manual key.
 - **Regression test:** e2e test asserting a QR image is present in the
   setup view.
+- **Verification (2026-11-25):** the setup view now renders a scannable
+  QR code for the `totpURI` (inline SVG, `role="img"` with an aria
+  label, white background so it scans in dark mode too) directly above
+  the manual "Setup key", which stays as the fallback; backup codes,
+  password re-entry, code verification, and `role="alert"` errors are
+  unchanged. The repo carries no QR library and no dependency was
+  added: `src/lib/qr.ts` is a self-contained byte-mode QR encoder (EC
+  level M, versions 1–40, smallest fitting version auto-selected,
+  GF(256) Reed–Solomon, mask chosen by the standard penalty rules)
+  emitting SVG path data. Regression guards: `qr.test.ts` verifies the
+  encoder structurally (finder/timing/alignment patterns, format +
+  version BCH) and by full decode round-trip (unmask → deinterleave →
+  Reed–Solomon syndromes zero → payload parses back to the input,
+  including a realistic otpauth URI and UTF-8 text), and a
+  `SecurityActions.test.tsx` case asserts the QR image is present in
+  the setup view next to the manual key — both fail on the pre-fix
+  code (no QR element; no encoder module). The finding's e2e test was
+  added to `journeys.spec.ts` ("2FA setup shows a QR code to scan";
+  CI-only, not run locally). A manual scan with a real authenticator
+  app remains the real-world confirmation.
 
 ### A-FE-09 — P3 — CONFIRMED — Edit-website status select omits two valid statuses
 
