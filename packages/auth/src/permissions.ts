@@ -32,6 +32,13 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "website.view",
     "website.manage",
     "website.assign",
+    // A-API-12: TEAM_ADMIN initiates transfers — the likely intent
+    // (team admins initiate, destination admins accept). Initiation is
+    // still gated by the A-SEC-17 source-manage check
+    // (`assertWebsiteManageAccess`): a team admin cannot transfer a
+    // website outside the teams they administer. Accept/complete/
+    // cancel/reject permissions are unchanged.
+    "website.transfer",
     "team.view",
     "team.manage",
     "member.manage",

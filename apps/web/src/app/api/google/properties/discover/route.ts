@@ -96,6 +96,25 @@ async function post(req: NextRequest) {
         await Promise.all(items.slice(i, i + CHUNK).map(upsert));
       }
     }
+    // A-API-13: batch the upserts. Fresh rows go in one createMany
+    // (skipDuplicates — every discovered table has a composite unique
+    // on [connectionId, <key>]) instead of one upsert round trip each;
+    // only rows that already exist keep the per-row upsert, to refresh
+    // their displayName/permissionLevel. A concurrent discovery racing
+    // this one is safe: skipDuplicates ignores its inserts, and the
+    // upsert path converges on the same values.
+    async function splitFresh<T>(
+      items: T[],
+      keyOf: (item: T) => string,
+      listExistingKeys: () => Promise<string[]>,
+    ): Promise<{ fresh: T[]; known: T[] }> {
+      if (items.length === 0) return { fresh: [], known: [] };
+      const existing = new Set(await listExistingKeys());
+      return {
+        fresh: items.filter((i) => !existing.has(keyOf(i))),
+        known: items.filter((i) => existing.has(keyOf(i))),
+      };
+    }
     // A-GGL-10: delete discovered rows for this connection that no longer
     // appear in the fresh listing — but ONLY when the listing completed:
     // on a provider error the fresh set is empty (pruning would wipe the
@@ -135,35 +154,105 @@ async function post(req: NextRequest) {
       log.info("pruned stale discovered rows", { connectionId: connId, provider, pruned: deleted });
       return deleted;
     }
-    await upsertChunked(ga4, (p) =>
+    const ga4Split = await splitFresh(
+      ga4,
+      (p) => p.propertyId,
+      () =>
+        prisma.googleProperty
+          .findMany({ where: { connectionId: conn.id }, select: { propertyId: true } })
+          .then((rows) => rows.map((r) => r.propertyId)),
+    );
+    if (ga4Split.fresh.length > 0)
+      await prisma.googleProperty.createMany({
+        data: ga4Split.fresh.map((p) => ({
+          connectionId: conn.id,
+          propertyId: p.propertyId,
+          displayName: p.displayName,
+          accountId: p.accountId,
+        })),
+        skipDuplicates: true,
+      });
+    await upsertChunked(ga4Split.known, (p) =>
       prisma.googleProperty.upsert({
         where: { connectionId_propertyId: { connectionId: conn.id, propertyId: p.propertyId } },
         update: { displayName: p.displayName, accountId: p.accountId },
         create: { connectionId: conn.id, propertyId: p.propertyId, displayName: p.displayName, accountId: p.accountId },
       }),
     );
-    await upsertChunked(gsc, (s) =>
+    const gscSplit = await splitFresh(
+      gsc,
+      (s) => s.siteUrl,
+      () =>
+        prisma.searchConsoleProperty
+          .findMany({ where: { connectionId: conn.id }, select: { siteUrl: true } })
+          .then((rows) => rows.map((r) => r.siteUrl)),
+    );
+    if (gscSplit.fresh.length > 0)
+      await prisma.searchConsoleProperty.createMany({
+        data: gscSplit.fresh.map((s) => ({
+          connectionId: conn.id,
+          siteUrl: s.siteUrl,
+          permissionLevel: s.permissionLevel,
+        })),
+        skipDuplicates: true,
+      });
+    await upsertChunked(gscSplit.known, (s) =>
       prisma.searchConsoleProperty.upsert({
         where: { connectionId_siteUrl: { connectionId: conn.id, siteUrl: s.siteUrl } },
         update: { permissionLevel: s.permissionLevel },
         create: { connectionId: conn.id, siteUrl: s.siteUrl, permissionLevel: s.permissionLevel },
       }),
     );
-    await upsertChunked(adsense, (a) =>
+    const adsenseSplit = await splitFresh(
+      adsense,
+      (a) => a.accountId,
+      () =>
+        prisma.adSenseAccount
+          .findMany({ where: { connectionId: conn.id }, select: { accountId: true } })
+          .then((rows) => rows.map((r) => r.accountId)),
+    );
+    if (adsenseSplit.fresh.length > 0)
+      await prisma.adSenseAccount.createMany({
+        data: adsenseSplit.fresh.map((a) => ({
+          connectionId: conn.id,
+          accountId: a.accountId,
+          displayName: a.displayName,
+        })),
+        skipDuplicates: true,
+      });
+    await upsertChunked(adsenseSplit.known, (a) =>
       prisma.adSenseAccount.upsert({
         where: { connectionId_accountId: { connectionId: conn.id, accountId: a.accountId } },
         update: { displayName: a.displayName },
         create: { connectionId: conn.id, accountId: a.accountId, displayName: a.displayName },
       }),
     );
-    if (adManagerAttempted)
-      await upsertChunked(adManager, (n) =>
+    if (adManagerAttempted) {
+      const adManagerSplit = await splitFresh(
+        adManager,
+        (n) => n.networkCode,
+        () =>
+          prisma.adManagerNetwork
+            .findMany({ where: { connectionId: conn.id }, select: { networkCode: true } })
+            .then((rows) => rows.map((r) => r.networkCode)),
+      );
+      if (adManagerSplit.fresh.length > 0)
+        await prisma.adManagerNetwork.createMany({
+          data: adManagerSplit.fresh.map((n) => ({
+            connectionId: conn.id,
+            networkCode: n.networkCode,
+            displayName: n.displayName,
+          })),
+          skipDuplicates: true,
+        });
+      await upsertChunked(adManagerSplit.known, (n) =>
         prisma.adManagerNetwork.upsert({
           where: { connectionId_networkCode: { connectionId: conn.id, networkCode: n.networkCode } },
           update: { displayName: n.displayName },
           create: { connectionId: conn.id, networkCode: n.networkCode, displayName: n.displayName },
         }),
       );
+    }
     const pruned: Record<string, number> = {};
     const prunedGa4 = await pruneStale(
       "GA4",

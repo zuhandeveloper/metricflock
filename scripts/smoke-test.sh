@@ -10,7 +10,8 @@
 #      (no invented metrics)
 #   4. one sync job can be queued via /api/sync
 #   5. website transfer as a TEAM_MEMBER returns 403 (no website.transfer
-#      permission) and as the super admin returns 200
+#      permission), as the super admin returns 200, and as a TEAM_ADMIN
+#      administering the source team returns 200 (A-API-12)
 #   6. security regressions (Stage 1): sign-up mass assignment rejected,
 #      unverified sign-up cannot sign in, update-user role escalation
 #      rejected, cross-org teamId rejected, foreign OAuth owner rejected,
@@ -204,6 +205,9 @@ CONN_A_ID="$(echo "$STAGE2_IDS" | grep '^CONN_A_ID=' | cut -d= -f2)"
 CONN_B_ID="$(echo "$STAGE2_IDS" | grep '^CONN_B_ID=' | cut -d= -f2)"
 [ -n "$ADMIN_USER_ID" ] && [ -n "$TEAMADMIN_USER_ID" ] && [ -n "$CONN_A_ID" ] && [ -n "$CONN_B_ID" ] || fail "stage2 fixture ids missing"
 
+echo "smoke: A-DB-08 — legacy owner columns must match typed FKs"
+DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-db08-legacy-owner-check.ts >/dev/null || fail "A-DB-08 legacy-owner CHECK"
+
 echo "smoke: stage2 — mapping rejects undiscovered properties, persists FKs"
 code="$(curl -s -o "$TMP/map400.json" -w "%{http_code}" -b "$ADMIN_JAR" -X POST "$BASE_URL/api/google/properties/map" -H "Content-Type: application/json" -d "{\"websiteId\":\"$WEBSITE_ID\",\"provider\":\"GA4\",\"externalId\":\"properties/999999999\"}")"
 [ "$code" = "400" ] || { cat "$TMP/map400.json"; fail "undiscovered mapping returned $code, expected 400"; }
@@ -249,6 +253,18 @@ curl -s -b "$ADMIN_JAR" "$BASE_URL/api/google/connections" | node -e 'const d=JS
 code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BASE_URL/api/google/connections/disconnect" -H "Content-Type: application/json" -d "{\"connectionId\":\"$CONN_A_ID\"}")"
 [ "$code" = "200" ] || fail "disconnect own-team connection returned $code"
 ok "connection visibility scoped; own-team disconnect works"
+
+echo "smoke: stage2 — team admin can initiate a transfer (A-API-12)"
+# TEAMADMIN administers team-a only (stage2 fixture). Pick the other
+# team-a website — WEBSITE_ID already has an open transfer initiated by
+# the super admin above, so a second initiate for it would 409.
+TEAM_A_ID="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/teams" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const t=d.teams.find((x)=>x.slug==="team-a");if(!t){console.error("team-a not found");process.exit(1)}console.log(t.id)')"
+[ -n "$TEAM_A_ID" ] || fail "team-a not found"
+TEAMADMIN_WEBSITE_ID="$(curl -s -b "$ADMIN_JAR" "$BASE_URL/api/websites?limit=200" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));const w=d.websites.find((x)=>x.teamId===process.argv[1]&&x.id!==process.argv[2]);if(!w){console.error("no second team-a website");process.exit(1)}console.log(w.id)' "$TEAM_A_ID" "$WEBSITE_ID")"
+[ -n "$TEAMADMIN_WEBSITE_ID" ] || fail "no second team-a website"
+code="$(curl -s -o "$TMP/tteamadmin.json" -w "%{http_code}" -b "$TEAMADMIN_JAR" -X POST "$BASE_URL/api/websites/$TEAMADMIN_WEBSITE_ID/transfer" -H "Content-Type: application/json" -d "{\"toTeamId\":\"$TEAM_B_ID\",\"reason\":\"smoke test teamadmin\"}")"
+[ "$code" = "200" ] || { cat "$TMP/tteamadmin.json"; fail "teamadmin transfer returned $code, expected 200"; }
+ok "team admin transfer succeeds (200)"
 
 echo "smoke: stage3 oauth fixture (expired + wrong-session states)"
 OAUTH_IDS="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-oauth-state.ts)" || fail "smoke-oauth-state setup"
@@ -373,6 +389,16 @@ WITHIP="$(echo "$AUDIT_OUT" | sed -n 's/.*AUDIT_WITH_IP=\([0-9]*\).*/\1/p')"
 [ "${SIGNINS:-0}" -ge 1 ] || fail "no auth.sign_in audit rows ($AUDIT_OUT)"
 [ "${WITHIP:-0}" -ge 1 ] || fail "no audit rows with ipAddress ($AUDIT_OUT)"
 ok "security page renders; auth events + IPs in audit log"
+
+echo "smoke: stage7 — GET /api/audit is paginated and scoped (A-API-12)"
+code="$(curl -s -o "$TMP/audit.json" -w "%{http_code}" -b "$ADMIN_JAR" "$BASE_URL/api/audit")"
+[ "$code" = "200" ] || { cat "$TMP/audit.json"; fail "admin /api/audit returned $code"; }
+node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));if(!Array.isArray(d.logs)||d.logs.length===0){console.error("no audit rows");process.exit(1)}if(!d.logs.some((l)=>l.action==="auth.sign_in")){console.error("no auth.sign_in row");process.exit(1)}if(!d.pagination||typeof d.pagination.total!=="number"||d.pagination.limit!==100){console.error("pagination unexpected",d.pagination);process.exit(1)}' "$TMP/audit.json" || fail "audit list unexpected"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$MEMBER_JAR" "$BASE_URL/api/audit")"
+[ "$code" = "403" ] || fail "member /api/audit returned $code, expected 403"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$TEAMADMIN_JAR" "$BASE_URL/api/audit")"
+[ "$code" = "403" ] || fail "teamadmin /api/audit returned $code, expected 403"
+ok "audit API: admin 200 with rows, member/teamadmin 403"
 
 echo "smoke: stage8 — health, metrics, correlation ids, DLQ requeue"
 # Liveness + readiness are public and must report the real deps.

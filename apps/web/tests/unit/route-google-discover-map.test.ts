@@ -14,15 +14,19 @@ const mocks = vi.hoisted(() => ({
   connFindFirst: vi.fn(),
   googlePropertyFindMany: vi.fn(),
   googlePropertyUpsert: vi.fn(),
+  googlePropertyCreateMany: vi.fn(),
   googlePropertyDeleteMany: vi.fn(),
   scPropertyFindMany: vi.fn(),
   scPropertyUpsert: vi.fn(),
+  scPropertyCreateMany: vi.fn(),
   scPropertyDeleteMany: vi.fn(),
   adsenseFindMany: vi.fn(),
   adsenseUpsert: vi.fn(),
+  adsenseCreateMany: vi.fn(),
   adsenseDeleteMany: vi.fn(),
   adManagerFindMany: vi.fn(),
   adManagerUpsert: vi.fn(),
+  adManagerCreateMany: vi.fn(),
   adManagerDeleteMany: vi.fn(),
   integrationFindMany: vi.fn(),
   integrationUpdateMany: vi.fn(),
@@ -46,21 +50,25 @@ vi.mock("@metricflock/db", () => ({
     googleProperty: {
       findMany: mocks.googlePropertyFindMany,
       upsert: mocks.googlePropertyUpsert,
+      createMany: mocks.googlePropertyCreateMany,
       deleteMany: mocks.googlePropertyDeleteMany,
     },
     searchConsoleProperty: {
       findMany: mocks.scPropertyFindMany,
       upsert: mocks.scPropertyUpsert,
+      createMany: mocks.scPropertyCreateMany,
       deleteMany: mocks.scPropertyDeleteMany,
     },
     adSenseAccount: {
       findMany: mocks.adsenseFindMany,
       upsert: mocks.adsenseUpsert,
+      createMany: mocks.adsenseCreateMany,
       deleteMany: mocks.adsenseDeleteMany,
     },
     adManagerNetwork: {
       findMany: mocks.adManagerFindMany,
       upsert: mocks.adManagerUpsert,
+      createMany: mocks.adManagerCreateMany,
       deleteMany: mocks.adManagerDeleteMany,
     },
     websiteIntegration: { findMany: mocks.integrationFindMany },
@@ -143,13 +151,17 @@ describe("POST /api/google/properties/discover", () => {
       truncated: false,
     });
     mocks.googlePropertyUpsert.mockResolvedValue({});
+    mocks.googlePropertyCreateMany.mockResolvedValue({ count: 1 });
     mocks.scPropertyUpsert.mockResolvedValue({});
+    mocks.scPropertyCreateMany.mockResolvedValue({ count: 1 });
     mocks.adsenseUpsert.mockResolvedValue({});
+    mocks.adsenseCreateMany.mockResolvedValue({ count: 1 });
     // A-GGL-10 defaults: Ad Manager disabled (existing tests cover the
     // three-provider path), no previously discovered rows (prune no-op).
     mocks.adManagerEnabled.mockReturnValue(false);
     mocks.listAdManagerNetworks.mockResolvedValue([]);
     mocks.adManagerUpsert.mockResolvedValue({});
+    mocks.adManagerCreateMany.mockResolvedValue({ count: 1 });
     mocks.googlePropertyFindMany.mockResolvedValue([]);
     mocks.scPropertyFindMany.mockResolvedValue([]);
     mocks.adsenseFindMany.mockResolvedValue([]);
@@ -177,7 +189,7 @@ describe("POST /api/google/properties/discover", () => {
     expect(await res.json()).toMatchObject({ error: "not_found" });
     expect(mocks.listGa4Properties).not.toHaveBeenCalled();
   });
-  it("valid → 200 with all three providers + upserts each discovered item", async () => {
+  it("valid → 200 with all three providers + batched insert of each fresh item (A-API-13)", async () => {
     const res = await discoverPost(jsonReq(url, { connectionId: "conn1" }));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -186,9 +198,25 @@ describe("POST /api/google/properties/discover", () => {
     expect(body.adsense).toHaveLength(1);
     expect(body.errors).toBeUndefined();
     expect(mocks.getValidAccessToken).toHaveBeenCalledWith("conn1");
-    expect(mocks.googlePropertyUpsert).toHaveBeenCalledTimes(1);
-    expect(mocks.scPropertyUpsert).toHaveBeenCalledTimes(1);
-    expect(mocks.adsenseUpsert).toHaveBeenCalledTimes(1);
+    // No previously discovered rows, so every item is fresh: one
+    // createMany per provider, no per-row upsert at all.
+    expect(mocks.googlePropertyCreateMany).toHaveBeenCalledTimes(1);
+    expect(mocks.googlePropertyCreateMany).toHaveBeenCalledWith({
+      data: [
+        {
+          connectionId: "conn1",
+          propertyId: "properties/123",
+          displayName: "Site GA4",
+          accountId: "accounts/1",
+        },
+      ],
+      skipDuplicates: true,
+    });
+    expect(mocks.scPropertyCreateMany).toHaveBeenCalledTimes(1);
+    expect(mocks.adsenseCreateMany).toHaveBeenCalledTimes(1);
+    expect(mocks.googlePropertyUpsert).not.toHaveBeenCalled();
+    expect(mocks.scPropertyUpsert).not.toHaveBeenCalled();
+    expect(mocks.adsenseUpsert).not.toHaveBeenCalled();
   });
   it("provider failures are classified per provider, not a blanket error", async () => {
     mocks.listGa4Properties.mockRejectedValueOnce(
@@ -232,7 +260,7 @@ describe("POST /api/google/properties/discover", () => {
     expect(await res.json()).toMatchObject({ error: "discovery_failed" });
   });
 
-  it("Ad Manager enabled → networks listed, upserted, returned (A-GGL-10)", async () => {
+  it("Ad Manager enabled → networks listed, batched, returned (A-GGL-10, A-API-13)", async () => {
     mocks.adManagerEnabled.mockReturnValue(true);
     mocks.listAdManagerNetworks.mockResolvedValue([{ networkCode: "123456", displayName: "Network" }]);
     const res = await discoverPost(jsonReq(url, { connectionId: "conn1" }));
@@ -240,12 +268,13 @@ describe("POST /api/google/properties/discover", () => {
     const body = await res.json();
     expect(body.adManager).toEqual([{ networkCode: "123456", displayName: "Network" }]);
     expect(mocks.listAdManagerNetworks).toHaveBeenCalledTimes(1);
-    expect(mocks.adManagerUpsert).toHaveBeenCalledTimes(1);
-    expect(mocks.adManagerUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { connectionId_networkCode: { connectionId: "conn1", networkCode: "123456" } },
-      }),
-    );
+    // Fresh network: one createMany, no per-row upsert.
+    expect(mocks.adManagerCreateMany).toHaveBeenCalledTimes(1);
+    expect(mocks.adManagerCreateMany).toHaveBeenCalledWith({
+      data: [{ connectionId: "conn1", networkCode: "123456", displayName: "Network" }],
+      skipDuplicates: true,
+    });
+    expect(mocks.adManagerUpsert).not.toHaveBeenCalled();
   });
 
   it("Ad Manager disabled → never listed, no adManager key (A-GGL-10)", async () => {
@@ -311,13 +340,35 @@ describe("POST /api/google/properties/discover", () => {
     expect(mocks.googlePropertyDeleteMany).not.toHaveBeenCalled();
   });
 
-  it("upserts run in bounded chunks of 10, not one round trip per row (A-GGL-10)", async () => {
+  it("fresh rows go in one createMany, not one upsert per row (A-API-13)", async () => {
     const many = Array.from({ length: 25 }, (_, i) => ({
       propertyId: `properties/${i}`,
       displayName: `Site ${i}`,
       accountId: "accounts/1",
     }));
     mocks.listGa4Properties.mockResolvedValue({ items: many, truncated: false });
+    const res = await discoverPost(jsonReq(url, { connectionId: "conn1" }));
+    expect(res.status).toBe(200);
+    expect(mocks.googlePropertyCreateMany).toHaveBeenCalledTimes(1);
+    expect(mocks.googlePropertyCreateMany).toHaveBeenCalledWith({
+      data: many.map((p) => ({ connectionId: "conn1", ...p })),
+      skipDuplicates: true,
+    });
+    expect(mocks.googlePropertyUpsert).not.toHaveBeenCalled();
+  });
+
+  it("already-known rows still upsert, in bounded chunks of 10 (A-GGL-10, A-API-13)", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      propertyId: `properties/${i}`,
+      displayName: `Site ${i}`,
+      accountId: "accounts/1",
+    }));
+    mocks.listGa4Properties.mockResolvedValue({ items: many, truncated: false });
+    // Every discovered row already exists, so all 25 take the upsert
+    // path (refreshing displayName) — none is fresh for createMany.
+    mocks.googlePropertyFindMany.mockResolvedValue(
+      many.map((p) => ({ id: `gp-${p.propertyId}`, propertyId: p.propertyId })),
+    );
     let inFlight = 0;
     let maxInFlight = 0;
     mocks.googlePropertyUpsert.mockImplementation(async () => {
@@ -329,6 +380,7 @@ describe("POST /api/google/properties/discover", () => {
     });
     const res = await discoverPost(jsonReq(url, { connectionId: "conn1" }));
     expect(res.status).toBe(200);
+    expect(mocks.googlePropertyCreateMany).not.toHaveBeenCalled();
     expect(mocks.googlePropertyUpsert).toHaveBeenCalledTimes(25);
     // Sequential upserts would peak at 1; unchunked Promise.all at 25.
     expect(maxInFlight).toBe(10);

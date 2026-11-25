@@ -18,9 +18,12 @@ describe("permissions", () => {
     ] as const)
       expect(hasPermission("TEAM_MEMBER", p)).toBe(false);
   });
-  it("team admin can manage connections but cannot transfer websites or view audit", () => {
+  it("team admin can manage connections and initiate transfers, but cannot view audit", () => {
     expect(hasPermission("TEAM_ADMIN", "google.connection.manage")).toBe(true);
-    expect(hasPermission("TEAM_ADMIN", "website.transfer")).toBe(false);
+    // A-API-12: TEAM_ADMIN initiates transfers; the A-SEC-17
+    // source-manage check still gates initiation to websites in teams
+    // they administer (route-transfers.test.ts covers both cases).
+    expect(hasPermission("TEAM_ADMIN", "website.transfer")).toBe(true);
     expect(hasPermission("TEAM_ADMIN", "audit.view")).toBe(false);
   });
   it("team member can view assigned analytics but not realtime", () => {
