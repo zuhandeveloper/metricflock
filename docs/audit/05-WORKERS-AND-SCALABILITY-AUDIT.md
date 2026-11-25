@@ -485,7 +485,7 @@ DISCONNECTED, TRANSFER_PENDING, SOLD, ARCHIVED`
   (`expected 118249 to be less than or equal to 60000`). The pure
   function and its `job-backoff.test.ts` assertions are unchanged.
 
-### A-WRK-14 — P3 — CONFIRMED — Rate-limit path writes a misleading RETRYING row and bypasses backoff/counters
+### A-WRK-14 — P3 — CONFIRMED — Rate-limit path writes a misleading RETRYING row and bypasses backoff/counters · FIXED 2026-11-25
 
 - **Where:** `apps/worker/src/index.ts:215-223`,
   BullMQ `classes/worker.js:646-652` (`handleFailed` → `moveLimitedBackToWait`)
@@ -509,6 +509,22 @@ DISCONNECTED, TRANSFER_PENDING, SOLD, ARCHIVED`
   throwing) so the storm is visible on `/metrics`.
 - **Regression test:** Redis-backed test asserting a rate-limited job's row
   state and counters after the throw.
+- **Verification 2026-11-25 (fixed):** the `SyncRateLimitError` branch in
+  `apps/worker/src/index.ts` now (a) writes the row with a note naming the
+  actual state — `rate limited (per-connection quota); job waiting under
+queue limiter (no attempt consumed)` — instead of the bare "job delayed",
+  which read like a backoff retry (no distinct status was introduced: the
+  `SyncJobStatus` enum has no rate-limited value and adding one needs a
+  migration; RETRYING stays correct for the sync route's in-progress
+  check), (b) increments `jobs.ratelimited.<queue>` before throwing, so the
+  storm is visible on the worker's `/metrics` even though BullMQ emits no
+  `failed` event for `RateLimitError`, and (c) logs a warn line with
+  queue/jobId/websiteId. The BullMQ delay behavior itself is unchanged
+  (the handled path per A-GGL-19). Regression test: the rate-limit test in
+  `worker-index.test.ts` now asserts the row note, the
+  `jobs.ratelimited.*` counter, and the warn log after the throw (all fail
+  without the fix; the finding's Redis-backed variant is CI-only — no
+  Redis in the sandbox).
 
 ### A-WRK-15 — P3 — CONFIRMED — Property discovery aborts entirely if one provider's list call throws
 

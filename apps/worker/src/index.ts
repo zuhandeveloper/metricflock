@@ -277,9 +277,27 @@ for (const name of QUEUE_NAMES) {
         return result;
       } catch (err) {
         if (err instanceof SyncRateLimitError) {
+          // A-WRK-14: BullMQ treats RateLimitError specially — the job
+          // goes back to wait under the queue limiter WITHOUT consuming
+          // an attempt, WITHOUT the custom backoff, and WITHOUT emitting
+          // "failed" (so jobs.failed.* never fires). The row stays
+          // RETRYING (the sync route treats it as in-progress), but the
+          // note must name the actual state — waiting, not a backoff
+          // retry — and the branch counts + logs the event itself so a
+          // quota storm is visible on /metrics instead of invisible.
           await prisma.analyticsSyncJob.update({
             where: { id: row.id },
-            data: { status: "RETRYING", lastError: "rate limited (per-connection); job delayed" },
+            data: {
+              status: "RETRYING",
+              lastError: "rate limited (per-connection quota); job waiting under queue limiter (no attempt consumed)",
+            },
+          });
+          incr(`jobs.ratelimited.${name}`);
+          log.warn("job rate limited — waiting under queue limiter", {
+            queue: name,
+            jobId: job.id,
+            websiteId,
+            error: err.message,
           });
           throw Worker.RateLimitError();
         }

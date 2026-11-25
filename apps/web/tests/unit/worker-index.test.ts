@@ -512,7 +512,18 @@ describe("worker index (queue wiring and job routing)", () => {
     }
     expect((caught as Error).name).toBe("RateLimitError");
     expect(lastRowUpdate().data.status).toBe("RETRYING");
-    expect(lastRowUpdate().data.lastError).toBe("rate limited (per-connection); job delayed");
+    // A-WRK-14: the note must name the actual state — waiting under the
+    // queue limiter, not a backoff retry after a failed attempt.
+    expect(lastRowUpdate().data.lastError).toBe(
+      "rate limited (per-connection quota); job waiting under queue limiter (no attempt consumed)",
+    );
+    // A-WRK-14: BullMQ swallows RateLimitError without emitting "failed",
+    // so jobs.failed.* never fires — the branch counts + logs it itself.
+    expect(mocks.incr).toHaveBeenCalledWith("jobs.ratelimited.ga4-realtime-sync");
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "job rate limited — waiting under queue limiter",
+      expect.objectContaining({ queue: "ga4-realtime-sync", jobId: "job-42", websiteId: "site-1" }),
+    );
     expect(mocks.sendMail).not.toHaveBeenCalled();
   });
 
