@@ -35,6 +35,21 @@ vi.mock("next/link", () => ({
 
 vi.mock("next/headers", () => ({
   headers: async () => new Headers(),
+  // A-FE-12: the root layout reads the `theme` cookie server-side.
+  cookies: async () => ({ get: () => undefined }),
+}));
+
+// A-FE-12: jsdom has no matchMedia; ThemeToggle's mount effect queries
+// prefers-color-scheme. Default to light.
+window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  dispatchEvent: vi.fn(),
 }));
 
 vi.mock("@metricflock/auth", async (importOriginal) => {

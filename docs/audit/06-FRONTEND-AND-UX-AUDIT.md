@@ -420,7 +420,7 @@ aria-label="Date range"`.
   fail on the pre-fix code (no `aria-pressed` attribute). The axe run
   on the dashboard already covered the page and still passes.
 
-### A-FE-12 — P3 — CONFIRMED — Theme toggle is not persisted and has no accessible state
+### A-FE-12 — P3 — CONFIRMED — Theme toggle is not persisted and has no accessible state · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/components/ThemeToggle.tsx:3-11`.
 - **Evidence:** the toggle only flips `document.documentElement.classList`
@@ -435,6 +435,17 @@ aria-label="Date range"`.
   add `aria-pressed` + `aria-label`.
 - **Regression test:** e2e test toggling dark, reloading, and asserting
   the class persists.
+- **Verification (2026-11-25):** the choice is persisted in a `theme`
+  cookie; the root layout reads it server-side and renders the `dark`
+  class on `<html>`, so reloads and navigation keep the theme with no
+  flash and no inline script (the nonce-based CSP would block one). The
+  button carries `aria-pressed` + `aria-label="Toggle dark mode"`; a
+  first visit with no cookie follows `prefers-color-scheme` once and
+  persists it. Regression guards: four new tests in
+  `NavComponents.test.tsx` (pressed state, cookie write, restore on
+  mount, OS preference) — all fail on the pre-fix code — plus the
+  finding's e2e test `theme-toggle.spec.ts` (toggle dark, reload, class
+  persists; CI-only).
 
 ### A-FE-13 — P3 — CONFIRMED — Reset-password form has no confirm-password field
 

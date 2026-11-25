@@ -178,7 +178,7 @@ describe("AppLayout", () => {
     render(el);
     expect(screen.getByText("child content")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Skip to main content" })).toHaveAttribute("href", "#main-content");
-    expect(screen.getByRole("button", { name: "Dark / Light" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Toggle dark mode" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 });

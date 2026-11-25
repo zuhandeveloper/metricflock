@@ -169,7 +169,10 @@ export const auth = betterAuth({
     },
   },
   secret: process.env.BETTER_AUTH_SECRET ?? process.env.SESSION_SECRET,
-  baseURL: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  // BETTER_AUTH_URL (read at runtime) wins over NEXT_PUBLIC_APP_URL
+  // (inlined at build time) so test servers on a non-default port can
+  // point the auth origin at themselves without a rebuild.
+  baseURL: process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
   // F-2.5: rate limits are pinned explicitly instead of relying on
   // library defaults (which can drift across better-auth upgrades).
   // Credential endpoints keep the strict 3-per-10s budget; everything

@@ -175,14 +175,69 @@ describe("DateRangePicker", () => {
 });
 
 describe("ThemeToggle", () => {
+  // A-FE-12: the toggle persists via a `theme` cookie and follows the OS
+  // preference on first visit — reset both between tests (jsdom has no
+  // matchMedia, so stub it; default light).
+  function stubMatchMedia(dark: boolean) {
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: dark,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+  }
+
+  beforeEach(() => {
+    document.cookie = "theme=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+    document.documentElement.classList.remove("dark");
+    stubMatchMedia(false);
+  });
+
   it("toggles the dark class on the document element", () => {
     render(<ThemeToggle />);
-    const btn = screen.getByRole("button", { name: "Dark / Light" });
+    const btn = screen.getByRole("button", { name: "Toggle dark mode" });
     expect(document.documentElement.classList.contains("dark")).toBe(false);
     fireEvent.click(btn);
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     fireEvent.click(btn);
     expect(document.documentElement.classList.contains("dark")).toBe(false);
+  });
+
+  it("exposes pressed state (A-FE-12)", () => {
+    render(<ThemeToggle />);
+    const btn = screen.getByRole("button", { name: "Toggle dark mode" });
+    expect(btn).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(btn);
+    expect(btn).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(btn);
+    expect(btn).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("persists the choice in a cookie (A-FE-12)", () => {
+    render(<ThemeToggle />);
+    const btn = screen.getByRole("button", { name: "Toggle dark mode" });
+    fireEvent.click(btn);
+    expect(document.cookie).toContain("theme=dark");
+    fireEvent.click(btn);
+    expect(document.cookie).toContain("theme=light");
+  });
+
+  it("restores the persisted choice on mount (A-FE-12)", () => {
+    document.cookie = "theme=dark; path=/";
+    render(<ThemeToggle />);
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(screen.getByRole("button", { name: "Toggle dark mode" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("follows prefers-color-scheme on first visit (A-FE-12)", () => {
+    stubMatchMedia(true);
+    render(<ThemeToggle />);
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.cookie).toContain("theme=dark");
   });
 });
 

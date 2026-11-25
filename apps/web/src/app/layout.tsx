@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import "./globals.css";
 import QueryProvider from "@/components/QueryProvider";
 // FE-6: canonical/OG URLs derive from the deployed app URL, not a
@@ -49,8 +49,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // dynamic rendering, so Next can stamp the nonce onto the framework
   // scripts/styles it injects (proxy.ts sets x-nonce + the CSP header).
   await headers();
+  // A-FE-12: render the persisted theme server-side so reloads keep it
+  // with no flash (the toggle writes the `theme` cookie).
+  const dark = (await cookies()).get("theme")?.value === "dark";
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={dark ? "dark" : undefined} suppressHydrationWarning>
       {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
           attributes into <body> before hydration, which otherwise logs a
           hydration mismatch warning in dev. */}
