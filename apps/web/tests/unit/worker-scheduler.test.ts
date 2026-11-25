@@ -22,6 +22,14 @@ const mocks = vi.hoisted(() => ({
   auditFindMany: vi.fn(),
   orgFindMany: vi.fn(),
   orgDeleteMany: vi.fn(),
+  inviteFindMany: vi.fn(),
+  inviteDeleteMany: vi.fn(),
+  verificationFindMany: vi.fn(),
+  verificationDeleteMany: vi.fn(),
+  sessionFindMany: vi.fn(),
+  sessionDeleteMany: vi.fn(),
+  healthFindMany: vi.fn(),
+  healthDeleteMany: vi.fn(),
   enqueueBulk: vi.fn(),
   getQueue: vi.fn(),
   getJobCounts: vi.fn(),
@@ -49,6 +57,10 @@ vi.mock("@metricflock/db", () => ({
     analyticsCache: { deleteMany: mocks.cacheDeleteMany, findMany: mocks.cacheFindMany },
     auditLog: { deleteMany: mocks.auditDeleteMany, findMany: mocks.auditFindMany },
     organization: { findMany: mocks.orgFindMany, deleteMany: mocks.orgDeleteMany },
+    organizationInvite: { findMany: mocks.inviteFindMany, deleteMany: mocks.inviteDeleteMany },
+    verification: { findMany: mocks.verificationFindMany, deleteMany: mocks.verificationDeleteMany },
+    session: { findMany: mocks.sessionFindMany, deleteMany: mocks.sessionDeleteMany },
+    integrationHealth: { findMany: mocks.healthFindMany, deleteMany: mocks.healthDeleteMany },
   },
 }));
 
@@ -113,6 +125,14 @@ describe("worker scheduler", () => {
     mocks.auditFindMany.mockResolvedValue([]);
     mocks.orgFindMany.mockResolvedValue([]);
     mocks.orgDeleteMany.mockResolvedValue({ count: 0 });
+    mocks.inviteFindMany.mockResolvedValue([]);
+    mocks.inviteDeleteMany.mockResolvedValue({ count: 0 });
+    mocks.verificationFindMany.mockResolvedValue([]);
+    mocks.verificationDeleteMany.mockResolvedValue({ count: 0 });
+    mocks.sessionFindMany.mockResolvedValue([]);
+    mocks.sessionDeleteMany.mockResolvedValue({ count: 0 });
+    mocks.healthFindMany.mockResolvedValue([]);
+    mocks.healthDeleteMany.mockResolvedValue({ count: 0 });
     mocks.enqueueBulk.mockImplementation(async (list: unknown[]) => list.length);
     mocks.getQueue.mockReturnValue(null);
     mocks.adManagerEnabled.mockReturnValue(false);
@@ -288,6 +308,14 @@ describe("worker scheduler", () => {
       mocks.cacheFindMany.mockResolvedValue([]);
       mocks.auditDeleteMany.mockResolvedValue({ count: 0 });
       mocks.auditFindMany.mockResolvedValue([]);
+      mocks.inviteFindMany.mockResolvedValue([]);
+      mocks.inviteDeleteMany.mockResolvedValue({ count: 0 });
+      mocks.verificationFindMany.mockResolvedValue([]);
+      mocks.verificationDeleteMany.mockResolvedValue({ count: 0 });
+      mocks.sessionFindMany.mockResolvedValue([]);
+      mocks.sessionDeleteMany.mockResolvedValue({ count: 0 });
+      mocks.healthFindMany.mockResolvedValue([]);
+      mocks.healthDeleteMany.mockResolvedValue({ count: 0 });
       mocks.enqueueBulk.mockImplementation(async (list: unknown[]) => list.length);
       mocks.getQueue.mockReturnValue({ getJobCounts: mocks.getJobCounts });
       mocks.getJobCounts.mockResolvedValue(counts);
@@ -382,6 +410,14 @@ describe("worker scheduler", () => {
     mocks.cacheFindMany.mockResolvedValue([]);
     mocks.auditDeleteMany.mockResolvedValue({ count: 0 });
     mocks.auditFindMany.mockResolvedValue([]);
+    mocks.inviteFindMany.mockResolvedValue([]);
+    mocks.inviteDeleteMany.mockResolvedValue({ count: 0 });
+    mocks.verificationFindMany.mockResolvedValue([]);
+    mocks.verificationDeleteMany.mockResolvedValue({ count: 0 });
+    mocks.sessionFindMany.mockResolvedValue([]);
+    mocks.sessionDeleteMany.mockResolvedValue({ count: 0 });
+    mocks.healthFindMany.mockResolvedValue([]);
+    mocks.healthDeleteMany.mockResolvedValue({ count: 0 });
     mocks.enqueueBulk.mockImplementation(async (list: unknown[]) => list.length);
     mocks.getQueue.mockReturnValue(null);
     mocks.adManagerEnabled.mockReturnValue(false);
@@ -442,6 +478,51 @@ describe("worker scheduler", () => {
     expect(mocks.logInfo).toHaveBeenCalledWith("pruned expired OAuth states", { count: 1, capped: false });
     expect(mocks.logInfo).toHaveBeenCalledWith("pruned expired analytics cache rows", { count: 2, capped: false });
     expect(mocks.logInfo).toHaveBeenCalledWith("pruned old audit logs", { count: 4, capped: false });
+  });
+
+  it("prunes expired invites, verifications, sessions and NULL-website health rows (A-DB-13)", async () => {
+    const now = new Date();
+    // A-DB-13: the retention tick also drains the four tables the
+    // original prune missed — expired unaccepted invites, expired
+    // better-auth verifications, expired sessions, and IntegrationHealth
+    // rows with no website (unreadable: no consumer can find them by
+    // the unique key).
+    mocks.inviteFindMany.mockResolvedValueOnce([{ id: "inv-1" }, { id: "inv-2" }]);
+    mocks.inviteDeleteMany.mockResolvedValue({ count: 2 });
+    mocks.verificationFindMany.mockResolvedValueOnce([{ id: "ver-1" }]);
+    mocks.verificationDeleteMany.mockResolvedValue({ count: 1 });
+    mocks.sessionFindMany.mockResolvedValueOnce([{ id: "ses-1" }, { id: "ses-2" }]);
+    mocks.sessionDeleteMany.mockResolvedValue({ count: 2 });
+    mocks.healthFindMany.mockResolvedValueOnce([{ id: "health-1" }]);
+    mocks.healthDeleteMany.mockResolvedValue({ count: 1 });
+    start();
+    await flush();
+
+    const closeTo = (actual: Date, expectedMs: number) => Math.abs(actual.getTime() - expectedMs) < 5_000;
+    const inviteWhere = mocks.inviteFindMany.mock.calls[0][0].where as {
+      acceptedAt: null;
+      expiresAt: { lt: Date };
+    };
+    expect(inviteWhere.acceptedAt).toBeNull();
+    expect(closeTo(inviteWhere.expiresAt.lt, now.getTime())).toBe(true);
+    expect(mocks.inviteFindMany.mock.calls[0][0]).toMatchObject({
+      select: { id: true },
+      orderBy: { id: "asc" },
+      take: 1000,
+    });
+    expect(mocks.inviteDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ["inv-1", "inv-2"] } } });
+    const verWhere = mocks.verificationFindMany.mock.calls[0][0].where as { expiresAt: { lt: Date } };
+    expect(closeTo(verWhere.expiresAt.lt, now.getTime())).toBe(true);
+    expect(mocks.verificationDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ["ver-1"] } } });
+    const sesWhere = mocks.sessionFindMany.mock.calls[0][0].where as { expiresAt: { lt: Date } };
+    expect(closeTo(sesWhere.expiresAt.lt, now.getTime())).toBe(true);
+    expect(mocks.sessionDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ["ses-1", "ses-2"] } } });
+    expect(mocks.healthFindMany.mock.calls[0][0].where).toEqual({ websiteId: null });
+    expect(mocks.healthDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ["health-1"] } } });
+    expect(mocks.logInfo).toHaveBeenCalledWith("pruned expired invites", { count: 2, capped: false });
+    expect(mocks.logInfo).toHaveBeenCalledWith("pruned expired verifications", { count: 1, capped: false });
+    expect(mocks.logInfo).toHaveBeenCalledWith("pruned expired sessions", { count: 2, capped: false });
+    expect(mocks.logInfo).toHaveBeenCalledWith("pruned NULL-website health rows", { count: 1, capped: false });
   });
 
   it("prunes 5,000 old finished jobs in bounded 1,000-row batches and resolves 100 stuck RUNNING jobs (A-DB-10)", async () => {

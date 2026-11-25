@@ -443,6 +443,70 @@ async function runTick(signal?: AbortSignal): Promise<void> {
     (ids) => prisma.auditLog.deleteMany({ where: { id: { in: ids } } }),
   );
   if (prunedAudit.pruned) log.info("pruned old audit logs", { count: prunedAudit.pruned, capped: prunedAudit.capped });
+
+  // A-DB-13: the four tables the original retention prune missed.
+  // Expired unaccepted invites (the accept route already conflates
+  // expired with never-existed — "invite_not_found_or_expired" — so
+  // pruning them changes no message); accepted invites are kept as
+  // the record of who joined. Expired better-auth verifications
+  // (email / password-reset rows; only deleted on use) and expired
+  // sessions (better-auth validates expiry on load, so an expired row
+  // is already unusable). IntegrationHealth rows with no website are
+  // unreadable — no consumer can find them by the unique key — so
+  // every one is pruned regardless of age; recordHealth no longer
+  // creates them.
+  checkAborted();
+  const prunedInvites = await pruneInBatches(
+    () =>
+      prisma.organizationInvite.findMany({
+        where: { acceptedAt: null, expiresAt: { lt: now } },
+        select: { id: true },
+        orderBy: { id: "asc" },
+        take: PRUNE_BATCH_SIZE,
+      }),
+    (ids) => prisma.organizationInvite.deleteMany({ where: { id: { in: ids } } }),
+  );
+  if (prunedInvites.pruned)
+    log.info("pruned expired invites", { count: prunedInvites.pruned, capped: prunedInvites.capped });
+  checkAborted();
+  const prunedVerifications = await pruneInBatches(
+    () =>
+      prisma.verification.findMany({
+        where: { expiresAt: { lt: now } },
+        select: { id: true },
+        orderBy: { id: "asc" },
+        take: PRUNE_BATCH_SIZE,
+      }),
+    (ids) => prisma.verification.deleteMany({ where: { id: { in: ids } } }),
+  );
+  if (prunedVerifications.pruned)
+    log.info("pruned expired verifications", { count: prunedVerifications.pruned, capped: prunedVerifications.capped });
+  checkAborted();
+  const prunedSessions = await pruneInBatches(
+    () =>
+      prisma.session.findMany({
+        where: { expiresAt: { lt: now } },
+        select: { id: true },
+        orderBy: { id: "asc" },
+        take: PRUNE_BATCH_SIZE,
+      }),
+    (ids) => prisma.session.deleteMany({ where: { id: { in: ids } } }),
+  );
+  if (prunedSessions.pruned)
+    log.info("pruned expired sessions", { count: prunedSessions.pruned, capped: prunedSessions.capped });
+  checkAborted();
+  const prunedNullHealth = await pruneInBatches(
+    () =>
+      prisma.integrationHealth.findMany({
+        where: { websiteId: null },
+        select: { id: true },
+        orderBy: { id: "asc" },
+        take: PRUNE_BATCH_SIZE,
+      }),
+    (ids) => prisma.integrationHealth.deleteMany({ where: { id: { in: ids } } }),
+  );
+  if (prunedNullHealth.pruned)
+    log.info("pruned NULL-website health rows", { count: prunedNullHealth.pruned, capped: prunedNullHealth.capped });
 }
 
 export function startScheduler(redis: RedisClient): { stop: () => Promise<void> } {

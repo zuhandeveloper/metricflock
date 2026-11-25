@@ -141,6 +141,7 @@ model OrganizationInvite {
   createdAt      DateTime     @default(now())
   @@index([organizationId, email])
   @@index([email, acceptedAt])
+  @@index([expiresAt])
 }
 
 // Phase 7.3 — scheduled email reports. One schedule per organization:
