@@ -14,6 +14,7 @@ export default function MobileNav({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
   const openButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setOpen(false);
@@ -29,6 +30,28 @@ export default function MobileNav({ user }: { user: SidebarUser }) {
       if (e.key === "Escape") {
         setOpen(false);
         openButtonRef.current?.focus();
+        return;
+      }
+      // A-FE-19: aria-modal="true" promises the background is inert, so
+      // Tab must cycle inside the drawer instead of escaping into the
+      // obscured page behind it.
+      if (e.key === "Tab") {
+        const drawer = drawerRef.current;
+        if (!drawer) return;
+        const focusable = drawer.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && (active === first || !drawer.contains(active))) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && (active === last || !drawer.contains(active))) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     };
     document.addEventListener("keydown", onKey);
@@ -59,6 +82,7 @@ export default function MobileNav({ user }: { user: SidebarUser }) {
             }}
           />
           <div
+            ref={drawerRef}
             id="mobile-nav-drawer"
             role="dialog"
             aria-modal="true"

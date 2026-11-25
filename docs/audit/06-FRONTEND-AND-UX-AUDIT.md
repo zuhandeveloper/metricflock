@@ -621,7 +621,7 @@ aria-label="Date range"`.
   back from the clipboard and compared) + 2 unit tests in
   `ApiKeyManager.test.tsx` (both fail without the fix).
 
-### A-FE-19 — P3 — POTENTIAL — Mobile nav drawer does not trap focus
+### A-FE-19 — P3 — POTENTIAL — Mobile nav drawer does not trap focus · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/components/MobileNav.tsx:11-85`.
 - **Evidence:** the drawer is good on the basics — `role="dialog"
@@ -637,6 +637,16 @@ aria-modal="true"`, focus moves to the close button on open, focus
   primitive) while open.
 - **Regression test:** Playwright test tabbing through the open drawer
   asserting focus stays inside.
+- **Verification (2026-11-25):** the drawer now traps Tab/Shift+Tab while
+  open (hand-rolled focus wrap in the existing keydown handler, no new
+  dependency; focus found outside the drawer is pulled back in);
+  focus-to-close on open, focus return on close, Escape, backdrop and
+  close-on-navigation all preserved. Regression guards:
+  `MobileNav.test.tsx` (3 of 4 fail without the fix) + e2e
+  `mobile-nav.spec.ts` (Tab 25× stays inside, Shift+Tab wraps, Escape
+  returns focus to the menu button). Residual: the trap's focusable
+  selector does no visibility filtering — correct for this drawer (all
+  contents visible when open).
 
 ### A-FE-20 — P3 — CONFIRMED — Sign-out proceeds to /login even if the logout request fails
 
