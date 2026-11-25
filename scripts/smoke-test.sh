@@ -96,7 +96,9 @@ ADMIN_PASSWORD="$SEED_DEMO_ADMIN_PASSWORD"
 # without creating new ones — the right command for CI and servers.
 DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec prisma migrate deploy >/dev/null || fail "prisma migrate deploy"
 pnpm db:seed >/dev/null || fail "db:seed"
-DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-member.ts >/dev/null || fail "smoke-member setup"
+SMOKE_MEMBER_OUT="$(DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-member.ts)" || fail "smoke-member setup"
+MEMBER_USER_ID="$(echo "$SMOKE_MEMBER_OUT" | grep '^MEMBER_USER_ID=' | cut -d= -f2-)"
+[ -n "$MEMBER_USER_ID" ] || fail "smoke-member user id missing"
 DOTENV_CONFIG_PATH=../../apps/web/.env pnpm --filter @metricflock/db exec tsx scripts/smoke-attacker.ts >/dev/null || fail "smoke-attacker setup"
 # NOTE: the Stage 2 fixture (smoke-stage2.ts) runs later, just before the
 # Stage 2 checks — it creates GoogleConnection rows for team-a/team-b,
@@ -633,16 +635,20 @@ code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_
 ok "phase1: assignee cannot manage; cross-team create/move/map rejected; own-team flows work"
 
 echo "smoke: phase4 — data lifecycle (member delete, org export/delete)"
-# Member deletion (F-4.3): admin deletes the team admin (no longer
-# needed after the phase1 section), re-delete 404s, self-delete 400s,
-# and the deleted user can no longer sign in.
-code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/members/$TEAMADMIN_USER_ID")"
+# Member deletion (F-4.3): the team admin initiated a transfer in the
+# A-API-12 stage2 check, so deleting him is correctly blocked 409
+# (member_has_dependencies) — assert that, then delete the plain member
+# instead; re-delete 404s, self-delete 400s, and the deleted user can
+# no longer sign in.
+code="$(curl -s -o "$TMP/p4-teamadmin.json" -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/members/$TEAMADMIN_USER_ID")"
+[ "$code" = "409" ] || { cat "$TMP/p4-teamadmin.json"; fail "phase4 transfer-initiator delete returned $code, expected 409"; }
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/members/$MEMBER_USER_ID")"
 [ "$code" = "200" ] || fail "phase4 member delete returned $code"
-code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/members/$TEAMADMIN_USER_ID")"
+code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/members/$MEMBER_USER_ID")"
 [ "$code" = "404" ] || fail "phase4 member re-delete returned $code, expected 404"
 code="$(curl -s -o /dev/null -w "%{http_code}" -b "$ADMIN_JAR" -X DELETE "$BASE_URL/api/members/$ADMIN_USER_ID")"
 [ "$code" = "400" ] || fail "phase4 self-delete returned $code, expected 400"
-code="$(auth_post "$TMP/p4-deleted-signin.json" "$TMP/p4-deleted.cookies" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$TEAMADMIN_EMAIL\",\"password\":\"$TEAMADMIN_PASSWORD\"}")"
+code="$(auth_post "$TMP/p4-deleted-signin.json" "$TMP/p4-deleted.cookies" "$BASE_URL/api/auth/sign-in/email" "{\"email\":\"$MEMBER_EMAIL\",\"password\":\"$MEMBER_PASSWORD\"}")"
 [ "$code" = "401" ] || fail "phase4 deleted member sign-in returned $code, expected 401"
 # Org export + deletion (F-4.3) on the throwaway org.
 ORGOWNER_JAR="$TMP/orgowner.cookies"

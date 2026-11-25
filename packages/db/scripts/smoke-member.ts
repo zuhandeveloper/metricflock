@@ -37,6 +37,7 @@ async function main() {
     });
   }
   console.log(`Smoke member ready: ${EMAIL} (TEAM_MEMBER, no website.transfer permission).`);
+  console.log(`MEMBER_USER_ID=${user.id}`);
 }
 
 main()
