@@ -35,8 +35,10 @@ curl -H "Authorization: Bearer mf_your_secret_here" \
 
 ### `GET /api/v1/websites`
 
-Your organization's websites (max 500): `id`, `name`, `domain`, `url`,
-`status`, `teamId`, `createdAt`.
+Your organization's websites: `id`, `name`, `domain`, `url`, `status`,
+`teamId`, `createdAt`. Paginated with `limit` (default 500, max 500)
+and `offset`; the response carries `pagination: { total, limit, offset }`
+and `truncated: true` when the org has more websites than the page holds.
 
 ### `GET /api/v1/websites/:id/analytics?report=overview&range=28d`
 

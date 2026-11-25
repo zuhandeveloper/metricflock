@@ -149,12 +149,13 @@ Actual roles are `SUPER_ADMIN / TEAM_ADMIN / TEAM_MEMBER` (`packages/auth/src/pe
 - **Status:** CONFIRMED (code). Dynamic NOT RUN.
 - **Verification 2026-11-25:** fixed — each collection capped at 1,000 rows (`take: 1001`, truncation detected without a count query), payload carries `truncated` + `truncatedCollections`, audit details carry `truncated`; the rate-limit half was already covered by A-API-05 (`strict` tier). Regression tests in new `route-organization-export.test.ts` (5 tests, 4 fail without the fix).
 
-### A-API-16 — P3 — CONFIRMED — `GET /api/v1/websites` silently truncates at 500 with no paging or flag
+### A-API-16 — P3 — CONFIRMED — `GET /api/v1/websites` silently truncates at 500 with no paging or flag · FIXED 2026-11-25
 
 - **File:** `apps/web/src/app/api/v1/websites/route.ts:15` — `take: 500`, no `limit`/`offset` params, no `total`, no `truncated`. An org with >500 websites gets a silently incomplete list; API consumers have no way to fetch the rest (contrast `loadPortfolio`, which reports `truncated`).
 - **Correction:** add pagination params + `total`/`truncated` to the response.
 - **Regression test:** unit/smoke test with >500 websites.
 - **Status:** CONFIRMED (code).
+- **Verification 2026-11-25:** fixed — the response now carries `pagination: { total, limit, offset }` (same shape as `GET /api/audit`) plus top-level `truncated` (`total > offset + websites.length`, same meaning as `loadPortfolio`'s); `limit`/`offset` were already honoured by A-API-09 (default/max 500), so only `total`/`truncated` were missing — the count is org-scoped with the same `where` as the list, one extra `count` query per request. Additive: `{ websites }` stays. Regression tests in `route-list-pagination.test.ts` (3 new + 2 updated shape assertions, all 5 fail without the fix). `docs/api.md` updated (the old "(max 500)" line now documents the pagination).
 
 ### A-API-17 — P3 — CONFIRMED — Transfer state transitions are check-then-act, not guarded updates
 
@@ -259,13 +260,13 @@ Transfer state machine is otherwise sound: nothing moves before completion; OAut
 
 ### Public API v1 (5) — all `K` (API key), rate-limited 120/min/key, snapshot-only (never trigger live Google calls)
 
-| #   | Route                             | Method | Validation                                                  | DB / external                                            | Response                                                                                                          |
-| --- | --------------------------------- | ------ | ----------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| 48  | `/api/v1/health`                  | GET    | `page` (unbounded)                                          | `loadHealthOverview` (accessible websites)               | health overview                                                                                                   |
-| 49  | `/api/v1/insights`                | GET    | –                                                           | `loadInsights` (≤50 sites)                               | insights result                                                                                                   |
-| 50  | `/api/v1/portfolio`               | GET    | provider/report enum validation; `range` via `resolveRange` | `loadPortfolio` (limit 200, `truncated` flag)            | `{ provider, report, range, totals, totalsNote, websiteCount, includedWebsites, unavailableWebsites, truncated }` |
-| 51  | `/api/v1/websites`                | GET    | –                                                           | org-wide, `take: 500`, no pagination (A-API-16)          | `{ websites }`                                                                                                    |
-| 52  | `/api/v1/websites/[id]/analytics` | GET    | report enum; `range`                                        | org-scoped website → primary integration → snapshot read | `{ status: "ok" \| "no_snapshot_yet" \| "no_property_mapped", data, … }`                                          |
+| #   | Route                             | Method | Validation                                                  | DB / external                                                               | Response                                                                                                          |
+| --- | --------------------------------- | ------ | ----------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 48  | `/api/v1/health`                  | GET    | `page` (unbounded)                                          | `loadHealthOverview` (accessible websites)                                  | health overview                                                                                                   |
+| 49  | `/api/v1/insights`                | GET    | –                                                           | `loadInsights` (≤50 sites)                                                  | insights result                                                                                                   |
+| 50  | `/api/v1/portfolio`               | GET    | provider/report enum validation; `range` via `resolveRange` | `loadPortfolio` (limit 200, `truncated` flag)                               | `{ provider, report, range, totals, totalsNote, websiteCount, includedWebsites, unavailableWebsites, truncated }` |
+| 51  | `/api/v1/websites`                | GET    | –                                                           | org-wide, paginated (default/max 500) + `pagination`/`truncated` (A-API-16) | `{ websites, pagination, truncated }`                                                                             |
+| 52  | `/api/v1/websites/[id]/analytics` | GET    | report enum; `range`                                        | org-scoped website → primary integration → snapshot read                    | `{ status: "ok" \| "no_snapshot_yet" \| "no_property_mapped", data, … }`                                          |
 
 ### Websites (5 routes, 8 methods — counted in the 52 as files; methods listed for completeness)
 
