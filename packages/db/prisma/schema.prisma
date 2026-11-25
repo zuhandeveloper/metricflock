@@ -507,6 +507,11 @@ model AnalyticsCache {
   payload    Json
   expiresAt  DateTime
   createdAt  DateTime @default(now())
+  // A-API-14: last-write time (Prisma maintains it on every update).
+  // readSnapshot/readSnapshots surface this as `updatedAt`; before this
+  // column existed they returned createdAt, so "last synced" never
+  // advanced after the first write.
+  updatedAt  DateTime @updatedAt
   @@index([websiteId, expiresAt])
 }
 

@@ -11,7 +11,10 @@ export type Snapshot = { payload: unknown; expiresAt: Date; updatedAt: Date };
 
 /** Upsert a snapshot for a cache key. `ttlSeconds` is the freshness
  * window (callers pass max(cache TTL, sync interval) — see
- * snapshotTtlSeconds in @metricflock/jobs). */
+ * snapshotTtlSeconds in @metricflock/jobs). A-API-14: the `updatedAt`
+ * column is maintained by Prisma (`@updatedAt`) — it advances on every
+ * update branch of this upsert, so `readSnapshot` reports the last
+ * write time without any code here touching the column. */
 export async function writeSnapshot(
   cacheKey: string,
   websiteId: string,
@@ -31,10 +34,10 @@ export async function writeSnapshot(
 export async function readSnapshot(cacheKey: string): Promise<Snapshot | null> {
   const row = await prisma.analyticsCache.findUnique({
     where: { cacheKey },
-    select: { payload: true, expiresAt: true, createdAt: true },
+    select: { payload: true, expiresAt: true, updatedAt: true },
   });
   if (!row) return null;
-  return { payload: row.payload, expiresAt: row.expiresAt, updatedAt: row.createdAt };
+  return { payload: row.payload, expiresAt: row.expiresAt, updatedAt: row.updatedAt };
 }
 
 /** A-DB-11: batch snapshot read — one query for any number of cache
@@ -45,10 +48,10 @@ export async function readSnapshots(cacheKeys: string[]): Promise<Map<string, Sn
   if (cacheKeys.length === 0) return out;
   const rows = await prisma.analyticsCache.findMany({
     where: { cacheKey: { in: cacheKeys } },
-    select: { cacheKey: true, payload: true, expiresAt: true, createdAt: true },
+    select: { cacheKey: true, payload: true, expiresAt: true, updatedAt: true },
   });
   for (const row of rows) {
-    out.set(row.cacheKey, { payload: row.payload, expiresAt: row.expiresAt, updatedAt: row.createdAt });
+    out.set(row.cacheKey, { payload: row.payload, expiresAt: row.expiresAt, updatedAt: row.updatedAt });
   }
   return out;
 }

@@ -36,7 +36,8 @@ type CallRecord = { path: string; args: unknown[] };
 
 const mocks = vi.hoisted(() => {
   const calls: CallRecord[] = [];
-  const cacheRows: Array<{ cacheKey: string; payload: unknown; expiresAt: Date; createdAt: Date }> = [];
+  const cacheRows: Array<{ cacheKey: string; payload: unknown; expiresAt: Date; createdAt: Date; updatedAt: Date }> =
+    [];
 
   const websites: Row[] = [
     {
@@ -286,10 +287,13 @@ function seedCache(cacheKey: string, payload: unknown, stale = false): void {
     payload,
     expiresAt: new Date(Date.now() + (stale ? -60_000 : 3_600_000)),
     createdAt: new Date("2026-11-22T00:00:00Z"),
+    // A-API-14: the snapshot was rewritten after its first write, so the
+    // last-write time is later than the first-write time.
+    updatedAt: new Date("2026-11-22T12:00:00Z"),
   });
 }
 
-const SELECT_ALL = { cacheKey: true, payload: true, expiresAt: true, createdAt: true };
+const SELECT_ALL = { cacheKey: true, payload: true, expiresAt: true, updatedAt: true };
 const WEBSITE_SELECT = { id: true, name: true, domain: true };
 const ORDER_BY = [{ isPrimary: "desc" }, { updatedAt: "desc" }];
 

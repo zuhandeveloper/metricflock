@@ -106,18 +106,22 @@ describe("snapshots (packages/db/src/snapshots.ts)", () => {
     expect(expiresMs).toBeLessThanOrEqual(after + 300_000);
   });
 
+  // A-API-14: updatedAt is the LAST write time, not the first — a row
+  // first written 2026-11-19 and rewritten 2026-11-20 must report the
+  // rewrite time, so dashboards showing "last synced" advance.
   it("readSnapshot returns payload + expiry + updatedAt for a stored row", async () => {
     const expiresAt = new Date("2026-11-20T00:00:00Z");
     const createdAt = new Date("2026-11-19T00:00:00Z");
-    mocks.analyticsFindUnique.mockResolvedValue({ payload: { clicks: 5 }, expiresAt, createdAt });
+    const updatedAt = new Date("2026-11-20T12:00:00Z");
+    mocks.analyticsFindUnique.mockResolvedValue({ payload: { clicks: 5 }, expiresAt, createdAt, updatedAt });
     await expect(snapshots.readSnapshot("cache-key-1")).resolves.toEqual({
       payload: { clicks: 5 },
       expiresAt,
-      updatedAt: createdAt,
+      updatedAt,
     });
     expect(mocks.analyticsFindUnique).toHaveBeenCalledWith({
       where: { cacheKey: "cache-key-1" },
-      select: { payload: true, expiresAt: true, createdAt: true },
+      select: { payload: true, expiresAt: true, updatedAt: true },
     });
   });
 
@@ -126,21 +130,25 @@ describe("snapshots (packages/db/src/snapshots.ts)", () => {
   });
 
   // A-DB-11: the batch read — one findMany for any number of keys.
+  // A-API-14: same as readSnapshot — each entry reports its own last
+  // write time, not the first-write time.
   it("readSnapshots returns one map entry per row from a single findMany", async () => {
     const expiresAt = new Date("2026-11-20T00:00:00Z");
     const createdAt = new Date("2026-11-19T00:00:00Z");
+    const updatedAtK1 = new Date("2026-11-20T12:00:00Z");
+    const updatedAtK2 = new Date("2026-11-20T13:00:00Z");
     mocks.analyticsFindMany.mockResolvedValue([
-      { cacheKey: "k1", payload: { clicks: 5 }, expiresAt, createdAt },
-      { cacheKey: "k2", payload: { clicks: 9 }, expiresAt, createdAt },
+      { cacheKey: "k1", payload: { clicks: 5 }, expiresAt, createdAt, updatedAt: updatedAtK1 },
+      { cacheKey: "k2", payload: { clicks: 9 }, expiresAt, createdAt, updatedAt: updatedAtK2 },
     ]);
     const out = await snapshots.readSnapshots(["k1", "k2", "k3"]);
     expect(mocks.analyticsFindMany).toHaveBeenCalledTimes(1);
     expect(mocks.analyticsFindMany).toHaveBeenCalledWith({
       where: { cacheKey: { in: ["k1", "k2", "k3"] } },
-      select: { cacheKey: true, payload: true, expiresAt: true, createdAt: true },
+      select: { cacheKey: true, payload: true, expiresAt: true, updatedAt: true },
     });
-    expect(out.get("k1")).toEqual({ payload: { clicks: 5 }, expiresAt, updatedAt: createdAt });
-    expect(out.get("k2")).toEqual({ payload: { clicks: 9 }, expiresAt, updatedAt: createdAt });
+    expect(out.get("k1")).toEqual({ payload: { clicks: 5 }, expiresAt, updatedAt: updatedAtK1 });
+    expect(out.get("k2")).toEqual({ payload: { clicks: 9 }, expiresAt, updatedAt: updatedAtK2 });
     expect(out.has("k3")).toBe(false);
   });
 
