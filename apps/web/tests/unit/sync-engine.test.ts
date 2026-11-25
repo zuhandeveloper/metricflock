@@ -219,6 +219,19 @@ describe("sync engine (mocked Google clients)", () => {
     expect(deps.ga4.runHistoricalReport).not.toHaveBeenCalled();
   });
 
+  it("A-GGL-19: the sync quota guard fails closed on Redis errors (no unthrottled fetch)", async () => {
+    // The real limiter returns allowed:false on a Redis error when failClosed
+    // is set (pinned in rate-limit-failclosed.test.ts), and allowed:false
+    // throws SyncRateLimitError before fetching (pinned above), which the
+    // worker turns into a BullMQ delay — so the sync must pass
+    // { failClosed: true }, or a Redis outage degrades the per-connection
+    // quota guard to a per-process one that multiplies per worker instance.
+    const rateLimit = vi.fn(async () => ({ allowed: true, remaining: 29 }));
+    const { deps } = fakeDeps({ rateLimit });
+    await syncWebsite("site-1", "ga4-historical", deps);
+    expect(rateLimit).toHaveBeenCalledWith("google:conn-1", 30, 60_000, { failClosed: true });
+  });
+
   it("Ad Manager disabled returns disabled without fetching", async () => {
     const { deps } = fakeDeps();
     const r = await syncWebsite("site-1", "ad-manager", deps);

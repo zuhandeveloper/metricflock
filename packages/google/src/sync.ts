@@ -291,7 +291,12 @@ async function syncOneProvider(websiteId: string, kind: string, deps: SyncDeps):
     throw e;
   }
   const connectionId = client.connection.connectionId;
-  if (connectionId && !(await deps.rateLimit(`google:${connectionId}`, 30, 60_000)).allowed) {
+  // A-GGL-19: fail closed — on a Redis error the limiter returns
+  // allowed:false, which throws SyncRateLimitError below and the worker
+  // delays the job (the handled path). Without it, a Redis outage would
+  // degrade this per-connection quota guard to a per-process one that
+  // multiplies per worker instance against a per-project Google quota.
+  if (connectionId && !(await deps.rateLimit(`google:${connectionId}`, 30, 60_000, { failClosed: true })).allowed) {
     throw new SyncRateLimitError(connectionId);
   }
   const organizationId = await deps.getWebsiteOrganizationId(websiteId);

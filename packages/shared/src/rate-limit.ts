@@ -11,8 +11,11 @@ import { createLogger } from "./logger";
 // F-3.1 policy: callers on sensitive endpoints (login, OAuth connect /
 // callback, invites) pass `failClosed: true` — when Redis is configured
 // but unreachable, the request is REJECTED instead of silently degrading
-// to per-process limits that multiply per instance. Non-sensitive callers
-// (provider quota protection in the worker) keep the degraded fallback.
+// to per-process limits that multiply per instance. The worker's
+// per-connection Google quota guard also fails closed (A-GGL-19): a
+// Redis error delays the sync job instead of letting every instance
+// fetch against the per-project Google quota unthrottled. Other
+// non-sensitive callers keep the degraded fallback.
 // Every degradation path is counted (ratelimit.* counters, exposed on
 // /api/metrics) so a Redis outage is visible instead of silent.
 const RATE_LIMIT_LUA = `
