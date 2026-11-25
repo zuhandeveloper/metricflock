@@ -587,7 +587,7 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   email per org per window.
 - **Verification (2026-11-25):** failure alerts are now capped per organization at one per 15-minute window (`ALERT_WINDOW_MS` in `apps/worker/src/index.ts`, via the shared Redis-backed `rateLimit` with key `alert:<orgId>`, limit 1). The gate covers terminal sync failures (`alertSyncFailure`) and health `alert_error` transitions (`alertHealthTransition`); suppressed alerts increment `alerts.suppressed` (/metrics) and are warn-logged instead of emailed. The first failure in a window still alerts immediately, so an isolated failure is never delayed; recovery emails are not gated. The limiter is deliberately not `failClosed`: on a Redis error it degrades to the per-process fallback (cap multiplies per instance, alerts never go fully silent). Regression tests in `worker-index.test.ts`: 3 terminal failures across websites/queues in one org → 1 email (3 fail without the fix); another org still alerts; health errors share the budget while recoveries send; the next window alerts again.
 
-### A-WRK-17 — P3 — CONFIRMED — Scheduler silently drops enqueues when Redis is unavailable
+### A-WRK-17 — P3 — CONFIRMED — Scheduler silently drops enqueues when Redis is unavailable · FIXED 2026-11-25
 
 - **Where:** `packages/jobs/src/queue.ts:150-162` (`enqueueBulk`),
   `apps/worker/src/scheduler.ts:176-183`.
@@ -607,6 +607,20 @@ queue limiter (no attempt consumed)` — instead of the bare "job delayed",
   `/metrics` / the health endpoint.
 - **Regression test:** unit test asserting `enqueueBulk` without Redis
   records the skip (requires injecting the connection check).
+- **Verification (2026-11-25):** `enqueueBulk` now records a skipped
+  queue instead of dropping it silently: one error log per skipped
+  queue (`enqueueBulk skipped jobs: no Redis connection`, with the
+  queue name and skipped count) and
+  `incr("scheduler.enqueue_skipped_no_redis", list.length)` counting
+  the dropped jobs — surfaced on the worker's `/metrics` via
+  `counterSnapshot`, like every other in-process counter. The single
+  `enqueue` path is unchanged: it returns null and its callers already
+  surface it (api/sync 503 `queue_unavailable`). Regression tests in
+  `lib-queue.test.ts`: without `REDIS_URL` the counter records 3
+  dropped jobs across two queues (fails without the fix); with Redis
+  nothing is recorded. No connection-check injection was needed — the
+  existing harness already controls `bullConnectionOptions()` via
+  `REDIS_URL`.
 
 ### A-WRK-18 — P3 — CONFIRMED — DLQ rows are pruned after 30 days with no notice
 

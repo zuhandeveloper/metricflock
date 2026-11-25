@@ -1,6 +1,6 @@
 import { Queue } from "bullmq";
 import { randomUUID } from "node:crypto";
-import { bullConnectionOptions } from "@metricflock/shared";
+import { bullConnectionOptions, createLogger, incr } from "@metricflock/shared";
 export const QUEUE_NAMES = [
   "google-oauth-refresh",
   "google-property-discovery",
@@ -47,6 +47,7 @@ export const SYNC_TYPE_BY_REPORT: Record<string, SyncJobTypeName> = {
   adsense: "ADSENSE",
   "ad-manager": "AD_MANAGER",
 };
+const log = createLogger("jobs");
 const queues = new Map<string, Queue>();
 
 /** Job priorities (Phase 5, F-5.5): BullMQ processes lower numbers
@@ -137,7 +138,17 @@ export async function enqueueBulk(entries: EnqueueEntry[]): Promise<number> {
   let submitted = 0;
   for (const [name, list] of byQueue) {
     const q = getQueue(name);
-    if (!q) continue;
+    if (!q) {
+      // A-WRK-17: a missing Redis connection used to drop these jobs
+      // silently — the scheduler tick then enqueued nothing with no
+      // signal anywhere (the manual-sync path returns 503 instead).
+      // Record the skip: one error log per skipped queue (not per job)
+      // and a counter on /metrics counting the dropped jobs, so a
+      // mid-run Redis outage is visible instead of silent.
+      incr("scheduler.enqueue_skipped_no_redis", list.length);
+      log.error("enqueueBulk skipped jobs: no Redis connection", { queue: name, skipped: list.length });
+      continue;
+    }
     await q.addBulk(list.map((e) => ({ name, data: e.data, opts: jobOptions(name, e.jobId, e.delayMs, e.priority) })));
     submitted += list.length;
   }

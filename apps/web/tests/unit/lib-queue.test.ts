@@ -163,6 +163,28 @@ describe("enqueueBulk", () => {
     expect(n).toBe(0);
     expect(mocks.addBulk).not.toHaveBeenCalled();
   });
+  it("no Redis → skip is recorded (A-WRK-17): counter counts dropped jobs, one incr per queue", async () => {
+    delete process.env.REDIS_URL;
+    const jobs = await loadJobs();
+    // Same module instance queue.ts uses (loadJobs reset the registry).
+    const shared = await import("@metricflock/shared");
+    const n = await jobs.enqueueBulk([
+      { name: "ga4-historical-sync", data: { websiteId: "w1" }, jobId: "a:b:1" },
+      { name: "ga4-historical-sync", data: { websiteId: "w2" }, jobId: "a:b:2" },
+      { name: "adsense-sync", data: { websiteId: "w1" }, jobId: "a:b:3" },
+    ]);
+    expect(n).toBe(0);
+    expect(mocks.addBulk).not.toHaveBeenCalled();
+    expect(shared.counterSnapshot()["scheduler.enqueue_skipped_no_redis"]).toBe(3);
+  });
+  it("with Redis → no skip recorded (A-WRK-17 control)", async () => {
+    process.env.REDIS_URL = "redis://127.0.0.1:6379";
+    const jobs = await loadJobs();
+    const shared = await import("@metricflock/shared");
+    const n = await jobs.enqueueBulk([{ name: "ga4-historical-sync", data: {}, jobId: "a:b:1" }]);
+    expect(n).toBe(1);
+    expect(shared.counterSnapshot()["scheduler.enqueue_skipped_no_redis"] ?? 0).toBe(0);
+  });
   it("empty entries → 0 without touching any queue", async () => {
     process.env.REDIS_URL = "redis://127.0.0.1:6379";
     const jobs = await loadJobs();
