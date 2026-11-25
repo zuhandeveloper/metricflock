@@ -128,6 +128,7 @@ describe("WebsitePage", () => {
       { id: "u1", email: "admin@example.com", role: "SUPER_ADMIN" },
       { id: "u2", email: "member@example.com", role: "TEAM_MEMBER" },
     ]);
+    pageMocks.userCount.mockResolvedValue(2);
   });
 
   it("redirects to /login when there is no session and 404s for inaccessible websites", async () => {
@@ -233,5 +234,29 @@ describe("WebsitePage", () => {
     expect(screen.getByText("GA4 historical")).toBeInTheDocument();
     expect(screen.getByText("RUNNING")).toBeInTheDocument();
     expect(screen.queryByLabelText("Sync type")).not.toBeInTheDocument();
+  });
+
+  it("A-FE-15: caps the assign candidate list and notes the total past the cap", async () => {
+    mockFetch(null);
+    pageMocks.userCount.mockResolvedValue(120);
+    const el = await WebsitePage({ params: Promise.resolve({ id: "w1" }), searchParams: Promise.resolve({}) });
+    render(el);
+    expect(screen.getByText("Showing 2 of 120 members — search to narrow the list.")).toBeInTheDocument();
+    expect(pageMocks.userFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 50 }));
+    expect(pageMocks.userCount).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: "org1" } }));
+  });
+
+  it("A-FE-15: assign search filters candidates by email", async () => {
+    mockFetch(null);
+    const el = await WebsitePage({
+      params: Promise.resolve({ id: "w1" }),
+      searchParams: Promise.resolve({ assignQ: "member@" }),
+    });
+    render(el);
+    expect(pageMocks.userFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { organizationId: "org1", email: { contains: "member@", mode: "insensitive" } },
+      }),
+    );
   });
 });

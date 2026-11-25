@@ -27,12 +27,12 @@ export default async function WebsitePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; assignQ?: string }>;
 }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const { id } = await params;
-  const { range } = await searchParams;
+  const { range, assignQ } = await searchParams;
   const website = await assertWebsiteAccess(user, id).catch(() => null);
   if (!website) notFound();
   // A-FE-07: the latest sync job for this website (one row, bounded) so
@@ -40,7 +40,15 @@ export default async function WebsitePage({
   // without a trip to /sync (SUPER_ADMIN only). Tenant-scoped: the
   // website was already verified via assertWebsiteAccess above, and the
   // row is keyed by that website id.
-  const [full, teams, orgUsers, latestSync] = await Promise.all([
+  // A-FE-15: the assign select's candidate list is capped at 50 with an
+  // email search (assignQ) — the old unbounded query rendered every org
+  // user as an <option>. Assignments themselves come from `full` below,
+  // so capping candidates never hides an existing assignment.
+  const orgUsersWhere = {
+    organizationId: user.organizationId,
+    ...(assignQ ? { email: { contains: assignQ, mode: "insensitive" as const } } : {}),
+  };
+  const [full, teams, orgUsers, totalOrgUsers, latestSync] = await Promise.all([
     prisma.website.findUnique({
       where: { id },
       include: {
@@ -56,10 +64,12 @@ export default async function WebsitePage({
       orderBy: { name: "asc" },
     }),
     prisma.user.findMany({
-      where: { organizationId: user.organizationId },
+      where: orgUsersWhere,
       select: { id: true, email: true, role: true },
       orderBy: { email: "asc" },
+      take: 50,
     }),
+    prisma.user.count({ where: orgUsersWhere }),
     prisma.analyticsSyncJob.findFirst({
       where: { websiteId: id },
       orderBy: { updatedAt: "desc" },
@@ -158,6 +168,27 @@ export default async function WebsitePage({
       {canAssign && full && (
         <Card className="p-4">
           <h2 className="mb-2 font-semibold">Assigned members</h2>
+          <form className="mb-3 flex flex-wrap items-center gap-2">
+            {range && <input type="hidden" name="range" value={range} />}
+            <label htmlFor="assign-member-search" className="sr-only">
+              Search members to assign
+            </label>
+            <input
+              id="assign-member-search"
+              name="assignQ"
+              defaultValue={assignQ ?? ""}
+              placeholder="Search members by email…"
+              className="w-full max-w-sm rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            />
+            <button className="rounded-lg bg-zinc-900 px-3 py-2 text-sm text-white dark:bg-white dark:text-zinc-900">
+              Search
+            </button>
+            {totalOrgUsers > orgUsers.length && (
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                Showing {orgUsers.length} of {totalOrgUsers} members — search to narrow the list.
+              </span>
+            )}
+          </form>
           <AssignForm
             websiteId={id}
             assignments={full.assignments.map((a) => ({ userId: a.user.id, email: a.user.email }))}

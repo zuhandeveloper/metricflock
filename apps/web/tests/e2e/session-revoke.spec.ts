@@ -13,7 +13,17 @@ test.use({ storageState: STORAGE_STATE });
 const OTHER_UA = "E2E-Other-Device";
 
 test("a failed session revoke shows an error and keeps the session row", async ({ page, baseURL }) => {
-  const other = await apiRequest.newContext({ baseURL: baseURL ?? undefined, userAgent: OTHER_UA });
+  // Playwright Test's request.newContext() inherits this test's
+  // storageState (the demo session cookies) unless overridden — with a
+  // Cookie header present, better-auth's origin check runs and rejects
+  // the headerless API sign-in with MISSING_OR_NULL_ORIGIN. An empty
+  // storage state gives the intended clean jar, so the origin check is
+  // skipped for this first-login-style request.
+  const other = await apiRequest.newContext({
+    baseURL: baseURL ?? undefined,
+    userAgent: OTHER_UA,
+    storageState: { cookies: [], origins: [] },
+  });
   const signInOnce = () =>
     other.post("/api/auth/sign-in/email", {
       data: { email: DEMO_EMAIL, password: DEMO_PASSWORD },

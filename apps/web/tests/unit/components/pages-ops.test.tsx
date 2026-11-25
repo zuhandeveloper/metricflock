@@ -8,6 +8,12 @@ import TransfersPage from "@/app/(app)/transfers/page";
 import AuditPage from "@/app/(app)/audit/page";
 import { memberUser, pageMocks, resetPageMocks, superAdminUser } from "./page-state";
 import { mockFetch } from "./helpers";
+import { prisma } from "@metricflock/db";
+
+// A-FE-15: page-mocks.tsx registers no count for websiteTransfer (it is
+// frozen for sibling fixes), so attach the page-state fn to the mock
+// here — the paginated transfers page totals via websiteTransfer.count.
+Object.assign(prisma.websiteTransfer, { count: pageMocks.websiteTransferCount });
 
 beforeEach(() => {
   resetPageMocks();
@@ -190,17 +196,18 @@ describe("TransfersPage", () => {
 
   beforeEach(() => {
     pageMocks.websiteTransferFindMany.mockResolvedValue(transfers);
+    pageMocks.websiteTransferCount.mockResolvedValue(transfers.length);
     pageMocks.teamMemberFindMany.mockResolvedValue([{ teamId: "t2" }]);
   });
 
   it("redirects to /login when there is no session", async () => {
     pageMocks.getSessionUser.mockResolvedValue(null);
-    await expect(TransfersPage()).rejects.toThrow("NEXT_REDIRECT:/login");
+    await expect(TransfersPage({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT:/login");
   });
 
   it("renders transfers with actions for the destination admin", async () => {
     mockFetch(null);
-    const el = await TransfersPage();
+    const el = await TransfersPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("Blog")).toBeInTheDocument();
     expect(screen.getByText("Alpha → Beta")).toBeInTheDocument();
@@ -215,8 +222,9 @@ describe("TransfersPage", () => {
   it("shows the empty state when there are no transfers", async () => {
     mockFetch(null);
     pageMocks.websiteTransferFindMany.mockResolvedValue([]);
+    pageMocks.websiteTransferCount.mockResolvedValue(0);
     pageMocks.teamMemberFindMany.mockResolvedValue([]);
-    const el = await TransfersPage();
+    const el = await TransfersPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("No transfers yet")).toBeInTheDocument();
     // A-FE-14: the hint points at the website page's Transfer ownership
@@ -226,17 +234,38 @@ describe("TransfersPage", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/via POST/)).not.toBeInTheDocument();
   });
+
+  it("A-FE-15: paginates transfers past the page size (pager + total appear)", async () => {
+    mockFetch(null);
+    pageMocks.websiteTransferCount.mockResolvedValue(75);
+    const el = await TransfersPage({ searchParams: Promise.resolve({}) });
+    render(el);
+    expect(screen.getByRole("navigation", { name: "Transfers pagination" })).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 2 · 75 transfers")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Next →" })).toHaveAttribute("href", "/transfers?page=2");
+    expect(pageMocks.websiteTransferFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 50 }));
+  });
+
+  it("A-FE-15: page 2 skips the first page of transfers; no pager at or below the page size", async () => {
+    mockFetch(null);
+    pageMocks.websiteTransferCount.mockResolvedValue(75);
+    const el = await TransfersPage({ searchParams: Promise.resolve({ page: "2" }) });
+    render(el);
+    expect(screen.getByText("Page 2 of 2 · 75 transfers")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "← Previous" })).toHaveAttribute("href", "/transfers");
+    expect(pageMocks.websiteTransferFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 50, take: 50 }));
+  });
 });
 
 describe("AuditPage", () => {
   it("redirects to /login when there is no session", async () => {
     pageMocks.getSessionUser.mockResolvedValue(null);
-    await expect(AuditPage()).rejects.toThrow("NEXT_REDIRECT:/login");
+    await expect(AuditPage({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT:/login");
   });
 
   it("denies non-super-admins without querying", async () => {
     pageMocks.getSessionUser.mockResolvedValue(memberUser);
-    const el = await AuditPage();
+    const el = await AuditPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("Permission denied")).toBeInTheDocument();
     expect(pageMocks.auditLogFindMany).not.toHaveBeenCalled();
@@ -261,7 +290,7 @@ describe("AuditPage", () => {
         entityId: null,
       },
     ]);
-    const el = await AuditPage();
+    const el = await AuditPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("website.delete")).toBeInTheDocument();
     expect(screen.getByText("Website w1")).toBeInTheDocument();
@@ -271,8 +300,52 @@ describe("AuditPage", () => {
 
   it("shows the empty state when there are no entries", async () => {
     pageMocks.auditLogFindMany.mockResolvedValue([]);
-    const el = await AuditPage();
+    const el = await AuditPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("No audit entries yet")).toBeInTheDocument();
+  });
+
+  it("A-FE-15: paginates audit entries past the page size (pager + total appear)", async () => {
+    pageMocks.organizationFindUnique.mockResolvedValue({ _count: { auditLogs: 120 } });
+    pageMocks.auditLogFindMany.mockResolvedValue([
+      {
+        id: "a1",
+        createdAt: new Date("2026-11-23T10:00:00.000Z"),
+        actor: { email: "admin@example.com" },
+        action: "website.delete",
+        entityType: "Website",
+        entityId: "w1",
+      },
+    ]);
+    const el = await AuditPage({ searchParams: Promise.resolve({}) });
+    render(el);
+    expect(screen.getByRole("navigation", { name: "Audit log pagination" })).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 3 · 120 entries")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Next →" })).toHaveAttribute("href", "/audit?page=2");
+    expect(pageMocks.auditLogFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 50 }));
+  });
+
+  it("A-FE-15: filters by action/actor/date server-side and keeps them in the pager links", async () => {
+    pageMocks.organizationFindUnique.mockResolvedValue({ _count: { auditLogs: 120 } });
+    pageMocks.auditLogFindMany.mockResolvedValue([]);
+    const el = await AuditPage({
+      searchParams: Promise.resolve({ action: "website", actor: "admin@", from: "2026-11-01", to: "2026-11-23" }),
+    });
+    render(el);
+    expect(screen.getByText("No audit entries match")).toBeInTheDocument();
+    expect(pageMocks.auditLogFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: "org1",
+          action: { contains: "website", mode: "insensitive" },
+          actor: { email: { contains: "admin@", mode: "insensitive" } },
+          createdAt: { gte: new Date("2026-11-01"), lt: new Date("2026-11-24") },
+        },
+      }),
+    );
+    expect(screen.getByRole("link", { name: "Next →" })).toHaveAttribute(
+      "href",
+      "/audit?action=website&actor=admin%40&from=2026-11-01&to=2026-11-23&page=2",
+    );
   });
 });

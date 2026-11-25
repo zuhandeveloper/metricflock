@@ -497,7 +497,7 @@ aria-label="Date range"`.
   guards: the pages-ops empty-state test (fails without the fix) + an
   all-statuses `TransferActions` test pinning which statuses render actions.
 
-### A-FE-15 — P3 — CONFIRMED — Audit (100), transfers (50) and members/teams lists are uncapped or unpaginated
+### A-FE-15 — P3 — CONFIRMED — Audit (100), transfers (50) and members/teams lists are uncapped or unpaginated · FIXED 2026-11-25
 
 - **Where:** `audit/page.tsx:16-21` (`take: 100`, no pagination/filter),
   `transfers/page.tsx:11-19` (`take: 50`, no pagination),
@@ -517,6 +517,26 @@ aria-label="Date range"`.
   audit); cap the assign select with search or pagination.
 - **Regression test:** fixture test asserting pagination appears past the
   page size.
+- **Verification (2026-11-25):** all five lists now bounded — audit
+  paginated 50/page with action/actor/date filters + total (filtered
+  relation `_count`; the old `take: 100` is gone, so incidents older
+  than 100 entries are reachable again); transfers paginated 50/page
+  with a total; members paginated 50/page with a total and pending
+  invites capped at the 50 most recent (note shown when capped); teams
+  paginated 50/page with a total and the add-member candidate list
+  capped at 50 with an email search + note; the website page's assign
+  candidates capped at 50 with an email search (`assignQ`) + a
+  "Showing X of N" note (existing assignments render from the
+  assignments relation, unaffected by the cap). Org scoping and
+  permission gates unchanged (gated pages still run no queries).
+  Regression guards: 6 new tests in `pages-teams-members.test.tsx`
+  (pager + total past the page size, page-2 skip, no pager at ≤50 —
+  4 fail without the fix), 2 in `pages-websites.test.tsx` (assign cap
+  - search), 4 in `pages-ops.test.tsx` (transfers pager/skip, audit
+    pager + server-side filters preserved in pager links). Not covered:
+    the [id] page's team selects (Edit/Transfer forms) remain unbounded
+    — bounded by org size in practice, same shape as the assign select
+    if an org grows large teams.
 
 ### A-FE-16 — P3 — POTENTIAL — Top-pages chart has no text alternative; realtime values can render blank
 

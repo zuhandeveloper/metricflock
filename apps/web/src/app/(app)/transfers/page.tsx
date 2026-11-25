@@ -1,23 +1,37 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getSessionUser } from "@metricflock/auth";
 import { prisma } from "@metricflock/db";
 import { Card, EmptyState, Badge } from "@/components/ui";
 import TransferActions from "./TransferActions";
 export const dynamic = "force-dynamic";
-export default async function TransfersPage() {
+
+// A-FE-15: paginated like the websites list (50/page with a total) —
+// the old `take: 50` hid every transfer past row 50.
+const PAGE_SIZE = 50;
+export default async function TransfersPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  const transfers = await prisma.websiteTransfer.findMany({
-    where: { website: { organizationId: user.organizationId } },
-    include: {
-      website: { select: { name: true, domain: true } },
-      fromTeam: { select: { name: true } },
-      toTeam: { select: { name: true } },
-      initiatedBy: { select: { email: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+  const { page: pageParam } = await searchParams;
+  const page = Math.max(1, Number.parseInt(pageParam ?? "1", 10) || 1);
+  const where = { website: { organizationId: user.organizationId } };
+  const [totalTransfers, transfers] = await Promise.all([
+    prisma.websiteTransfer.count({ where }),
+    prisma.websiteTransfer.findMany({
+      where,
+      include: {
+        website: { select: { name: true, domain: true } },
+        fromTeam: { select: { name: true } },
+        toTeam: { select: { name: true } },
+        initiatedBy: { select: { email: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+  ]);
+  const totalPages = Math.max(1, Math.ceil(totalTransfers / PAGE_SIZE));
+  const pageHref = (p: number) => (p > 1 ? `/transfers?page=${p}` : "/transfers");
   const adminTeamIds = new Set(
     (
       await prisma.teamMember.findMany({
@@ -96,6 +110,31 @@ export default async function TransfersPage() {
               </tbody>
             </table>
           </div>
+        )}
+        {totalPages > 1 && (
+          <nav aria-label="Transfers pagination" className="mt-3 flex items-center justify-between text-sm">
+            <span className="text-zinc-500 dark:text-zinc-400">
+              Page {page} of {totalPages} · {totalTransfers} transfers
+            </span>
+            <span className="flex gap-2">
+              {page > 1 && (
+                <Link
+                  href={pageHref(page - 1)}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  ← Previous
+                </Link>
+              )}
+              {page < totalPages && (
+                <Link
+                  href={pageHref(page + 1)}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  Next →
+                </Link>
+              )}
+            </span>
+          </nav>
         )}
       </Card>
     </div>

@@ -29,6 +29,10 @@ export const pageMocks = {
   analyticsSyncJobFindMany: vi.fn(),
   analyticsSyncJobFindFirst: vi.fn(),
   websiteTransferFindMany: vi.fn(),
+  // A-FE-15: count for the (held) transfers pagination; page-mocks.tsx
+  // registers no websiteTransfer.count, so the held pages-ops edit
+  // attaches this fn to the mock at runtime.
+  websiteTransferCount: vi.fn(),
   teamMemberFindMany: vi.fn(),
   organizationInviteFindMany: vi.fn(),
   organizationInviteFindFirst: vi.fn(),

@@ -14,7 +14,7 @@ test("reset-password form blocks submission when the passwords do not match", as
   await page.getByLabel("New password", { exact: true }).fill("a-very-long-password");
   await page.getByLabel("Confirm new password", { exact: true }).fill("a-different-password");
   await page.getByRole("button", { name: "Reset password" }).click();
-  await expect(page.getByRole("alert")).toHaveText("Passwords do not match.");
+  await expect(page.getByRole("alert").filter({ hasText: "Passwords do not match." })).toBeVisible();
   // Still on the form (no success state) and nothing was posted.
   await expect(page.getByRole("heading", { name: "Choose a new password" })).toBeVisible();
   await expect(page.getByText(/Your password has been reset/)).toHaveCount(0);

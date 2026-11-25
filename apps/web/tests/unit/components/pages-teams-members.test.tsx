@@ -54,17 +54,19 @@ describe("TeamsPage", () => {
 
   beforeEach(() => {
     pageMocks.teamFindMany.mockResolvedValue(teams);
+    pageMocks.teamCount.mockResolvedValue(teams.length);
     pageMocks.userFindMany.mockResolvedValue(orgUsers);
+    pageMocks.userCount.mockResolvedValue(orgUsers.length);
   });
 
   it("redirects to /login when there is no session", async () => {
     pageMocks.getSessionUser.mockResolvedValue(null);
-    await expect(TeamsPage()).rejects.toThrow("NEXT_REDIRECT:/login");
+    await expect(TeamsPage({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT:/login");
   });
 
   it("renders teams with counts and admin controls for managers", async () => {
     mockFetch(null);
-    const el = await TeamsPage();
+    const el = await TeamsPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByRole("heading", { name: "Teams" })).toBeInTheDocument();
     expect(screen.getByText("Alpha")).toBeInTheDocument();
@@ -77,7 +79,7 @@ describe("TeamsPage", () => {
   it("shows the empty state when there are no teams", async () => {
     mockFetch(null);
     pageMocks.teamFindMany.mockResolvedValue([]);
-    const el = await TeamsPage();
+    const el = await TeamsPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("No teams yet")).toBeInTheDocument();
     expect(screen.getByText("Create your first team above, then add websites to it.")).toBeInTheDocument();
@@ -89,7 +91,7 @@ describe("TeamsPage", () => {
     // team directory at all.
     mockFetch(null);
     pageMocks.getSessionUser.mockResolvedValue(memberUser);
-    const el = await TeamsPage();
+    const el = await TeamsPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("Admins only")).toBeInTheDocument();
     expect(screen.getByText("Viewing teams is restricted to organization and team admins.")).toBeInTheDocument();
@@ -105,7 +107,7 @@ describe("TeamsPage", () => {
     // A-SEC-11 scoping itself is asserted in the test below.
     mockFetch(null);
     pageMocks.getSessionUser.mockResolvedValue(teamAdminUser);
-    const el = await TeamsPage();
+    const el = await TeamsPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByRole("heading", { name: "Teams" })).toBeInTheDocument();
     expect(screen.getByText("Alpha")).toBeInTheDocument();
@@ -117,7 +119,7 @@ describe("TeamsPage", () => {
   it("A-SEC-11: scopes the directory for a team admin to teams they administer", async () => {
     mockFetch(null);
     pageMocks.getSessionUser.mockResolvedValue(teamAdminUser);
-    const el = await TeamsPage();
+    const el = await TeamsPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(pageMocks.teamFindMany).toHaveBeenCalledWith(
@@ -132,10 +134,39 @@ describe("TeamsPage", () => {
 
   it("A-SEC-11: super admin sees every team (no membership filter)", async () => {
     mockFetch(null);
-    const el = await TeamsPage();
+    const el = await TeamsPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(pageMocks.teamFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: "org1" } }));
+  });
+
+  it("A-FE-15: paginates teams past the page size (pager + total appear)", async () => {
+    mockFetch(null);
+    pageMocks.teamCount.mockResolvedValue(75);
+    const el = await TeamsPage({ searchParams: Promise.resolve({}) });
+    render(el);
+    expect(screen.getByRole("navigation", { name: "Teams pagination" })).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 2 · 75 teams")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Next →" })).toHaveAttribute("href", "/teams?page=2");
+    expect(pageMocks.teamFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 50 }));
+  });
+
+  it("A-FE-15: page 2 skips the first page of teams", async () => {
+    mockFetch(null);
+    pageMocks.teamCount.mockResolvedValue(75);
+    const el = await TeamsPage({ searchParams: Promise.resolve({ page: "2" }) });
+    render(el);
+    expect(screen.getByText("Page 2 of 2 · 75 teams")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "← Previous" })).toHaveAttribute("href", "/teams");
+    expect(pageMocks.teamFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 50, take: 50 }));
+  });
+
+  it("A-FE-15: no pager at or below the page size", async () => {
+    mockFetch(null);
+    pageMocks.teamCount.mockResolvedValue(1);
+    const el = await TeamsPage({ searchParams: Promise.resolve({}) });
+    render(el);
+    expect(screen.queryByRole("navigation", { name: "Teams pagination" })).not.toBeInTheDocument();
   });
 });
 
@@ -164,18 +195,19 @@ describe("MembersPage", () => {
 
   beforeEach(() => {
     pageMocks.userFindMany.mockResolvedValue(members);
+    pageMocks.userCount.mockResolvedValue(members.length);
     pageMocks.organizationInviteFindMany.mockResolvedValue(invites);
     pageMocks.organizationFindUnique.mockResolvedValue({ slug: "acme" });
   });
 
   it("redirects to /login when there is no session", async () => {
     pageMocks.getSessionUser.mockResolvedValue(null);
-    await expect(MembersPage()).rejects.toThrow("NEXT_REDIRECT:/login");
+    await expect(MembersPage({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT:/login");
   });
 
   it("renders members, invites and org admin actions for a super admin", async () => {
     mockFetch(null);
-    const el = await MembersPage();
+    const el = await MembersPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByRole("heading", { name: "Members" })).toBeInTheDocument();
     expect(screen.getByText(/admin@example.com \(you\)/)).toBeInTheDocument();
@@ -192,7 +224,7 @@ describe("MembersPage", () => {
     // the gated state and never queries members or invites at all.
     mockFetch(null);
     pageMocks.getSessionUser.mockResolvedValue(memberUser);
-    const el = await MembersPage();
+    const el = await MembersPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByText("Admins only")).toBeInTheDocument();
     expect(
@@ -211,13 +243,42 @@ describe("MembersPage", () => {
   it("renders members and invites for a team admin (no org actions)", async () => {
     mockFetch(null);
     pageMocks.getSessionUser.mockResolvedValue(teamAdminUser);
-    const el = await MembersPage();
+    const el = await MembersPage({ searchParams: Promise.resolve({}) });
     render(el);
     expect(screen.getByRole("heading", { name: "Members" })).toBeInTheDocument();
     expect(screen.getByText(/admin@example.com/)).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument(); // invite form
     expect(screen.getByText(/pending@example.com · TEAM_MEMBER · expires 2026-12-01/)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Organization" })).not.toBeInTheDocument(); // super admin only
+  });
+
+  it("A-FE-15: paginates members past the page size (pager + total appear)", async () => {
+    mockFetch(null);
+    pageMocks.userCount.mockResolvedValue(120);
+    const el = await MembersPage({ searchParams: Promise.resolve({}) });
+    render(el);
+    expect(screen.getByRole("navigation", { name: "Members pagination" })).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 3 · 120 members")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Next →" })).toHaveAttribute("href", "/members?page=2");
+    expect(pageMocks.userFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 50 }));
+  });
+
+  it("A-FE-15: page 2 skips the first page of members", async () => {
+    mockFetch(null);
+    pageMocks.userCount.mockResolvedValue(120);
+    const el = await MembersPage({ searchParams: Promise.resolve({ page: "2" }) });
+    render(el);
+    expect(screen.getByText("Page 2 of 3 · 120 members")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "← Previous" })).toHaveAttribute("href", "/members");
+    expect(pageMocks.userFindMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 50, take: 50 }));
+  });
+
+  it("A-FE-15: no pager at or below the page size", async () => {
+    mockFetch(null);
+    pageMocks.userCount.mockResolvedValue(2);
+    const el = await MembersPage({ searchParams: Promise.resolve({}) });
+    render(el);
+    expect(screen.queryByRole("navigation", { name: "Members pagination" })).not.toBeInTheDocument();
   });
 });
 
