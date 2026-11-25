@@ -596,7 +596,7 @@ aria-label="Date range"`.
   `AuthForms.test.tsx` pinned the old always-success behavior and is
   updated alongside this fix to assert the error instead.
 
-### A-FE-18 — P3 — CONFIRMED — New API-key secret has no copy button
+### A-FE-18 — P3 — CONFIRMED — New API-key secret has no copy button · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/app/(app)/settings/api-keys/ApiKeyManager.tsx:76-82`.
 - **Evidence:** the one-time secret is rendered in a `<code>` block with
@@ -611,6 +611,15 @@ aria-label="Date range"`.
   feedback.
 - **Regression test:** e2e test asserting the copy button writes the
   secret to the clipboard.
+- **Verification (2026-11-25):** the one-time secret block gained a
+  Copy button (Clipboard API `navigator.clipboard.writeText`) whose
+  label flips to "Copied" for 2 s on success; a clipboard failure
+  (denied permission / non-secure context) keeps the secret selectable
+  in the code block and shows a `role="alert"` manual-copy hint — the
+  create/list/revoke flow is unchanged. Regression: new e2e
+  `api-key-copy.spec.ts` (clipboard permissions granted, secret read
+  back from the clipboard and compared) + 2 unit tests in
+  `ApiKeyManager.test.tsx` (both fail without the fix).
 
 ### A-FE-19 — P3 — POTENTIAL — Mobile nav drawer does not trap focus
 

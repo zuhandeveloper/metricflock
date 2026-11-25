@@ -22,7 +22,7 @@ export default defineConfig({
     { name: "signed-out", testMatch: /(^|\/)(accessibility|reset-password|forgot-password)\.spec\.ts$/ },
     {
       name: "app",
-      testMatch: /(app-accessibility|journeys|website-status|session-revoke|theme-toggle)\.spec\.ts/,
+      testMatch: /(app-accessibility|journeys|website-status|session-revoke|theme-toggle|api-key-copy)\.spec\.ts/,
       dependencies: ["setup"],
     },
   ],

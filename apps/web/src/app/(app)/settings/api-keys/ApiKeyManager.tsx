@@ -38,6 +38,23 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [newSecret, setNewSecret] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+
+  // A-FE-18: the one-time secret gets a Copy button. A clipboard
+  // failure (denied permission, non-secure context) must not lose the
+  // secret — it stays selectable in the code block and a hint says so.
+  async function copySecret() {
+    try {
+      await navigator.clipboard.writeText(newSecret);
+      setCopyFailed(false);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+      setCopyFailed(true);
+    }
+  }
 
   function toggleScope(scope: string) {
     setSelectedScopes((prev) => (prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]));
@@ -48,6 +65,8 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
     setBusy(true);
     setError("");
     setNewSecret("");
+    setCopied(false);
+    setCopyFailed(false);
     // All four scopes checked = full access; send an empty list so
     // the key stays a legacy-style full-access key.
     const scopes = selectedScopes.length === SCOPES.length ? [] : selectedScopes;
@@ -89,6 +108,8 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
     setBusy(true);
     setError("");
     setNewSecret("");
+    setCopied(false);
+    setCopyFailed(false);
     const res = await fetch(`/api/api-keys/${id}/rotate`, { method: "POST" });
     const data = (await res.json().catch(() => null)) as { secret?: string; error?: string } | null;
     setBusy(false);
@@ -148,7 +169,17 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
       {newSecret && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950">
           <p className="font-semibold">Copy this secret now — it will not be shown again:</p>
-          <code className="mt-1 block break-all">{newSecret}</code>
+          <div className="mt-1 flex items-start gap-2">
+            <code className="block flex-1 break-all">{newSecret}</code>
+            <Button onClick={copySecret} variant="outline">
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+          {copyFailed && (
+            <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-400">
+              Couldn&apos;t copy automatically — select the secret above and copy it manually.
+            </p>
+          )}
         </div>
       )}
       {error && (

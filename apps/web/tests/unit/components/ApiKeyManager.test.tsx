@@ -240,3 +240,42 @@ describe("gap closure: json parse failures and busy guards", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+// A-FE-18: the one-time secret gets a Copy button (Clipboard API +
+// "Copied" feedback); a clipboard failure keeps the secret visible
+// with a manual-copy hint instead of crashing.
+describe("A-FE-18: copy button for the one-time secret", () => {
+  function stubClipboard(writeText: ReturnType<typeof vi.fn>) {
+    Object.defineProperty(window.navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    return writeText;
+  }
+
+  it("copies the new secret to the clipboard and shows Copied feedback", async () => {
+    const writeText = stubClipboard(vi.fn().mockResolvedValue(undefined));
+    mockFetch({ secret: "mf_live_COPYME" });
+    render(<ApiKeyManager initial={[]} />);
+    fireEvent.change(screen.getByLabelText(/Key name/), { target: { value: "Copy test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create API key" }));
+    await waitFor(() => expect(screen.getByText("mf_live_COPYME")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument());
+    expect(writeText).toHaveBeenCalledWith("mf_live_COPYME");
+  });
+
+  it("keeps the secret visible and shows a fallback hint when the clipboard write fails", async () => {
+    stubClipboard(vi.fn().mockRejectedValue(new Error("denied")));
+    mockFetch({ secret: "mf_live_NOCOPY" });
+    render(<ApiKeyManager initial={[]} />);
+    fireEvent.change(screen.getByLabelText(/Key name/), { target: { value: "Copy test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create API key" }));
+    await waitFor(() => expect(screen.getByText("mf_live_NOCOPY")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/select the secret/i));
+    expect(screen.getByText("mf_live_NOCOPY")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+  });
+});
