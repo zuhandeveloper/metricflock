@@ -308,11 +308,16 @@ for (const name of QUEUE_NAMES) {
     // OPS-10: BullMQ owns dedicated connections (options, not the shared
     // cache client) with maxRetriesPerRequest: null.
     // Phase 5 (F-5.5): custom backoff strategy = exponential + jitter.
+    // A-WRK-13: BullMQ invokes the strategy with attemptsMade + 1
+    // (job.js Backoffs.calculate), i.e. 1 on the first failure, while
+    // jitteredBackoffMs takes a 0-based retry index — subtract 1 so the
+    // effective first retry is the documented 30–60 s (60 s base ×
+    // jitter), not 60–120 s.
     {
       connection: bullConnection,
       concurrency: 5,
       limiter: LIMITERS[name],
-      settings: { backoffStrategy: (attemptsMade: number) => jitteredBackoffMs(attemptsMade) },
+      settings: { backoffStrategy: (attemptsMade: number) => jitteredBackoffMs(attemptsMade - 1) },
     },
   );
   worker.on("completed", () => incr(`jobs.succeeded.${name}`));

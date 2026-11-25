@@ -59,11 +59,16 @@ export const JOB_PRIORITY = {
   SCHEDULED: 10,
 } as const;
 
-/** Exponential backoff with jitter (Phase 5, F-5.5): 60s doubling per
- * attempt, capped at 1h, scaled by a random 0.5–1.0 factor so retries
+/** Exponential backoff with jitter (Phase 5, F-5.5): 60s base doubling
+ * per retry, capped at 1h, scaled by a random 0.5–1.0 factor so retries
  * from many jobs failing together (e.g. a Google outage) spread out
- * instead of stampeding at the same instant. `rand` is injectable for
- * tests. Registered as the workers' custom BullMQ backoffStrategy. */
+ * instead of stampeding at the same instant. `attemptsMade` is a
+ * 0-based retry index (0 = first retry → 30–60 s); BullMQ passes its
+ * strategy argument 1-based (attemptsMade + 1), so the worker
+ * registration subtracts 1 (A-WRK-13). With attempts: 5 the longest
+ * base is 480 s — the 1h cap is a guard for a future attempts increase,
+ * unreachable today. `rand` is injectable for tests. Registered as the
+ * workers' custom BullMQ backoffStrategy. */
 export function jitteredBackoffMs(attemptsMade: number, rand: () => number = Math.random): number {
   const base = Math.min(60_000 * 2 ** Math.max(0, attemptsMade), 3_600_000);
   return Math.round(base * (0.5 + rand() * 0.5));

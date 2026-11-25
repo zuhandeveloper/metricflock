@@ -135,8 +135,9 @@ are not measured — none of them scales with website count.
 - Job generation per tick is O(due websites) with a 500-row paged
   scan — no per-website queries (last-success is one per-page
   scoped groupBy, A-WRK-05).
-- Retries: 5 attempts, jittered exponential backoff (60s base, 1h
-  cap) — a provider outage cannot synchronize a retry stampede.
+- Retries: 5 attempts, jittered exponential backoff (first retry
+  30–60s, doubling per retry, 1h ceiling) — a provider outage cannot
+  synchronize a retry stampede.
 - Priorities: manual sync (1) > requeue (2) > realtime (5) >
   scheduled (10), so user-triggered work is never queued behind a
   full-portfolio sweep.

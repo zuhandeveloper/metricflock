@@ -3,6 +3,10 @@ import { jitteredBackoffMs, JOB_PRIORITY } from "@metricflock/jobs";
 
 // Phase 5 (F-5.5): exponential backoff with jitter. rand is injected so
 // bounds are exact: factor 0.5 at rand=0, approaching 1.0 at rand→1.
+// The pure function takes a 0-based retry index (0 = first retry);
+// BullMQ passes its strategy argument 1-based, and the worker
+// registration subtracts 1 — the effective schedule is asserted at the
+// strategy level in worker-index.test.ts (A-WRK-13).
 describe("jitteredBackoffMs", () => {
   it("doubles from a 60s base", () => {
     expect(jitteredBackoffMs(0, () => 0)).toBe(30_000);

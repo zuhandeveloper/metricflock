@@ -259,13 +259,21 @@ describe("worker index (queue wiring and job routing)", () => {
     expect(workerFor("ga4-realtime-sync").opts.limiter).toEqual({ max: 20, duration: 60_000 });
     expect(workerFor("search-console-sync").opts.limiter).toEqual({ max: 10, duration: 60_000 });
     expect(workerFor("scheduled-report").opts.limiter).toBeUndefined();
-    // Backoff is exponential with jitter: attempt 0 lands in [30s, 60s].
-    const backoff0 = workerFor("ga4-realtime-sync").opts.settings.backoffStrategy(0) as number;
-    expect(backoff0).toBeGreaterThanOrEqual(30_000);
-    expect(backoff0).toBeLessThanOrEqual(60_000);
-    const backoff2 = workerFor("ga4-realtime-sync").opts.settings.backoffStrategy(2) as number;
-    expect(backoff2).toBeGreaterThanOrEqual(120_000);
-    expect(backoff2).toBeLessThanOrEqual(240_000);
+    // Backoff is exponential with jitter. BullMQ invokes the strategy
+    // with attemptsMade + 1 (job.js), i.e. 1 on the first failure —
+    // assert the EFFECTIVE schedule for those 1-based calls (A-WRK-13):
+    // first retry [30s, 60s], doubling per retry; with attempts: 5 the
+    // last retry (4th) lands in [240s, 480s].
+    const strategy = workerFor("ga4-realtime-sync").opts.settings.backoffStrategy;
+    const backoff1 = strategy(1) as number;
+    expect(backoff1).toBeGreaterThanOrEqual(30_000);
+    expect(backoff1).toBeLessThanOrEqual(60_000);
+    const backoff2 = strategy(2) as number;
+    expect(backoff2).toBeGreaterThanOrEqual(60_000);
+    expect(backoff2).toBeLessThanOrEqual(120_000);
+    const backoff4 = strategy(4) as number;
+    expect(backoff4).toBeGreaterThanOrEqual(240_000);
+    expect(backoff4).toBeLessThanOrEqual(480_000);
     expect(callsAtImport.logInfo).toContainEqual(["worker started", { queue: "ga4-realtime-sync" }]);
   });
 

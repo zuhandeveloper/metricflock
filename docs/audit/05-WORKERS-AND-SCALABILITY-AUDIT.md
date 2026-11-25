@@ -451,7 +451,7 @@ DISCONNECTED, TRANSFER_PENDING, SOLD, ARCHIVED`
   explicit staging-DB approval** (owner-flagged); no benchmark was
   run against any database for this fix.
 
-### A-WRK-13 — P3 — CONFIRMED — Backoff off-by-one: first retry is 60–120 s, and the 1 h cap is unreachable with 5 attempts
+### A-WRK-13 — P3 — CONFIRMED — Backoff off-by-one: first retry is 60–120 s, and the 1 h cap is unreachable with 5 attempts · FIXED 2026-11-25
 
 - **Where:** `packages/jobs/src/queue.ts:55-58` (`jitteredBackoffMs`),
   BullMQ `classes/job.js:458`
@@ -471,6 +471,19 @@ DISCONNECTED, TRANSFER_PENDING, SOLD, ARCHIVED`
   does.
 - **Regression test:** test calling the strategy with BullMQ's 1-based
   argument and asserting the delay sequence.
+- **Verification (2026-11-25):** the worker registration
+  (`apps/worker/src/index.ts`) now subtracts 1 — `jitteredBackoffMs(attemptsMade - 1)` —
+  so BullMQ's 1-based argument maps onto the function's 0-based retry
+  index and the effective schedule matches the documented design:
+  first retry 30–60 s (60 s base × 0.5–1.0 jitter), doubling per retry;
+  with `attempts: 5` the bases are 60/120/240/480 s, so the 1 h cap
+  remains a guard for a future attempts increase (unreachable today —
+  now stated in the `queue.ts` comment and in `BENCHMARKS.md`).
+  `worker-index.test.ts` now asserts the effective schedule through the
+  registered strategy with BullMQ's 1-based calls (1 → [30 s, 60 s],
+  2 → [60 s, 120 s], 4 → [240 s, 480 s]); pre-fix it failed
+  (`expected 118249 to be less than or equal to 60000`). The pure
+  function and its `job-backoff.test.ts` assertions are unchanged.
 
 ### A-WRK-14 — P3 — CONFIRMED — Rate-limit path writes a misleading RETRYING row and bypasses backoff/counters
 
