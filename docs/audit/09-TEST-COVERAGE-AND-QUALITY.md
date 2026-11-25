@@ -801,7 +801,7 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   fallback contract; pinned as a skipped test in
   `audit-retention.test.ts` pending a production fix.
 
-### A-COV-12 — P3 — POTENTIAL — Flakiness and suite-speed risks
+### A-COV-12 — P3 — POTENTIAL — Flakiness and suite-speed risks · FIXED 2026-11-25
 
 - **Location:** `apps/web/tests/unit/rate-limit.test.ts:22-25` (1 ms window /
   5 ms sleep, real timers), `ad-manager-parse.test.ts` (real backoff sleeps,
@@ -819,6 +819,29 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   Playwright retry passes distinctly from first-try passes.
 - **Regression-test requirement:** a test that asserts the suite contains no
   bare `setTimeout` in tests (lint rule) once fake timers are adopted.
+- **Verification (2026-11-25):** the rate-limit window-expiry test now uses
+  fake timers (`vi.useFakeTimers` + `vi.setSystemTime` — the in-memory
+  limiter reads `Date.now()`, so expiry is proven deterministically; 5/5
+  stable runs); the ad-manager retry test drives `admFetch`'s backoff with
+  fake timers (`admSleep` is module-private with no injection point, so no
+  production seam was added and retry semantics are unchanged; 1709 ms →
+  5 ms); `vi.useFakeTimers` is now used across the suite (google-tokens,
+  google-ad-manager-extra, worker-scheduler, scheduler-*, rate-limit,
+  ad-manager-parse), so the "nowhere" evidence no longer holds. The
+  `isolate: false` part was evaluated and rejected by A-PERF-04 (3.5× faster
+  but 221 mock-bleed failures). `scripts/smoke-test.sh`'s 429 loop is
+  unchanged by design (it waits out better-auth's sign-in limiter in CI
+  smoke, documented in the script). Playwright still retries once in CI
+  (`retries: 1`); recording retry passes distinctly from first-try passes
+  is NOT implemented — the CI dot-reporter log does not distinguish them
+  (the HTML report does), and changing the reporter/config is an
+  owner-decision follow-up. Regression guard: `no-bare-settimeout.test.ts`
+  scans the unit suite and ratchets every remaining bare
+  `setTimeout`/`setInterval` to a per-file count with a justification
+  (mock network latency for busy-state assertions, real worker/server
+  lifecycle waits, fake-timer-driven mocks, one wall-clock deadline test);
+  demonstrated failing on a temporary bare `setTimeout` and passing after
+  its removal.
 
 ### A-COV-13 — P3 — CONFIRMED — UI and e2e journey coverage is thin
 

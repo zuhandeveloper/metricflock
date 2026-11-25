@@ -114,9 +114,19 @@ describe("Ad Manager networks pagination + retry (F-3.3/F-3.4)", () => {
         return { ok: true, status: 200, json: async () => ({ networks: [{ networkCode: "9" }] }) };
       }),
     );
-    const out = await listAdManagerNetworks(auth);
-    expect(out).toEqual([{ networkCode: "9", displayName: undefined }]);
-    expect(call).toBe(3);
+    // A-COV-12: admFetch's backoff (500·2^n ms + jitter, ~1.7 s real time)
+    // is module-private with no injection point, so fake timers drive it —
+    // the retry semantics under test are unchanged, no real waiting occurs.
+    vi.useFakeTimers();
+    try {
+      const promise = listAdManagerNetworks(auth);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const out = await promise;
+      expect(out).toEqual([{ networkCode: "9", displayName: undefined }]);
+      expect(call).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not retry non-transient 403s", async () => {
