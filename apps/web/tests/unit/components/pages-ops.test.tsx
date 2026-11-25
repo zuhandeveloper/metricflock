@@ -219,6 +219,12 @@ describe("TransfersPage", () => {
     const el = await TransfersPage();
     render(el);
     expect(screen.getByText("No transfers yet")).toBeInTheDocument();
+    // A-FE-14: the hint points at the website page's Transfer ownership
+    // form instead of describing the POST API route.
+    expect(
+      screen.getByText("To start a transfer, open a website's page and use the Transfer ownership form."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/via POST/)).not.toBeInTheDocument();
   });
 });
 

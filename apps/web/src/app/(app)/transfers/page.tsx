@@ -42,7 +42,7 @@ export default async function TransfersPage() {
         {transfers.length === 0 ? (
           <EmptyState
             title="No transfers yet"
-            hint="Super Admins initiate transfers via POST /api/websites/[id]/transfer."
+            hint="To start a transfer, open a website's page and use the Transfer ownership form."
           />
         ) : (
           <div className="overflow-x-auto">

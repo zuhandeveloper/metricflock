@@ -27,6 +27,10 @@ export default function TransferActions({ transferId, status, canDestination, ca
     }
     router.refresh();
   }
+  // Keep in sync with OPEN_TRANSFER_STATUSES in @/lib/transfers (the
+  // reachable open states; the create route sets PENDING_ACCEPTANCE
+  // directly and INITIATED was dropped by A-DB-14). This is a client
+  // component, so it cannot import that server-only module.
   const open = ["PENDING_ACCEPTANCE", "PENDING_CONNECTION"].includes(status);
   if (!open) return null;
   return (

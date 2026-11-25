@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import TransferActions from "@/app/(app)/transfers/TransferActions";
 import { mockFetch, mockFetchBadJson, mockFetchDelayed } from "./helpers";
+import type { TransferStatus } from "@metricflock/db";
 
 const nav = vi.hoisted(() => ({
   push: vi.fn(),
@@ -33,6 +34,33 @@ afterEach(() => {
 });
 
 describe("TransferActions", () => {
+  // A-FE-14: actions render exactly for the open (reachable) statuses —
+  // the same set as OPEN_TRANSFER_STATUSES in @/lib/transfers (pinned
+  // server-side in transfer-concurrency.test.ts; the create route sets
+  // PENDING_ACCEPTANCE directly and INITIATED was dropped by A-DB-14).
+  // The Record type makes a new enum value fail typecheck until this
+  // table is revisited.
+  const OPEN_BY_STATUS: Record<TransferStatus, boolean> = {
+    PENDING_ACCEPTANCE: true,
+    PENDING_CONNECTION: true,
+    COMPLETED: false,
+    CANCELLED: false,
+    FAILED: false,
+    EXPIRED: false,
+  };
+  it.each(Object.entries(OPEN_BY_STATUS))("renders actions for %s only when the status is open", (status, open) => {
+    mockFetch(null);
+    const { container } = render(
+      <TransferActions transferId="tr1" status={status} canDestination={true} canCancel={true} />,
+    );
+    if (open) {
+      expect(container).not.toBeEmptyDOMElement();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    } else {
+      expect(container).toBeEmptyDOMElement();
+    }
+  });
+
   it("renders nothing for a closed transfer", () => {
     mockFetch(null);
     const { container } = render(

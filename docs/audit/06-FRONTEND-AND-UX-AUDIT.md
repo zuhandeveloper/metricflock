@@ -469,7 +469,7 @@ aria-label="Date range"`.
   `reset-password.spec.ts` (signed-out project, dummy token) asserting
   the alert shows and no POST reaches `/api/auth/reset-password`.
 
-### A-FE-14 — P3 — CONFIRMED — Transfers page: dead INITIATED branch + stale "via POST API" hint
+### A-FE-14 — P3 — CONFIRMED — Transfers page: dead INITIATED branch + stale "via POST API" hint · FIXED 2026-11-25
 
 - **Where:** `apps/web/src/app/(app)/transfers/TransferActions.tsx:21-23`
   (`open` includes `"INITIATED"`, but no action button renders for it —
@@ -489,6 +489,13 @@ aria-label="Date range"`.
   Transfer form.
 - **Regression test:** none needed beyond copy review; a status-machine
   test for the transfer routes would prevent recurrence.
+- **Verification (2026-11-25):** the INITIATED half was already resolved by
+  A-DB-14 (the enum value was dropped and the `TransferActions` `open` list
+  already matched `OPEN_TRANSFER_STATUSES` — verified by grep across
+  schema/routes/tests); the empty-state hint now reads "To start a transfer,
+  open a website's page and use the Transfer ownership form." Regression
+  guards: the pages-ops empty-state test (fails without the fix) + an
+  all-statuses `TransferActions` test pinning which statuses render actions.
 
 ### A-FE-15 — P3 — CONFIRMED — Audit (100), transfers (50) and members/teams lists are uncapped or unpaginated
 
