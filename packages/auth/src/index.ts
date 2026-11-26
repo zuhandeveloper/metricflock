@@ -7,3 +7,4 @@ export * from "./handler";
 export * from "./tenant";
 export * from "./permissions";
 export * from "./api-helpers";
+export * from "./platform";

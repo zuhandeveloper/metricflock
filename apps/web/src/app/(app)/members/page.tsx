@@ -5,6 +5,7 @@ import { prisma } from "@metricflock/db";
 import { Card, Badge, EmptyState } from "@/components/ui";
 import { InviteForm, RevokeInviteButton, RoleSelect, DeleteMemberButton } from "./MemberForms";
 import { OrgAdminActions } from "./OrgAdminForms";
+import { roleLabel } from "./role-labels";
 export const dynamic = "force-dynamic";
 
 // A-FE-15: members paginated like the websites list (50/page with a
@@ -60,7 +61,7 @@ export default async function MembersPage({ searchParams }: { searchParams: Prom
       {canManage && (
         <Card className="p-4">
           <h2 className="mb-2 font-semibold">Invite a member</h2>
-          <InviteForm />
+          <InviteForm canInviteManager={user.role === "SUPER_ADMIN"} />
           <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
             Invited users join this organization with the chosen role when they sign up with the invited email. Public
             sign-ups without an invite still get their own workspace.
@@ -99,7 +100,7 @@ export default async function MembersPage({ searchParams }: { searchParams: Prom
                       </span>
                     ) : (
                       <Badge tone={m.role === "SUPER_ADMIN" ? "blue" : m.role === "TEAM_ADMIN" ? "green" : "zinc"}>
-                        {m.role}
+                        {roleLabel(m.role)}
                       </Badge>
                     )}
                   </td>
@@ -146,7 +147,7 @@ export default async function MembersPage({ searchParams }: { searchParams: Prom
                 {shownInvites.map((i) => (
                   <li key={i.id} className="flex flex-wrap items-center justify-between gap-2">
                     <span>
-                      {i.email} · {i.role} · expires {i.expiresAt.toISOString().slice(0, 10)}
+                      {i.email} · {roleLabel(i.role)} · expires {i.expiresAt.toISOString().slice(0, 10)}
                     </span>
                     <RevokeInviteButton inviteId={i.id} />
                   </li>

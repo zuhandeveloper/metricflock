@@ -35,7 +35,7 @@ afterEach(() => {
 describe("InviteForm", () => {
   it("sends an invite and shows the invite link", async () => {
     const fetchMock = mockFetch({ inviteUrl: "https://app/invite/abc" });
-    render(<InviteForm />);
+    render(<InviteForm canInviteManager={true} />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new@example.com" } });
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "TEAM_ADMIN" } });
     fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
@@ -50,10 +50,22 @@ describe("InviteForm", () => {
 
   it("shows the server error on failure", async () => {
     mockFetch({ error: "already_member" }, false, 409);
-    render(<InviteForm />);
+    render(<InviteForm canInviteManager={false} />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "dup@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("already_member"));
+  });
+
+  it("offers only Simple user when canInviteManager is false", () => {
+    render(<InviteForm canInviteManager={false} />);
+    expect(screen.getByRole("option", { name: "Simple user" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Manager" })).not.toBeInTheDocument();
+  });
+
+  it("offers Simple user and Manager when canInviteManager is true", () => {
+    render(<InviteForm canInviteManager={true} />);
+    expect(screen.getByRole("option", { name: "Simple user" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Manager" })).toBeInTheDocument();
   });
 
   it("disables the button while inviting", async () => {
@@ -67,7 +79,7 @@ describe("InviteForm", () => {
         }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    render(<InviteForm />);
+    render(<InviteForm canInviteManager={false} />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Inviting…" })).toBeDisabled());
@@ -124,10 +136,12 @@ describe("DeleteMemberButton", () => {
 });
 
 describe("RoleSelect", () => {
-  it("offers SUPER_ADMIN only when allowed and patches on change", async () => {
+  it("offers Super admin only when allowed and patches on change", async () => {
     const fetchMock = mockFetch(null);
     const { rerender } = render(<RoleSelect memberId="m1" role="TEAM_MEMBER" canGrantSuperAdmin={true} />);
-    expect(screen.getByRole("option", { name: "SUPER_ADMIN" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Super admin" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Manager" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Simple user" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "TEAM_ADMIN" } });
     await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
     expect(fetchMock).toHaveBeenCalledWith(
@@ -135,7 +149,20 @@ describe("RoleSelect", () => {
       expect.objectContaining({ method: "PATCH", body: JSON.stringify({ role: "TEAM_ADMIN" }) }),
     );
     rerender(<RoleSelect memberId="m1" role="TEAM_MEMBER" canGrantSuperAdmin={false} />);
-    expect(screen.queryByRole("option", { name: "SUPER_ADMIN" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Super admin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Manager" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Role")).toBeDisabled();
+    expect(screen.getByLabelText("Role")).toHaveValue("TEAM_MEMBER");
+  });
+
+  it("non-super: disabled select showing the current Manager label, no other choices", () => {
+    render(<RoleSelect memberId="m1" role="TEAM_ADMIN" canGrantSuperAdmin={false} />);
+    const select = screen.getByLabelText("Role");
+    expect(select).toBeDisabled();
+    expect(select).toHaveValue("TEAM_ADMIN");
+    expect(screen.getByRole("option", { name: "Manager" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Super admin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Simple user" })).not.toBeInTheDocument();
   });
 
   it("reverts the select and shows the error when the patch fails", async () => {
@@ -150,7 +177,7 @@ describe("RoleSelect", () => {
 describe("gap closure: json parse failures and busy guards", () => {
   it("InviteForm: an unparseable error body falls back to request_failed", async () => {
     mockFetchBadJson(false, 500);
-    render(<InviteForm />);
+    render(<InviteForm canInviteManager={false} />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("request_failed_500"));
@@ -158,7 +185,7 @@ describe("gap closure: json parse failures and busy guards", () => {
 
   it("InviteForm: a double submit only invites once (busy guard)", async () => {
     const fetchMock = mockFetchDelayed({ inviteUrl: "https://x" });
-    render(<InviteForm />);
+    render(<InviteForm canInviteManager={false} />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@example.com" } });
     const form = screen.getByLabelText("Email").closest("form")!;
     fireEvent.click(screen.getByRole("button", { name: "Send invite" }));

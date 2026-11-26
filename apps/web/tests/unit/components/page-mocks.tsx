@@ -57,6 +57,7 @@ vi.mock("@metricflock/auth", async (importOriginal) => {
   return {
     ...actual,
     getSessionUser: pageMocks.getSessionUser,
+    isPlatformAdmin: pageMocks.isPlatformAdmin,
     listAccessibleWebsiteIds: pageMocks.listAccessibleWebsiteIds,
     assertWebsiteAccess: pageMocks.assertWebsiteAccess,
     auth: {

@@ -19,6 +19,11 @@ async function post(req: NextRequest) {
   }
   const body = inviteCreateSchema.safeParse(await req.json().catch(() => ({})));
   if (!body.success) return NextResponse.json({ error: "invalid_input", details: body.error.issues }, { status: 400 });
+  // Role model: only a SUPER_ADMIN may invite a manager (TEAM_ADMIN) —
+  // managers invite simple users only.
+  if (body.data.role === "TEAM_ADMIN" && auth.user.role !== "SUPER_ADMIN") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
   const email = body.data.email.trim().toLowerCase();
 
   const existingUser = await prisma.user.findFirst({

@@ -5,6 +5,7 @@ import { vi } from "vitest";
 
 export const pageMocks = {
   getSessionUser: vi.fn(),
+  isPlatformAdmin: vi.fn(),
   listAccessibleWebsiteIds: vi.fn(),
   assertWebsiteAccess: vi.fn(),
   loadPortfolio: vi.fn(),

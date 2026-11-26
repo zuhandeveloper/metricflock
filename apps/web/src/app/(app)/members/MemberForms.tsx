@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui";
+import { roleLabel } from "./role-labels";
 
 async function sendJson(url: string, method: string, body?: unknown): Promise<{ error: string | null; data: unknown }> {
   const res = await fetch(url, {
@@ -14,7 +15,9 @@ async function sendJson(url: string, method: string, body?: unknown): Promise<{ 
   return { error: data?.error ?? `request_failed_${res.status}`, data };
 }
 
-export function InviteForm() {
+// Role model: only a SUPER_ADMIN may invite a manager — when
+// canInviteManager is false the select offers simple users only.
+export function InviteForm({ canInviteManager }: { canInviteManager: boolean }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("TEAM_MEMBER");
@@ -61,8 +64,8 @@ export function InviteForm() {
             onChange={(e) => setRole(e.target.value)}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none dark:border-zinc-700 dark:bg-zinc-900"
           >
-            <option value="TEAM_MEMBER">Team member</option>
-            <option value="TEAM_ADMIN">Team admin</option>
+            <option value="TEAM_MEMBER">{roleLabel("TEAM_MEMBER")}</option>
+            {canInviteManager && <option value="TEAM_ADMIN">{roleLabel("TEAM_ADMIN")}</option>}
           </select>
         </div>
         <Button type="submit" disabled={busy}>
@@ -177,7 +180,10 @@ export function RoleSelect({
     }
     router.refresh();
   }
-  const roles = canGrantSuperAdmin ? ["SUPER_ADMIN", "TEAM_ADMIN", "TEAM_MEMBER"] : ["TEAM_ADMIN", "TEAM_MEMBER"];
+  // Role model: making or unmaking a manager/super user is SUPER_ADMIN's
+  // job only — non-super actors see the current role in a disabled
+  // select instead of being offered Manager/Super admin options.
+  const roles = canGrantSuperAdmin ? ["SUPER_ADMIN", "TEAM_ADMIN", "TEAM_MEMBER"] : [role];
   return (
     <span className="inline-flex items-center gap-2">
       <label htmlFor={`role-${memberId}`} className="sr-only">
@@ -186,13 +192,13 @@ export function RoleSelect({
       <select
         id={`role-${memberId}`}
         value={value}
-        disabled={busy}
+        disabled={busy || !canGrantSuperAdmin}
         onChange={(e) => void change(e.target.value)}
-        className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+        className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
       >
         {roles.map((r) => (
           <option key={r} value={r}>
-            {r}
+            {roleLabel(r)}
           </option>
         ))}
       </select>

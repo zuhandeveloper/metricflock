@@ -70,3 +70,16 @@ describe("Sidebar sign-out (A-FE-20)", () => {
     expect(nav.refresh).not.toHaveBeenCalled();
   });
 });
+
+describe("Sidebar platform-admin link", () => {
+  it("shows the Platform users link only to the platform super admin", () => {
+    render(<Sidebar user={{ ...member, isPlatformAdmin: true }} />);
+    const link = screen.getByRole("link", { name: "Platform users" });
+    expect(link).toHaveAttribute("href", "/admin/users");
+  });
+
+  it("hides the Platform users link from everyone else, including org super admins", () => {
+    render(<Sidebar user={{ name: "Sue", email: "sue@example.com", role: "SUPER_ADMIN" }} />);
+    expect(screen.queryByRole("link", { name: "Platform users" })).not.toBeInTheDocument();
+  });
+});

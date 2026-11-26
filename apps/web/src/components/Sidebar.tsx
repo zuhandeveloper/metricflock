@@ -19,6 +19,7 @@ import {
   User,
   HeartPulse,
   TrendingUp,
+  Crown,
 } from "lucide-react";
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -36,8 +37,9 @@ const links = [
   { href: "/settings/security", label: "Account security", icon: ShieldCheck },
   { href: "/settings/reports", label: "Weekly reports", icon: Mail, superAdminOnly: true },
   { href: "/settings/api-keys", label: "API keys", icon: KeyRound, superAdminOnly: true },
+  { href: "/admin/users", label: "Platform users", icon: Crown, platformAdminOnly: true },
 ];
-export type SidebarUser = { name: string | null; email: string; role: string };
+export type SidebarUser = { name: string | null; email: string; role: string; isPlatformAdmin?: boolean };
 export default function Sidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -71,6 +73,7 @@ export default function Sidebar({ user }: { user: SidebarUser }) {
       </Link>
       {links
         .filter((l) => !l.superAdminOnly || user.role === "SUPER_ADMIN")
+        .filter((l) => !l.platformAdminOnly || user.isPlatformAdmin)
         .map((l) => {
           const Icon = l.icon;
           const active = pathname === l.href || pathname.startsWith(l.href + "/");

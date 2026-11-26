@@ -33,9 +33,15 @@ async function patch(req: NextRequest, ctx: { params: Promise<{ id: string }> })
   if (!target) return NextResponse.json({ error: "not_found" }, { status: 404 });
   if (target.id === auth.user.id) return NextResponse.json({ error: "cannot_change_own_role" }, { status: 400 });
 
-  // Only a SUPER_ADMIN may grant or revoke SUPER_ADMIN.
-  const touchesSuperAdmin = body.data.role === "SUPER_ADMIN" || target.role === "SUPER_ADMIN";
-  if (touchesSuperAdmin && auth.user.role !== "SUPER_ADMIN") {
+  // Role model: making or unmaking a manager/super user is SUPER_ADMIN's
+  // job only — a non-super actor gets 403 whenever the target's current
+  // role or the requested new role is TEAM_ADMIN or SUPER_ADMIN.
+  const touchesPrivilegedRole =
+    target.role === "TEAM_ADMIN" ||
+    target.role === "SUPER_ADMIN" ||
+    body.data.role === "TEAM_ADMIN" ||
+    body.data.role === "SUPER_ADMIN";
+  if (touchesPrivilegedRole && auth.user.role !== "SUPER_ADMIN") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   // Never demote the last SUPER_ADMIN (same guard as the team members

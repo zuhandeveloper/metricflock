@@ -212,7 +212,7 @@ describe("MembersPage", () => {
     expect(screen.getByRole("heading", { name: "Members" })).toBeInTheDocument();
     expect(screen.getByText(/admin@example.com \(you\)/)).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument(); // invite form
-    expect(screen.getByText(/pending@example.com · TEAM_MEMBER · expires 2026-12-01/)).toBeInTheDocument();
+    expect(screen.getByText(/pending@example.com · Simple user · expires 2026-12-01/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Organization" })).toBeInTheDocument();
     expect(screen.getByText("Download export (JSON)")).toBeInTheDocument();
     // role select + delete for the other member only (invite form has its own Role select)
@@ -248,7 +248,7 @@ describe("MembersPage", () => {
     expect(screen.getByRole("heading", { name: "Members" })).toBeInTheDocument();
     expect(screen.getByText(/admin@example.com/)).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument(); // invite form
-    expect(screen.getByText(/pending@example.com · TEAM_MEMBER · expires 2026-12-01/)).toBeInTheDocument();
+    expect(screen.getByText(/pending@example.com · Simple user · expires 2026-12-01/)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Organization" })).not.toBeInTheDocument(); // super admin only
   });
 

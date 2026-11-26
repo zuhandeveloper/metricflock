@@ -214,6 +214,16 @@ describe("POST /api/members/invite", () => {
     const res2 = await invitePost(jsonReq(url, "POST", { email: "y@example.com" }));
     expect(res2.status).toBe(201);
   });
+  it("manager inviting a manager → 403 forbidden; manager inviting a simple user → 201", async () => {
+    mocks.requireApiAuth.mockResolvedValue({ user: { ...admin, role: "TEAM_ADMIN" } });
+    const forbidden = await invitePost(jsonReq(url, "POST", { email: "m@example.com", role: "TEAM_ADMIN" }));
+    expect(forbidden.status).toBe(403);
+    expect(await forbidden.json()).toMatchObject({ error: "forbidden" });
+    expect(mocks.inviteCreate).not.toHaveBeenCalled();
+    const ok = await invitePost(jsonReq(url, "POST", { email: "s@example.com", role: "TEAM_MEMBER" }));
+    expect(ok.status).toBe(201);
+    expect((await ok.json()).invite).toMatchObject({ role: "TEAM_MEMBER" });
+  });
   it("user in another org is invited (not already_member); unknown org name falls back", async () => {
     mocks.userFindFirst.mockResolvedValue({ id: "u9", organizationId: "org2" });
     mocks.orgFindUnique.mockResolvedValue(null);
@@ -246,6 +256,18 @@ describe("PATCH /api/members/[id]", () => {
     const forbidden = await memberPatch(jsonReq(url, "PATCH", { role: "TEAM_MEMBER" }), ctx("u2"));
     expect(forbidden.status).toBe(403);
     expect(await forbidden.json()).toMatchObject({ error: "forbidden" });
+  });
+  it("manager promoting to TEAM_ADMIN → 403; manager changing a TEAM_ADMIN target → 403", async () => {
+    mocks.requireApiAuth.mockResolvedValue({ user: { ...admin, role: "TEAM_ADMIN" } });
+    mocks.userFindFirst.mockResolvedValue(target);
+    const promote = await memberPatch(jsonReq(url, "PATCH", { role: "TEAM_ADMIN" }), ctx("u2"));
+    expect(promote.status).toBe(403);
+    expect(await promote.json()).toMatchObject({ error: "forbidden" });
+    mocks.userFindFirst.mockResolvedValue({ ...target, role: "TEAM_ADMIN" });
+    const demote = await memberPatch(jsonReq(url, "PATCH", { role: "TEAM_MEMBER" }), ctx("u2"));
+    expect(demote.status).toBe(403);
+    expect(await demote.json()).toMatchObject({ error: "forbidden" });
+    expect(mocks.userUpdate).not.toHaveBeenCalled();
   });
   it("plain role change → 200 + audit; audit failure still 200", async () => {
     mocks.userFindFirst.mockResolvedValue(target);

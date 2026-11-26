@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSessionUser } from "@metricflock/auth";
+import { getSessionUser, isPlatformAdmin } from "@metricflock/auth";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -28,6 +28,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // A Google-only SUPER_ADMIN has no password to confirm during
   // enrolment — the setup screen must know so it doesn't ask for one.
   const hasPassword = gated ? await userHasPassword(user.id) : true;
+  // The platform super admin (first registered user) gets the
+  // cross-organization user directory in the nav; nobody else does.
+  const platformAdmin = await isPlatformAdmin(user.id);
+  const sidebarUser = { name: user.name, email: user.email, role: user.role, isPlatformAdmin: platformAdmin };
   return (
     <div className="flex min-h-screen">
       <a
@@ -37,12 +41,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         Skip to main content
       </a>
       <aside className="hidden w-60 shrink-0 border-r border-zinc-200 md:block dark:border-zinc-800">
-        <Sidebar user={{ name: user.name, email: user.email, role: user.role }} />
+        <Sidebar user={sidebarUser} />
       </aside>
       <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
         <header className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
           <div className="flex min-w-0 items-center gap-2">
-            <MobileNav user={{ name: user.name, email: user.email, role: user.role }} />
+            <MobileNav user={sidebarUser} />
             <span className="truncate text-sm text-zinc-500 dark:text-zinc-400">
               Multi-website Analytics &amp; Publisher Management
             </span>

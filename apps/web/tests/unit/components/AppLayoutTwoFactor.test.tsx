@@ -9,7 +9,7 @@ import AppLayout from "@/app/(app)/layout";
 // not use page-mocks.tsx because it needs env control (the policy only
 // activates on production deployments) and layout-specific stubs.
 
-const auth = vi.hoisted(() => ({ getSessionUser: vi.fn(), accountFindFirst: vi.fn() }));
+const auth = vi.hoisted(() => ({ getSessionUser: vi.fn(), accountFindFirst: vi.fn(), isPlatformAdmin: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
@@ -23,7 +23,7 @@ vi.mock("next/link", () => ({
     </a>
   ),
 }));
-vi.mock("@metricflock/auth", () => ({ getSessionUser: auth.getSessionUser }));
+vi.mock("@metricflock/auth", () => ({ getSessionUser: auth.getSessionUser, isPlatformAdmin: auth.isPlatformAdmin }));
 // The layout asks whether the gated user has a credential password
 // (Google-only SUPER_ADMINs enrol without one) via @metricflock/db.
 vi.mock("@metricflock/db", () => ({
@@ -72,6 +72,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: the user has a credential password (email/password account).
   auth.accountFindFirst.mockResolvedValue({ id: "acc1" });
+  // Default: not the platform super admin (no Platform users nav link).
+  auth.isPlatformAdmin.mockResolvedValue(false);
 });
 
 afterEach(() => {
