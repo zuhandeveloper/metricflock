@@ -890,7 +890,7 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   locally); integrations/discovery e2e remains impossible without a
   real Google account and stays component-covered.
 
-### A-COV-14 — P3 — CONFIRMED — DB write paths untested in unit
+### A-COV-14 — P3 — CONFIRMED — DB write paths untested in unit · FIXED 2026-11-25
 
 - **Location:** `packages/db/src/audit.ts:23` (`writeAudit`),
   `packages/db/src/snapshots.ts:15,42,49`, `packages/db/src/health.ts`
@@ -904,6 +904,28 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   a mocked Prisma client asserting the exact `create`/`deleteMany` calls.
 - **Regression-test requirement:** Prisma-call-shape tests for each write
   function.
+- **Verification (2026-11-25):** revalidation found most of this
+  already closed by later fixes — `snapshots.ts` is fully pinned by
+  `db-snapshots-seed.test.ts` (writeSnapshot upsert shape + TTL
+  expiry, readSnapshot/readSnapshots shapes, both invalidations'
+  `deleteMany` shapes + failure swallow; 100% coverage before and
+  after), `scrubAuditDetails` by `audit-scrub.test.ts`,
+  `normalizeAuditIp` and writeAudit's stored IP by `audit-ip.test.ts`,
+  and `recordHealth`'s upsert `where` + A-DB-13 null returns by
+  `db-health-record.test.ts`. The remaining gaps were writeAudit's
+  full `create` shape (actorId null-coalescing, details
+  scrubbed-or-undefined, tx error propagation per A-DB-09, the non-tx
+  best-effort path), `recordHealth`'s update/create data payloads
+  (lastSuccessAt set only on success and null on create, lastError
+  secret-sanitized), and `lastSuccessfulSync` (never executed —
+  health.ts was at 66.66/50/50/60 with lines 44–48 uncovered). All
+  are now pinned in `db-audit-health-writes.test.ts` (10 tests)
+  against a mocked Prisma client; two temporary data-mapping
+  mutations (actorId default `"nobody"`, recordHealth status hardcoded
+  `"ok"`) each failed exactly one new test and were reverted, proving
+  the assertions are load-bearing. After: health.ts 100/100/100/100,
+  audit.ts 100/100/100/100 (branch 95 → 100), suite 143 files /
+  1,586 tests, coverage 96.51/91.73/90.82/98.23.
 
 ### A-COV-15 — P3 — CONFIRMED — No per-file thresholds; aggregate hides a 50% file
 
