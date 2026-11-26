@@ -5,8 +5,16 @@ import { render, screen } from "@testing-library/react";
 import SecurityPage from "@/app/(app)/settings/security/page";
 import ReportsSettingsPage from "@/app/(app)/settings/reports/page";
 import ApiKeysPage from "@/app/(app)/settings/api-keys/page";
+import ProfilePage from "@/app/(app)/settings/profile/page";
 import { memberUser, pageMocks, resetPageMocks, superAdminUser } from "./page-state";
 import { mockFetch } from "./helpers";
+
+// ProfileActions talks to better-auth through its client — stub it so
+// rendering the page never touches the network.
+const client = vi.hoisted(() => ({ updateUser: vi.fn(), changePassword: vi.fn() }));
+vi.mock("@metricflock/auth/client", () => ({
+  authClient: { updateUser: client.updateUser, changePassword: client.changePassword },
+}));
 
 beforeEach(() => {
   resetPageMocks();
@@ -20,6 +28,8 @@ afterEach(() => {
 
 describe("SecurityPage", () => {
   beforeEach(() => {
+    // Default: an email/password account (credential row with password).
+    pageMocks.accountFindFirst.mockResolvedValue({ id: "acc1" });
     pageMocks.getSession.mockResolvedValue({ session: { token: "tok-current" } });
     pageMocks.listSessions.mockResolvedValue([
       {
@@ -74,6 +84,47 @@ describe("SecurityPage", () => {
     render(el);
     expect(screen.getByRole("heading", { name: "Active sessions" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign out all other devices" })).not.toBeInTheDocument();
+  });
+
+  it("shows no password field in the 2FA form for a Google-only account", async () => {
+    mockFetch(null);
+    pageMocks.accountFindFirst.mockResolvedValue(null);
+    const el = await SecurityPage();
+    render(el);
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enable two-factor" })).toBeInTheDocument();
+  });
+});
+
+describe("ProfilePage", () => {
+  it("redirects to /login when there is no session", async () => {
+    pageMocks.getSessionUser.mockResolvedValue(null);
+    await expect(ProfilePage()).rejects.toThrow("NEXT_REDIRECT:/login");
+  });
+
+  it("renders name, read-only email and the set-password form for a Google-only account", async () => {
+    mockFetch(null);
+    pageMocks.accountFindFirst.mockResolvedValue(null);
+    const el = await ProfilePage();
+    render(el);
+    expect(screen.getByRole("heading", { name: "Profile" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue(superAdminUser.name);
+    expect(screen.getByText(superAdminUser.email)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set password" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Change password" })).not.toBeInTheDocument();
+    // The 2FA section is present and passwordless for this account.
+    expect(screen.getByRole("button", { name: "Enable two-factor" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+  });
+
+  it("renders the change-password form when the account already has a password", async () => {
+    mockFetch(null);
+    pageMocks.accountFindFirst.mockResolvedValue({ id: "acc1" });
+    const el = await ProfilePage();
+    render(el);
+    expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set password" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Current password")).toBeInTheDocument();
   });
 });
 

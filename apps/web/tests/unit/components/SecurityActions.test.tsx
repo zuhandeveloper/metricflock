@@ -149,7 +149,7 @@ describe("SessionActions", () => {
 describe("TwoFactorActions", () => {
   it("enables 2FA: password step then shows setup key and backup codes", async () => {
     mockFetch({ totpURI: "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP", backupCodes: ["1111-2222", "3333-4444"] });
-    render(<TwoFactorActions enabled={false} />);
+    render(<TwoFactorActions enabled={false} hasPassword={true} />);
     expect(screen.getByText(/Two-factor authentication is/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
     fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
@@ -165,7 +165,7 @@ describe("TwoFactorActions", () => {
         "otpauth://totp/MetricFlock:demo%40example.com?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=MetricFlock&digits=6&period=30",
       backupCodes: ["1111-2222"],
     });
-    render(<TwoFactorActions enabled={false} />);
+    render(<TwoFactorActions enabled={false} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
     fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
     const qr = await screen.findByRole("img", { name: /qr code/i });
@@ -178,7 +178,7 @@ describe("TwoFactorActions", () => {
 
   it("falls back to the full totpURI when no secret can be parsed", async () => {
     mockFetch({ totpURI: "otpauth://totp/x?issuer=MF" });
-    render(<TwoFactorActions enabled={false} />);
+    render(<TwoFactorActions enabled={false} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
     fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
     await waitFor(() => expect(screen.getByText("otpauth://totp/x?issuer=MF")).toBeInTheDocument());
@@ -186,7 +186,7 @@ describe("TwoFactorActions", () => {
 
   it("shows an error when enable fails", async () => {
     mockFetch({ error: "bad_password" }, false, 401);
-    render(<TwoFactorActions enabled={false} />);
+    render(<TwoFactorActions enabled={false} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
     await waitFor(() =>
@@ -196,7 +196,7 @@ describe("TwoFactorActions", () => {
 
   it("verifies the code and refreshes", async () => {
     mockFetch({ totpURI: "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP", backupCodes: [] });
-    render(<TwoFactorActions enabled={false} />);
+    render(<TwoFactorActions enabled={false} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
     fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
     await waitFor(() => expect(screen.getByLabelText("Verification code")).toBeInTheDocument());
@@ -208,7 +208,7 @@ describe("TwoFactorActions", () => {
 
   it("shows an error when verification fails", async () => {
     const fetchMock = mockFetch({ totpURI: "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP", backupCodes: [] });
-    render(<TwoFactorActions enabled={false} />);
+    render(<TwoFactorActions enabled={false} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
     fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
     await waitFor(() => expect(screen.getByLabelText("Verification code")).toBeInTheDocument());
@@ -220,7 +220,7 @@ describe("TwoFactorActions", () => {
 
   it("disables 2FA when enabled and shows an error on failure", async () => {
     mockFetch({ error: "bad_password" }, false, 401);
-    render(<TwoFactorActions enabled={true} />);
+    render(<TwoFactorActions enabled={true} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: "Disable two-factor" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Couldn't disable — check your password"));
@@ -228,10 +228,59 @@ describe("TwoFactorActions", () => {
 
   it("disables 2FA successfully and refreshes", async () => {
     mockFetch(null);
-    render(<TwoFactorActions enabled={true} />);
+    render(<TwoFactorActions enabled={true} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
     fireEvent.click(screen.getByRole("button", { name: "Disable two-factor" }));
     await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
+  });
+});
+
+// Google-only accounts have no credential password: with the plugin's
+// allowPasswordless the password field must not render at all, and
+// enable/disable post without a password.
+describe("TwoFactorActions (passwordless / Google-only account)", () => {
+  it("renders no password field on the enable form and enables without a password", async () => {
+    const fetchMock = mockFetch({ totpURI: "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP", backupCodes: [] });
+    render(<TwoFactorActions enabled={false} hasPassword={false} />);
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
+    await waitFor(() => expect(screen.getByLabelText("Verification code")).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/two-factor/enable",
+      expect.objectContaining({ body: JSON.stringify({}) }),
+    );
+  });
+
+  it("renders no password field on the disable form and disables without a password", async () => {
+    const fetchMock = mockFetch(null);
+    render(<TwoFactorActions enabled={true} hasPassword={false} />);
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Disable two-factor" }));
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/two-factor/disable",
+      expect.objectContaining({ body: JSON.stringify({}) }),
+    );
+  });
+
+  it("shows a password-free error message when enable fails", async () => {
+    mockFetch({ error: "session_not_fresh" }, false, 401);
+    render(<TwoFactorActions enabled={false} hasPassword={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Couldn't start setup — sign in again if your session is old.",
+      ),
+    );
+  });
+
+  it("shows a password-free error message when disable fails", async () => {
+    mockFetch({ error: "session_not_fresh" }, false, 401);
+    render(<TwoFactorActions enabled={true} hasPassword={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Disable two-factor" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Couldn't disable — sign in again if your session is old."),
+    );
   });
 });
 
@@ -278,7 +327,7 @@ describe("gap closure: json parse failures and busy guards", () => {
 
   it("TwoFactorActions: an unparseable enable response still opens the setup form", async () => {
     mockFetchBadJson(true, 200);
-    render(<TwoFactorActions enabled={false} />);
+    render(<TwoFactorActions enabled={false} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
     fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
     await waitFor(() => expect(screen.getByLabelText("Verification code")).toBeInTheDocument());
@@ -286,7 +335,7 @@ describe("gap closure: json parse failures and busy guards", () => {
 
   it("TwoFactorActions: a double enable submit only posts once (busy guard)", async () => {
     const fetchMock = mockFetchDelayed({ totpURI: "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP", backupCodes: [] });
-    render(<TwoFactorActions enabled={false} />);
+    render(<TwoFactorActions enabled={false} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
     const form = screen.getByLabelText("Password").closest("form")!;
     fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
@@ -297,7 +346,7 @@ describe("gap closure: json parse failures and busy guards", () => {
 
   it("TwoFactorActions: a double verify submit only posts once (busy guard)", async () => {
     const fetchMock = mockFetchDelayed({ totpURI: "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP", backupCodes: [] });
-    render(<TwoFactorActions enabled={false} />);
+    render(<TwoFactorActions enabled={false} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
     fireEvent.click(screen.getByRole("button", { name: "Enable two-factor" }));
     await waitFor(() => expect(screen.getByLabelText("Verification code")).toBeInTheDocument());
@@ -317,7 +366,7 @@ describe("gap closure: json parse failures and busy guards", () => {
 
   it("TwoFactorActions: a double disable submit only posts once (busy guard)", async () => {
     const fetchMock = mockFetchDelayed(null);
-    render(<TwoFactorActions enabled={true} />);
+    render(<TwoFactorActions enabled={true} hasPassword={true} />);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw1234567890" } });
     const form = screen.getByLabelText("Password").closest("form")!;
     fireEvent.click(screen.getByRole("button", { name: "Disable two-factor" }));

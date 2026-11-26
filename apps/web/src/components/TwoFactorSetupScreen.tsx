@@ -10,7 +10,7 @@ import { TwoFactorActions } from "@/app/(app)/settings/security/SecurityActions"
 // TwoFactorActions calls router.refresh(), the layout re-renders, and
 // the gate lifts. The sidebar (with sign-out) is rendered by the layout
 // outside this screen, so signing out remains possible.
-export default function TwoFactorSetupScreen() {
+export default function TwoFactorSetupScreen({ hasPassword }: { hasPassword: boolean }) {
   return (
     <div className="mx-auto max-w-xl space-y-4">
       <h1 className="text-2xl font-bold">Two-factor authentication required</h1>
@@ -20,7 +20,7 @@ export default function TwoFactorSetupScreen() {
           need an authenticator app (Google Authenticator, Authy, 1Password…).
         </p>
         <div className="mt-4">
-          <TwoFactorActions enabled={false} />
+          <TwoFactorActions enabled={false} hasPassword={hasPassword} />
         </div>
       </Card>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">

@@ -9,7 +9,7 @@ import AppLayout from "@/app/(app)/layout";
 // not use page-mocks.tsx because it needs env control (the policy only
 // activates on production deployments) and layout-specific stubs.
 
-const auth = vi.hoisted(() => ({ getSessionUser: vi.fn() }));
+const auth = vi.hoisted(() => ({ getSessionUser: vi.fn(), accountFindFirst: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
@@ -24,6 +24,11 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@metricflock/auth", () => ({ getSessionUser: auth.getSessionUser }));
+// The layout asks whether the gated user has a credential password
+// (Google-only SUPER_ADMINs enrol without one) via @metricflock/db.
+vi.mock("@metricflock/db", () => ({
+  prisma: { account: { findFirst: auth.accountFindFirst } },
+}));
 vi.mock("@/components/Sidebar", () => ({
   default: () => (
     <div>
@@ -65,6 +70,8 @@ function enforcementOn() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: the user has a credential password (email/password account).
+  auth.accountFindFirst.mockResolvedValue({ id: "acc1" });
 });
 
 afterEach(() => {
@@ -82,6 +89,20 @@ describe("AppLayout 2FA gate (A-SEC-08)", () => {
     expect(screen.queryByText("secret page content")).not.toBeInTheDocument();
     // Sign-out lives in the sidebar, outside the gated content.
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+
+  it("still gates a Google-only SUPER_ADMIN (no credential password) — enrolment must not demand one", async () => {
+    enforcementOn();
+    auth.getSessionUser.mockResolvedValue(superAdminNo2fa);
+    auth.accountFindFirst.mockResolvedValue(null);
+    const el = await AppLayout({ children: <p>secret page content</p> });
+    render(el);
+    expect(screen.getByText("Two-factor authentication required")).toBeInTheDocument();
+    expect(screen.getByTestId("two-factor-actions")).toBeInTheDocument();
+    expect(auth.accountFindFirst).toHaveBeenCalledWith({
+      where: { userId: "u1", providerId: "credential", password: { not: null } },
+      select: { id: true },
+    });
   });
 
   it("lets a SUPER_ADMIN with 2FA enabled through to page content", async () => {

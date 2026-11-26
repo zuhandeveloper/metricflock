@@ -16,6 +16,7 @@ import {
   KeyRound,
   RefreshCw,
   UserPlus,
+  User,
   HeartPulse,
   TrendingUp,
 } from "lucide-react";
@@ -31,6 +32,7 @@ const links = [
   { href: "/transfers", label: "Transfers", icon: ArrowLeftRight },
   { href: "/sync", label: "Sync jobs", icon: RefreshCw, superAdminOnly: true },
   { href: "/audit", label: "Audit Log", icon: ScrollText },
+  { href: "/settings/profile", label: "Profile", icon: User },
   { href: "/settings/security", label: "Account security", icon: ShieldCheck },
   { href: "/settings/reports", label: "Weekly reports", icon: Mail, superAdminOnly: true },
   { href: "/settings/api-keys", label: "API keys", icon: KeyRound, superAdminOnly: true },

@@ -40,6 +40,7 @@ export const pageMocks = {
   auditLogFindMany: vi.fn(),
   reportScheduleFindUnique: vi.fn(),
   apiKeyFindMany: vi.fn(),
+  accountFindFirst: vi.fn(),
 };
 
 export const navMocks = {

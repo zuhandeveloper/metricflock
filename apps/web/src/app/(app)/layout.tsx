@@ -5,6 +5,7 @@ import MobileNav from "@/components/MobileNav";
 import ThemeToggle from "@/components/ThemeToggle";
 import TwoFactorNudge from "@/components/TwoFactorNudge";
 import TwoFactorSetupScreen from "@/components/TwoFactorSetupScreen";
+import { userHasPassword } from "@/lib/has-password";
 import { requiresTwoFactorSetup, shouldNudgeTwoFactor, twoFactorEnforcementEnabled } from "@/lib/two-factor-gate";
 export const dynamic = "force-dynamic";
 // Every page under (app) requires a session. Unauthenticated visitors are
@@ -24,6 +25,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const policyActive = twoFactorEnforcementEnabled();
   const gated = policyActive && requiresTwoFactorSetup(user);
   const nudge = policyActive && shouldNudgeTwoFactor(user);
+  // A Google-only SUPER_ADMIN has no password to confirm during
+  // enrolment — the setup screen must know so it doesn't ask for one.
+  const hasPassword = gated ? await userHasPassword(user.id) : true;
   return (
     <div className="flex min-h-screen">
       <a
@@ -47,7 +51,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </header>
         <div className="p-4 md:p-6">
           {gated ? (
-            <TwoFactorSetupScreen />
+            <TwoFactorSetupScreen hasPassword={hasPassword} />
           ) : (
             <>
               {nudge && <TwoFactorNudge />}

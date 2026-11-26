@@ -115,7 +115,7 @@ export function SessionActions({ sessions }: { sessions: SessionRow[] }) {
   );
 }
 
-export function TwoFactorActions({ enabled }: { enabled: boolean }) {
+export function TwoFactorActions({ enabled, hasPassword }: { enabled: boolean; hasPassword: boolean }) {
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -139,10 +139,16 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
     if (busy) return;
     setError("");
     setBusy(true);
-    const { ok, data } = await postJson("/api/auth/two-factor/enable", { password });
+    // Google-only accounts have no password to confirm (the plugin's
+    // allowPasswordless makes it optional server-side too).
+    const { ok, data } = await postJson("/api/auth/two-factor/enable", hasPassword ? { password } : {});
     setBusy(false);
     if (!ok) {
-      setError("Couldn't start setup — check your password, and sign in again if your session is old.");
+      setError(
+        hasPassword
+          ? "Couldn't start setup — check your password, and sign in again if your session is old."
+          : "Couldn't start setup — sign in again if your session is old.",
+      );
       return;
     }
     setSetup({
@@ -169,10 +175,14 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
     if (busy) return;
     setError("");
     setBusy(true);
-    const { ok } = await postJson("/api/auth/two-factor/disable", { password });
+    const { ok } = await postJson("/api/auth/two-factor/disable", hasPassword ? { password } : {});
     setBusy(false);
     if (!ok) {
-      setError("Couldn't disable — check your password, and sign in again if your session is old.");
+      setError(
+        hasPassword
+          ? "Couldn't disable — check your password, and sign in again if your session is old."
+          : "Couldn't disable — sign in again if your session is old.",
+      );
       return;
     }
     router.refresh();
@@ -182,22 +192,24 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
     return (
       <form onSubmit={disable} className="space-y-3">
         <p className="text-sm">
-          Two-factor authentication is <span className="font-medium text-green-700">on</span>. Enter your password to
-          turn it off.
+          Two-factor authentication is <span className="font-medium text-green-700">on</span>.{" "}
+          {hasPassword ? "Enter your password to turn it off." : "Turn it off below."}
         </p>
-        <div>
-          <label htmlFor="2fa-disable-password" className="mb-1 block text-sm font-medium">
-            Password
-          </label>
-          <Input
-            id="2fa-disable-password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-          />
-        </div>
+        {hasPassword && (
+          <div>
+            <label htmlFor="2fa-disable-password" className="mb-1 block text-sm font-medium">
+              Password
+            </label>
+            <Input
+              id="2fa-disable-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+            />
+          </div>
+        )}
         {error && (
           <p role="alert" className="text-sm text-red-700 dark:text-red-400">
             {error}
@@ -280,19 +292,21 @@ export function TwoFactorActions({ enabled }: { enabled: boolean }) {
         Two-factor authentication is <span className="font-medium">off</span>. Turn it on to require an authenticator
         code at sign-in.
       </p>
-      <div>
-        <label htmlFor="2fa-enable-password" className="mb-1 block text-sm font-medium">
-          Password
-        </label>
-        <Input
-          id="2fa-enable-password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          autoComplete="current-password"
-        />
-      </div>
+      {hasPassword && (
+        <div>
+          <label htmlFor="2fa-enable-password" className="mb-1 block text-sm font-medium">
+            Password
+          </label>
+          <Input
+            id="2fa-enable-password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoComplete="current-password"
+          />
+        </div>
+      )}
       {error && (
         <p role="alert" className="text-sm text-red-700 dark:text-red-400">
           {error}

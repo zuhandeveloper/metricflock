@@ -95,6 +95,7 @@ vi.mock("@metricflock/db", () => ({
     organization: { findUnique: pageMocks.organizationFindUnique },
     auditLog: { findMany: pageMocks.auditLogFindMany },
     reportSchedule: { findUnique: pageMocks.reportScheduleFindUnique },
+    account: { findFirst: pageMocks.accountFindFirst },
     apiKey: { findMany: pageMocks.apiKeyFindMany },
   },
 }));

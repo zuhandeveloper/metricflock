@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth, getSessionUser } from "@metricflock/auth";
 import { Card } from "@/components/ui";
+import { userHasPassword } from "@/lib/has-password";
 import { SessionActions, TwoFactorActions } from "./SecurityActions";
 export const dynamic = "force-dynamic";
 // AUTH-11: session management + TOTP two-factor (Stage 7).
@@ -9,9 +10,10 @@ export default async function SecurityPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const reqHeaders = await headers();
-  const [session, sessions] = await Promise.all([
+  const [session, sessions, hasPassword] = await Promise.all([
     auth.api.getSession({ headers: reqHeaders }),
     auth.api.listSessions({ headers: reqHeaders }),
+    userHasPassword(user.id),
   ]);
   const rows = (sessions ?? []).map((s) => ({
     id: s.id,
@@ -28,7 +30,7 @@ export default async function SecurityPage() {
       <Card className="p-4">
         <h2 className="font-semibold">Two-factor authentication</h2>
         <div className="mt-3">
-          <TwoFactorActions enabled={user.twoFactorEnabled} />
+          <TwoFactorActions enabled={user.twoFactorEnabled} hasPassword={hasPassword} />
         </div>
       </Card>
       <Card className="p-4">

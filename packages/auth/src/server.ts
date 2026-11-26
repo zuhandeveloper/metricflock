@@ -213,7 +213,12 @@ export const auth = betterAuth({
   plugins: [
     // TOTP two-factor authentication (Stage 7). Passkeys are a separate
     // increment (needs @better-auth/passkey + relying-party config).
-    twoFactor({ issuer: "MetricFlock" }),
+    // allowPasswordless: users who signed in with Google have no
+    // credential password — without this, enable/disable always demand
+    // one and those users can never enrol (the A-SEC-08 gate then locks
+    // a Google-only SUPER_ADMIN out of the app entirely). With it, a
+    // password is required only when the user actually has one.
+    twoFactor({ issuer: "MetricFlock", allowPasswordless: true }),
   ],
   user: {
     additionalFields: {
