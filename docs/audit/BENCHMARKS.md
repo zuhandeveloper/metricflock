@@ -93,11 +93,52 @@ database description.
 
 ### Results
 
-_Not yet run against a real database — sandbox has no Postgres.
-First run pending: it needs Gulzaib's explicit approval to run
-against a staging database (owner-flagged, A-WRK-12). The scripts
-are aligned with the production queries; only the run itself is
-outstanding._
+**First real-database run (A-PERF-05, 2026-11-26).** Method note:
+`benchmark-scale.ts` could not be pointed at an isolated schema —
+the PrismaPg adapter ignores both the `schema` URL parameter and
+`options=-c search_path` (probe returned the production org count),
+and running it against production's public schema was rejected
+because the seed's ACTIVE websites + MAPPED integrations would be
+picked up by the live Railway scheduler. Instead, a temporary
+schema (`bench_a_perf05`) was created on the production server, all
+21 migrations applied to it, the same seed shape written with raw
+SQL (org, team, user, ACTIVE connection, GA4 property + ACTIVE
+website + MAPPED integration per site, sync jobs at the script's
+rates, one cache snapshot per site, audit rows for the first 1,000
+sites), and `EXPLAIN (ANALYZE, BUFFERS)` run on SQL equivalents of
+the script's query set. `ANALYZE` ran after seeding; all reads hit
+shared buffers (warm cache). The schema was dropped afterwards;
+production counts verified unchanged (3 orgs / 5 websites) and
+`/api/health/ready` 200. Execution times (ms):
+
+| Query                                        | 100  | 1k   | 10k  |
+| -------------------------------------------- | ---- | ---- | ---- |
+| website.count                                | 0.44 | 0.26 | 1.71 |
+| website page (50) + team join                | 0.55 | 0.67 | 5.48 |
+| connected count (EXISTS MAPPED)              | 0.42 | 0.72 | 5.30 |
+| provider groupBy                             | 0.57 | 0.68 | 5.71 |
+| last-sync groupBy (500 ids, by website+type) | 0.50 | 0.55 | 0.54 |
+| dashboard last-sync groupBy (50 ids)         | 0.48 | 0.17 | 0.36 |
+| scheduler: website page scan (500)           | 0.25 | 0.39 | 0.51 |
+| scheduler: integrations for page (500)       | 0.42 | 0.25 | 0.34 |
+| sync-job FAILED count (DLQ)                  | 0.38 | 0.42 | 3.18 |
+| sync-job FAILED page (50, DLQ)               | 0.40 | 0.49 | 3.61 |
+| audit-log count (org)                        | 0.39 | 0.28 | 0.45 |
+| audit-log page (100) + actor join            | 0.43 | 0.17 | 0.28 |
+| cache read by key (200)                      | 0.40 | 0.21 | 0.22 |
+| retention prune: old finished job ids (1000) | 0.43 | 0.57 | 5.66 |
+| stale RUNNING -> FAILED (6h rule)            | 0.78 | 0.50 | 1.57 |
+
+Verdict: at 10,000 websites every hot query executes in ≤ 5.7 ms.
+Page-scoped queries (last-sync groupBys, scheduler scan, cache
+read, audit page) are flat across sizes; org-scoped counts/pages
+grow with org size (index scans, 245–456 shared-buffer hits at
+10k) but stay single-digit ms — no missing-index cliff at 10k.
+Caveats: warm cache (0 shared reads), single-org seed (multi-org
+contention unmeasured), SQL equivalents of the Prisma shapes
+rather than the Prisma client itself. The Redis/worker throughput
+script (`bench-throughput.ts`) has still not been run — it needs a
+staging Redis.
 
 **Revalidation (A-PERF-02, 2026-11-24):** the scheduler has not
 changed since A-WRK-12, and the script was re-verified aligned on
@@ -142,10 +183,12 @@ are not measured — none of them scales with website count.
   scheduled (10), so user-triggered work is never queued behind a
   full-portfolio sweep.
 
-Verdict: **not measured yet.** The architecture is designed to
-avoid uncontrolled fan-out (the points above are design
-statements), but the "no uncontrolled provider fan-out at
-100–10k websites" claim must not be made until the first
-real-database run is recorded in "Results" above. The remaining
+Verdict: **DB-side measured (2026-11-26, see "Results" above);
+provider fan-out still not measured.** The architecture is designed
+to avoid uncontrolled fan-out (the points above are design
+statements); the database query set is now measured at 100–10k
+websites (all ≤ 5.7 ms at 10k), but the "no uncontrolled provider
+fan-out at 100–10k websites" claim still must not be made until
+`bench-throughput.ts` runs against a staging Redis. The remaining
 scale decision is snapshot-first dashboards (F-5.4), which trades
 live freshness for DB-served reads and requires worker hosting.

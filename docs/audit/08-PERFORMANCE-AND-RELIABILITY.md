@@ -160,7 +160,7 @@ must-revalidate` on dynamic pages, so no header change was needed.
   speedup is a future owner decision: make mocks registry-safe file by
   file, or split the suite into isolated/non-isolated projects.
 
-### A-PERF-05 (P3) — No DB query-plan evidence for the hot paths
+### A-PERF-05 (P3) — No DB query-plan evidence for the hot paths · FIXED 2026-11-26
 
 - **Evidence:** dashboard aggregation, portfolio loader, and scheduler
   input queries have no recorded `EXPLAIN ANALYZE` output; indexes
@@ -170,6 +170,18 @@ must-revalidate` on dynamic pages, so no header change was needed.
 - **Correction:** capture `EXPLAIN ANALYZE` for the dashboard query
   set and scheduler inputs at 1k/10k scale (with A-PERF-02).
 - **Status:** CONFIRMED (absence).
+- **Verification (2026-11-26):** owner-approved run in a temporary
+  schema on the production server (the PrismaPg adapter ignores the
+  `schema` URL parameter, so `benchmark-scale.ts` itself could not
+  be isolated; running it on the public schema was rejected because
+  its ACTIVE + MAPPED seed rows would be picked up by the live
+  scheduler). Same seed shape at 100 / 1k / 10k websites;
+  `EXPLAIN (ANALYZE, BUFFERS)` on SQL equivalents of the script's
+  query set. At 10k websites every hot query executes in ≤ 5.7 ms;
+  page-scoped queries are flat, org-scoped counts/pages grow with
+  org size but stay single-digit ms — no missing-index cliff.
+  Full table + method caveats in `BENCHMARKS.md` ("Results").
+  Schema dropped afterwards; production counts verified unchanged.
 
 ## 0.4 Verdict table
 
