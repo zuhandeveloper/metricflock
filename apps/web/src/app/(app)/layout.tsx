@@ -3,12 +3,27 @@ import { getSessionUser } from "@metricflock/auth";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import ThemeToggle from "@/components/ThemeToggle";
+import TwoFactorNudge from "@/components/TwoFactorNudge";
+import TwoFactorSetupScreen from "@/components/TwoFactorSetupScreen";
+import { requiresTwoFactorSetup, shouldNudgeTwoFactor, twoFactorEnforcementEnabled } from "@/lib/two-factor-gate";
 export const dynamic = "force-dynamic";
 // Every page under (app) requires a session. Unauthenticated visitors are
 // sent to /login before any app UI renders.
+//
+// A-SEC-08 (owner decision 2026-11-26): a SUPER_ADMIN without two-factor
+// authentication is forced to enrol before using the app — the setup
+// screen replaces page content (sidebar/sign-out still render, and the
+// screen embeds the same setup component as Settings → Security, so
+// there is no lock-out loop). Other roles only get a dismissible
+// recommendation. The policy activates on production deployments only
+// (see twoFactorEnforcementEnabled) so local dev and CI's seeded demo
+// admin are not gated.
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  const policyActive = twoFactorEnforcementEnabled();
+  const gated = policyActive && requiresTwoFactorSetup(user);
+  const nudge = policyActive && shouldNudgeTwoFactor(user);
   return (
     <div className="flex min-h-screen">
       <a
@@ -30,7 +45,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
           <ThemeToggle />
         </header>
-        <div className="p-4 md:p-6">{children}</div>
+        <div className="p-4 md:p-6">
+          {gated ? (
+            <TwoFactorSetupScreen />
+          ) : (
+            <>
+              {nudge && <TwoFactorNudge />}
+              {children}
+            </>
+          )}
+        </div>
       </main>
     </div>
   );

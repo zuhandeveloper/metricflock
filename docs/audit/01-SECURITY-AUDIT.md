@@ -88,7 +88,7 @@ The brief names roles `SUPER_ADMIN / ADMIN / MEMBER`. The code has **no `ADMIN` 
 - **Regression test:** smoke test asserting 429 after N rapid analytics calls; unit tests for the wrapper.
 - **Status:** CONFIRMED (code). Live quota burn NOT RUN.
 
-### A-SEC-08 — P2 — CONFIRMED — 2FA is available but never enforced, including for SUPER_ADMIN
+### A-SEC-08 — P2 — CONFIRMED — 2FA is available but never enforced, including for SUPER_ADMIN · FIXED 2026-11-26
 
 - **File:** `packages/auth/src/server.ts:193-197` — `twoFactor({ issuer: "MetricFlock" })` plugin enabled; `User.twoFactorEnabled` exists (`schema.prisma`). No route, page, or policy requires it.
 - **Evidence:** grep finds no `twoFactorEnabled` check in `apps/` or `packages/` outside the schema and better-auth internals. The login wrapper handles `twoFactorRedirect` (`apps/web/src/app/api/auth/login/route.ts:48-53`), so enrolled users get TOTP — but enrolment is voluntary for every role, including the SUPER_ADMIN who can delete the org and mint API keys.
@@ -96,6 +96,7 @@ The brief names roles `SUPER_ADMIN / ADMIN / MEMBER`. The code has **no `ADMIN` 
 - **Correction:** require 2FA enrolment for SUPER_ADMIN (and ideally for any `member.manage`/`organization.manage` holder); enforce at login with a grace/ enrolment flow; re-check before org DELETE / API-key creation (see A-SEC-02).
 - **Regression test:** smoke test asserting a SUPER_ADMIN without 2FA cannot complete org DELETE after enforcement; unit test for the enforcement helper.
 - **Status:** CONFIRMED (code). Dynamic NOT RUN.
+- **Verification (2026-11-26):** owner decision — 2FA mandatory for SUPER_ADMIN, recommended for other roles. The (app) layout now gates: a SUPER_ADMIN with `twoFactorEnabled=false` sees the setup screen in place of page content (sidebar/sign-out still render; the screen embeds the existing `TwoFactorActions`, whose `router.refresh()` after verify lifts the gate); other roles get a dismissible recommendation banner. In-place screen rather than a redirect because Next 16 server layouts cannot read the pathname (no `x-invoke-path` in the installed Next; proxy.ts is sibling-owned), so a redirect gate could not exempt the security page itself. The policy activates on production deployments only (`VERCEL_ENV=production`, `REQUIRE_SUPER_ADMIN_2FA=1`, or non-CI production) so local dev and CI's seeded demo SUPER_ADMIN (which drives smoke/e2e page flows) are not gated. 19 new tests (policy helper, layout gate, banner); fail-without-fix demonstrated. NOT done: API-route-level enforcement (a SUPER_ADMIN without 2FA can still call APIs directly with a session cookie; smoke drives APIs as the demo SUPER_ADMIN) — follow-up if wanted. Live sign-in → forced-setup flow is CI-only verification.
 
 ### A-SEC-09 — P2 — CONFIRMED — API keys never expire, have no scopes, and confer full org read
 
