@@ -27,6 +27,10 @@ for (const path of PAGES) {
   test(`${path} has no accessibility violations`, async ({ page }) => {
     await page.goto(path);
     await expect(page).toHaveURL(new RegExp(path.replace(/\//g, "\\/")));
+    // Wait for the streamed page content (not just the (app) loading
+    // skeleton, which has no h1) before scanning — otherwise axe can
+    // run against the skeleton and flake on page-has-heading-one.
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     const results = await new AxeBuilder({ page }).analyze();
     const blocking = results.violations.filter(
       (v) => v.impact === "critical" || v.impact === "serious" || v.impact === "moderate" || v.impact === "minor",
