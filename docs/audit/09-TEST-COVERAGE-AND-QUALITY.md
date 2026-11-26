@@ -942,7 +942,7 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   `coverage/coverage-final.json`.
 - **Verification (2026-11-25):** revalidation confirmed A-COV-01's whole-repo scope had landed (161 files measured) and the finding's example persisted (`api-key-auth.ts` still 50% functions — the uncovered function is the empty `.catch(() => {})` on the fire-and-forget `lastUsedAt` stamp; statements/branches/lines 100%). `apps/web/vitest.config.ts` is a sibling-owned file, so the finding's script alternative was used: `scripts/check-coverage-per-file.mjs` asserts per-file minima (default 80/80/80/80) from `apps/web/coverage/coverage-final.json`, with 43 ratchet entries pinned at measured 2026-11-25 levels and per-file justifications (proxy.ts and the auth browser client are never unit-imported; mailer.ts pending A-COV-16; route-file functions noise from `.catch` arrows/handler wrappers; thin-wrapper branch dips). Demonstrated: pass on the real report (161 files, exit 0); fail naming the file on doctored copies (csv.ts statements 0% < 80; mailer branches 0% < ratchet 56); doctored copies discarded. CI wiring is owner-only (workflow files via the GitHub web UI): add a step `node scripts/check-coverage-per-file.mjs` immediately after the unit-test step — vitest's default json reporter already writes the report there (no config change needed); if a remote turbo cache is ever enabled, `test:coverage` also needs `"outputs": ["coverage/**"]` in `turbo.json`. No guard unit test was added: the unit suite must not depend on a possibly stale coverage artifact.
 
-### A-COV-16 — P3 — CONFIRMED — Auth email sending paths untested
+### A-COV-16 — P3 — CONFIRMED — Auth email sending paths untested · FIXED 2026-11-25
 
 - **Location:** `packages/auth/src/mailer.ts`
   (`sendVerificationEmail`, `sendPasswordResetEmail` — never named in tests);
@@ -958,6 +958,7 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   to logs.
 - **Regression-test requirement:** sender unit tests with a recording
   transport.
+- **Verification (2026-11-25):** revalidation confirmed both senders still never named in tests (name search empty) and mailer.ts at 84.21/56.25/50/82.35 (SMTP branch lines 64–72 uncovered). New `mailer-senders.test.ts` (7 tests) pins both senders per mode with a recording transport: SMTP asserts recipient, subject, from (default + custom), the body carrying the exact URL+token, the transport config (port 465 → secure, auth undefined without credentials, default port 587), and no token in any log output; preview asserts the transport is untouched, the full message prints (documented dev opt-in), and the structured log line carries recipient + subject only; unconfigured asserts recipient + subject logged and the token/URL never. nodemailer is mocked via its ESM entry file through `packages/auth/node_modules` — no vitest alias exists for it and `vi.mock("nodemailer")` silently misses (verified empirically: the real transport attempts a connection). Dropping `${url}` from the reset sender failed exactly the 2 reset tests (reverted). After: mailer.ts 100/100/100/100, suite 144 files / 1,593 tests, coverage 96.56/91.91/91/98.29.
 
 ## 8. What is good (for balance — verified, not assumed)
 
