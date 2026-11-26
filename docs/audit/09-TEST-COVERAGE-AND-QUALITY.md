@@ -927,7 +927,7 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   audit.ts 100/100/100/100 (branch 95 → 100), suite 143 files /
   1,586 tests, coverage 96.51/91.73/90.82/98.23.
 
-### A-COV-15 — P3 — CONFIRMED — No per-file thresholds; aggregate hides a 50% file
+### A-COV-15 — P3 — CONFIRMED — No per-file thresholds; aggregate hides a 50% file · FIXED 2026-11-25
 
 - **Location:** `apps/web/vitest.config.ts:29`; measured `api-key-auth.ts`
   functions 50% (see §0 table) while the aggregate functions figure is
@@ -940,6 +940,7 @@ auth/logout,invites/accept,members/invite/[id]}/route.ts`,
   report) once A-COV-01's scope fix lands.
 - **Regression-test requirement:** CI assertion on per-file minimums from
   `coverage/coverage-final.json`.
+- **Verification (2026-11-25):** revalidation confirmed A-COV-01's whole-repo scope had landed (161 files measured) and the finding's example persisted (`api-key-auth.ts` still 50% functions — the uncovered function is the empty `.catch(() => {})` on the fire-and-forget `lastUsedAt` stamp; statements/branches/lines 100%). `apps/web/vitest.config.ts` is a sibling-owned file, so the finding's script alternative was used: `scripts/check-coverage-per-file.mjs` asserts per-file minima (default 80/80/80/80) from `apps/web/coverage/coverage-final.json`, with 43 ratchet entries pinned at measured 2026-11-25 levels and per-file justifications (proxy.ts and the auth browser client are never unit-imported; mailer.ts pending A-COV-16; route-file functions noise from `.catch` arrows/handler wrappers; thin-wrapper branch dips). Demonstrated: pass on the real report (161 files, exit 0); fail naming the file on doctored copies (csv.ts statements 0% < 80; mailer branches 0% < ratchet 56); doctored copies discarded. CI wiring is owner-only (workflow files via the GitHub web UI): add a step `node scripts/check-coverage-per-file.mjs` immediately after the unit-test step — vitest's default json reporter already writes the report there (no config change needed); if a remote turbo cache is ever enabled, `test:coverage` also needs `"outputs": ["coverage/**"]` in `turbo.json`. No guard unit test was added: the unit suite must not depend on a possibly stale coverage artifact.
 
 ### A-COV-16 — P3 — CONFIRMED — Auth email sending paths untested
 
