@@ -215,7 +215,9 @@ export function ApiKeyManager({ initial }: { initial: KeyRow[] }) {
                 <th scope="col" className="py-1 pr-2">
                   Status
                 </th>
-                <th scope="col" className="py-1" />
+                <th scope="col" className="py-1">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>

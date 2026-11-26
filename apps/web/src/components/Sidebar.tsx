@@ -64,7 +64,7 @@ export default function Sidebar({ user }: { user: SidebarUser }) {
         href="/dashboard"
         className="mb-4 flex items-center gap-2 rounded-lg px-2 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
       >
-        <img src="/logo.svg" alt="MetricFlock" width={32} height={32} className="rounded-lg" />
+        <img src="/logo.svg" alt="" width={32} height={32} className="rounded-lg" />
         <span className="text-lg font-bold">MetricFlock</span>
       </Link>
       {links

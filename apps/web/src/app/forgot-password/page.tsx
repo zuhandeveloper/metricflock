@@ -1,7 +1,7 @@
 import ForgotPasswordForm from "./ForgotPasswordForm";
 export default function ForgotPasswordPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-12">
+    <main className="flex min-h-screen items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
           <img src="/logo.svg" alt="MetricFlock" width={48} height={48} className="rounded-xl" />
@@ -10,6 +10,6 @@ export default function ForgotPasswordPage() {
         </div>
         <ForgotPasswordForm />
       </div>
-    </div>
+    </main>
   );
 }

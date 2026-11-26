@@ -111,7 +111,9 @@ export default async function WebsitesPage({
                   <th scope="col">Team</th>
                   <th scope="col">Status</th>
                   <th scope="col">Integrations</th>
-                  <th scope="col"></th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>

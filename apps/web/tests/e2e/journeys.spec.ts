@@ -219,11 +219,28 @@ test("invite accept moves an existing account into the organization", async ({ p
   expect(adminSession.ok()).toBeTruthy();
   const adminOrgId = ((await adminSession.json()) as { user: { organizationId: string } }).user.organizationId;
 
-  // The invitee signs in (API — cookies land in this context's jar) and
-  // accepts through the invite page UI.
-  const inviteeContext = await browser.newContext({ baseURL: baseURL ?? undefined });
-  const signIn = await authPost(inviteeContext.request, "/api/auth/sign-in/email", { email, password });
+  // The invitee signs in through a CLEAN APIRequestContext and the
+  // session cookie is carried into the browser context. Signing in via
+  // inviteeContext.request directly 403s MISSING_OR_NULL_ORIGIN:
+  // browser.newContext() inherits this test's storageState (the demo
+  // admin session cookies), so the request carries a Cookie header and
+  // better-auth's origin validation runs — APIRequestContext sends no
+  // Origin header (same root cause as session-revoke.spec.ts). An
+  // explicit empty storage state gives the clean jar where the origin
+  // check is skipped; the browser context also starts empty so no
+  // demo cookie leaks into the invitee's session.
+  const signInApi = await apiRequest.newContext({
+    baseURL: baseURL ?? undefined,
+    storageState: { cookies: [], origins: [] },
+  });
+  const signIn = await authPost(signInApi, "/api/auth/sign-in/email", { email, password });
   expect(signIn.ok(), `sign-in failed: ${signIn.status()} ${await signIn.text()}`).toBeTruthy();
+  const inviteeContext = await browser.newContext({
+    baseURL: baseURL ?? undefined,
+    storageState: { cookies: [], origins: [] },
+  });
+  await inviteeContext.addCookies((await signInApi.storageState()).cookies);
+  await signInApi.dispose();
   const inviteePage = await inviteeContext.newPage();
   await inviteePage.goto(invitePath);
   await expect(inviteePage.getByText(/invited/)).toBeVisible();
