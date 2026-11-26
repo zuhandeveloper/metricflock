@@ -20,6 +20,7 @@ import {
   sanitizeProviderError,
   healthTransition,
   rateLimit,
+  isEncryptionKey,
 } from "@metricflock/shared";
 import { prisma } from "@metricflock/db";
 import { recordHealth } from "@metricflock/db/health";
@@ -62,6 +63,30 @@ export function handleUnhandledRejection(reason: unknown): void {
 }
 process.on("uncaughtException", handleUncaughtException);
 process.on("unhandledRejection", handleUnhandledRejection);
+
+// A-SEC-14 follow-up: the web boot gate (getEnv() in
+// packages/shared/src/env.ts) does not cover the worker — it never calls
+// getEnv(), and it must not: SESSION_SECRET is required by that schema but
+// deliberately NOT set on the worker (deploy pack), so a full getEnv() here
+// would crash-loop a healthy worker. Without this check a missing or
+// invalid GOOGLE_TOKEN_ENCRYPTION_KEY only surfaces at the first token
+// decrypt, after jobs are already flowing. Fail at boot instead, like the
+// web app. Exported so tests can invoke it directly with synthetic envs.
+export function assertBootEnv(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.NODE_ENV !== "production") return;
+  if (!isEncryptionKey(env.GOOGLE_TOKEN_ENCRYPTION_KEY)) {
+    throw new Error("GOOGLE_TOKEN_ENCRYPTION_KEY must be base64 of 32 bytes in production");
+  }
+  if (env.GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS && !isEncryptionKey(env.GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS)) {
+    throw new Error("GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS must be base64 of 32 bytes in production");
+  }
+}
+try {
+  assertBootEnv();
+} catch (err) {
+  log.error("worker environment invalid — exiting", errMeta(err));
+  process.exit(1);
+}
 
 // A-WRK-16: failure alerts are capped per organization so a provider
 // outage cannot email every SUPER_ADMIN once per (website, queue) —

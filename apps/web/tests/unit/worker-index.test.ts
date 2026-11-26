@@ -844,6 +844,46 @@ describe("worker index (queue wiring and job routing)", () => {
     );
   });
 
+  // A-SEC-14 follow-up: the worker boot gate. assertBootEnv takes a
+  // synthetic env so the production branches are exercised without
+  // touching process.env (the import-time call above ran with
+  // NODE_ENV=test and returned early — callsAtImport.processExit stays 0).
+  it("assertBootEnv passes outside production even without a key", async () => {
+    const { assertBootEnv } = await import("@metricflock/worker/index");
+    expect(() => assertBootEnv({ NODE_ENV: "test" })).not.toThrow();
+    expect(() => assertBootEnv({} as NodeJS.ProcessEnv)).not.toThrow();
+  });
+
+  it("assertBootEnv rejects a missing or invalid encryption key in production", async () => {
+    const { assertBootEnv } = await import("@metricflock/worker/index");
+    expect(() => assertBootEnv({ NODE_ENV: "production" })).toThrow(
+      "GOOGLE_TOKEN_ENCRYPTION_KEY must be base64 of 32 bytes in production",
+    );
+    expect(() => assertBootEnv({ NODE_ENV: "production", GOOGLE_TOKEN_ENCRYPTION_KEY: "short" })).toThrow(
+      "GOOGLE_TOKEN_ENCRYPTION_KEY must be base64 of 32 bytes in production",
+    );
+  });
+
+  it("assertBootEnv accepts a valid key and validates the rotation key when set", async () => {
+    const { assertBootEnv } = await import("@metricflock/worker/index");
+    const key = Buffer.alloc(32, 7).toString("base64");
+    expect(() => assertBootEnv({ NODE_ENV: "production", GOOGLE_TOKEN_ENCRYPTION_KEY: key })).not.toThrow();
+    expect(() =>
+      assertBootEnv({
+        NODE_ENV: "production",
+        GOOGLE_TOKEN_ENCRYPTION_KEY: key,
+        GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS: key,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertBootEnv({
+        NODE_ENV: "production",
+        GOOGLE_TOKEN_ENCRYPTION_KEY: key,
+        GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS: "short",
+      }),
+    ).toThrow("GOOGLE_TOKEN_ENCRYPTION_KEY_PREVIOUS must be base64 of 32 bytes in production");
+  });
+
   // Must run last: shutdown closes the workers and the health server.
   it("shuts down gracefully on SIGTERM and ignores a second signal", async () => {
     // A failing DB disconnect must not block shutdown (the .catch swallows it).
