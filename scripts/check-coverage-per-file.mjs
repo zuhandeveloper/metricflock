@@ -40,9 +40,6 @@ const PER_FILE_FLOORS = {
   // better-auth browser client ("use client"): only evaluated in
   // browser bundles, never in the node test environment.
   "packages/auth/src/client.ts": { statements: 0, lines: 0 },
-  // sendVerificationEmail / sendPasswordResetEmail untested (A-COV-16)
-  // plus the live SMTP transport path. Delete when A-COV-16 lands.
-  "packages/auth/src/mailer.ts": { branches: 56, functions: 50 },
   // Next.js register() boot hook: uncovered lines are the non-nodejs
   // early return and the production-only guards.
   "apps/web/src/instrumentation.ts": { statements: 77, branches: 75 },
@@ -78,6 +75,16 @@ const PER_FILE_FLOORS = {
   "apps/web/src/app/api/teams/[id]/route.ts": { functions: 57 },
   "apps/web/src/app/api/teams/route.ts": { functions: 75 },
   "apps/web/src/app/api/v1/websites/[id]/analytics/route.ts": { functions: 33 },
+  // Added 2026-11-26 (Google-login 2FA fix + profile page + role
+  // restriction + platform admin): new files whose uncovered
+  // branches/functions are error-path one-liners and ?? fallbacks,
+  // the same pattern as the route-file group above.
+  "apps/web/src/app/(app)/admin/users/PlatformUserActions.tsx": { branches: 78 },
+  "apps/web/src/app/(app)/admin/users/role-labels.ts": { branches: 50 },
+  "apps/web/src/app/(app)/members/role-labels.ts": { branches: 50 },
+  "apps/web/src/app/(app)/settings/profile/ProfileActions.tsx": { branches: 77 },
+  "apps/web/src/app/api/admin/users/[id]/route.ts": { functions: 60 },
+  "apps/web/src/app/api/profile/set-password/route.ts": { functions: 66 },
   "apps/web/src/app/api/websites/[id]/assign/route.ts": { functions: 50 },
   "apps/web/src/app/api/websites/[id]/route.ts": { functions: 72 },
   "apps/web/src/app/api/websites/[id]/transfer/route.ts": { functions: 50 },
