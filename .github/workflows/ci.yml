@@ -96,8 +96,8 @@ jobs:
 
       - name: Unit tests (with coverage thresholds)
         run: pnpm test:coverage
-              - name: Per-file coverage check (A-COV-15)
-                      run: node scripts/check-coverage-per-file.mjs
+      - name: Per-file coverage check (A-COV-15)
+              run: node scripts/check-coverage-per-file.mjs
 
       - name: Build
         run: pnpm build
