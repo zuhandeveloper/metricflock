@@ -68,7 +68,10 @@ const PER_FILE_FLOORS = {
   "apps/web/src/app/api/organization/export/route.ts": { functions: 75 },
   "apps/web/src/app/api/organization/route.ts": { functions: 66 },
   "apps/web/src/app/api/reports/schedule/route.ts": { functions: 75 },
-  "apps/web/src/app/api/reports/send-test/route.ts": { branches: 75, functions: 66 },
+  // branches lowered 75 -> 62 on 2026-11-27 (see doc 09, A-COV-15):
+  // same NEXT_PUBLIC_APP_URL ?? fallback unreachable in CI as
+  // layout.tsx below; CI measures 5/8 branches, local 6/8.
+  "apps/web/src/app/api/reports/send-test/route.ts": { branches: 62, functions: 66 },
   "apps/web/src/app/api/sync/requeue/route.ts": { functions: 33 },
   "apps/web/src/app/api/sync/route.ts": { functions: 57 },
   "apps/web/src/app/api/teams/[id]/members/route.ts": { functions: 71 },
@@ -100,7 +103,11 @@ const PER_FILE_FLOORS = {
   "apps/web/src/app/api/analytics/search-console/route.ts": { branches: 50 },
   "apps/web/src/app/api/auth/logout/route.ts": { branches: 50 },
   "apps/web/src/app/api/v1/health/route.ts": { branches: 66 },
-  "apps/web/src/app/layout.tsx": { branches: 75 },
+  // Lowered 75 -> 50 on 2026-11-27 (see doc 09, A-COV-15): the
+  // `process.env.NEXT_PUBLIC_APP_URL ?? fallback` branch is
+  // unreachable in CI, where ci.yml always sets the variable, so CI
+  // measures 2/4 branches where a local run measures 3/4.
+  "apps/web/src/app/layout.tsx": { branches: 50 },
   // Parser / aggregation logic: defensive branches; statements and
   // lines are >= 93% / 100% respectively for these three.
   "packages/google/src/discovery.ts": { branches: 78 },
